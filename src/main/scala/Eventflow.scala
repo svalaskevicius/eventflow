@@ -7,7 +7,7 @@ import cats.implicits._
 object Eventflow {
 
   def main(args: Array[String]) {
-    val counter = new Counter
+    val counter = Counter
     println(counter.handleCommand(Create(99)))
     println(counter.handleCommand(Create(99)))
     println(counter.handleCommand(Increment))
@@ -15,7 +15,11 @@ object Eventflow {
   }
 
 
-  trait Aggregate[E, C, D] {
+  class Aggregate[E, C, D] (
+                             private val on: Aggregate[E, C, D]#EventHandler,
+                             private val handle: Aggregate[E, C, D]#CommandHandler,
+                             private var data: D
+                           ) {
     type Errors = List[String]
     type Events = List[E]
     type CommandHandler = C => Reader[D, Errors Xor Events]
@@ -28,15 +32,11 @@ object Eventflow {
       data = evs.foldLeft(data)((d, e) => on(e).runS(d).run)
       None
     }
-
-    protected var data:D
-    protected def on:EventHandler
-    protected def handle: CommandHandler
-
-    protected def updateState(fn: D => D): State[D, Unit] = State(d => (fn(d), ()))
-    protected def emitEvent(ev:E): Errors Xor Events = Xor.Right(List(ev))
-    protected def failCommand(err:String): Errors Xor Events = Xor.Left(List(err))
   }
+
+  protected def updateState[D](fn: D => D): State[D, Unit] = State(d => (fn(d), ()))
+  protected def emitEvent[E, Errors](ev:E): Errors Xor List[E] = Xor.Right(List(ev))
+  protected def failCommand[Events](err:String): List[String] Xor Events = Xor.Left(List(err))
 
   sealed trait Event
   case class Created(id: Int) extends Event
@@ -50,16 +50,12 @@ object Eventflow {
     def this() = this(created = false, counter = 0)
   }
 
-  class Counter extends Aggregate[Event, Command, Data] {
-
-    override protected var data = new Data()
-
-    override protected def on: EventHandler = {
+  val Counter = new Aggregate[Event, Command, Data](
+    on = {
       case Created(id) => updateState (_.copy(created = true))
       case Incremented => updateState (d => d.copy(counter = d.counter + 1))
-    }
-
-    override protected def handle: CommandHandler = {
+    },
+    handle = {
       case Create(id) => Reader {
         case Data(false, _) => emitEvent(Created(id))
         case Data(true, _) => failCommand("Counter has been created already.")
@@ -68,8 +64,9 @@ object Eventflow {
         case Data(true, _) => emitEvent(Incremented)
         case Data(false, _) => failCommand("Counter has not been created yet.")
       }
-    }
-  }
+    },
+    data = new Data()
+  )
 }
 
 
