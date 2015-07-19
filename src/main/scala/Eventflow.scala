@@ -7,51 +7,65 @@ import cats.implicits._
 object Eventflow {
 
   def main(args: Array[String]) {
-    val add1: State[Int, Unit] = State(n => (n + 1, ()))
-    val add2: Unit => State[Int, Int] = (Unit) => State(n => (n + 2, n))
-    println(add1.flatMap(add2).run(1).run)
+    val counter = new Counter
+    println(counter.handleCommand(Create(99)))
+    println(counter.handleCommand(Create(99)))
+    println(counter.handleCommand(Increment))
+    println(counter.handleCommand(Increment))
   }
 
-  object Counter { // no need for an object as its going to be in a module
-    sealed trait Event
-    case class Created(id: Int) extends Event
-    case class Incremented() extends Event
 
-    sealed trait Command
-    case class Create(id: Int) extends Command
-    case class Increment() extends Command
-
-    object Data {
-      def apply():Data = Data(created = false, counter = 0)
-    }
-    final case class Data(created: Boolean, counter: Int)
-
+  trait Aggregate[E, C, D] {
     type Errors = List[String]
-    type Events = List[Event]
-    type CommandHandler = Command => Reader[Data, Errors Xor Events]
-    type EventHandler = Event => State[Data, Unit]
+    type Events = List[E]
+    type CommandHandler = C => Reader[D, Errors Xor Events]
+    type EventHandler = E => State[D, Unit]
 
-    def updateState(fn: Data => Data): State[Data, Unit] = State(d => (fn(d), ()))
-    def emitEvent(ev:Event): Errors Xor Events = Xor.Right(List(ev))
-    def failCommand(err:String): Errors Xor Events = Xor.Left(List(err))
-  }
+    def handleCommand(cmd: C): Option[Errors] =
+      handle(cmd).run(data) fold (Some(_), onEvents)
 
-  class Counter {
-
-    import Counter._
-
-    def on: EventHandler = {
-      case Created(id) => updateState (_.copy(created = true))
-      case Incremented() => updateState (d => d.copy(counter = d.counter + 1))
+    private def onEvents(evs: Events): Option[Errors] = {
+      data = evs.foldLeft(data)((d, e) => on(e).runS(d).run)
+      None
     }
 
-    def handle: CommandHandler = {
+    protected var data:D
+    protected def on:EventHandler
+    protected def handle: CommandHandler
+
+    protected def updateState(fn: D => D): State[D, Unit] = State(d => (fn(d), ()))
+    protected def emitEvent(ev:E): Errors Xor Events = Xor.Right(List(ev))
+    protected def failCommand(err:String): Errors Xor Events = Xor.Left(List(err))
+  }
+
+  sealed trait Event
+  case class Created(id: Int) extends Event
+  case object Incremented extends Event
+
+  sealed trait Command
+  case class Create(id: Int) extends Command
+  case object Increment extends Command
+
+  final case class Data(created: Boolean, counter: Int) {
+    def this() = this(created = false, counter = 0)
+  }
+
+  class Counter extends Aggregate[Event, Command, Data] {
+
+    override protected var data = new Data()
+
+    override protected def on: EventHandler = {
+      case Created(id) => updateState (_.copy(created = true))
+      case Incremented => updateState (d => d.copy(counter = d.counter + 1))
+    }
+
+    override protected def handle: CommandHandler = {
       case Create(id) => Reader {
         case Data(false, _) => emitEvent(Created(id))
         case Data(true, _) => failCommand("Counter has been created already.")
       }
-      case Increment() => Reader {
-        case Data(true, _) => emitEvent(Incremented())
+      case Increment => Reader {
+        case Data(true, _) => emitEvent(Incremented)
         case Data(false, _) => failCommand("Counter has not been created yet.")
       }
     }
