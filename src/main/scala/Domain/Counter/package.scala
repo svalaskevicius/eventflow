@@ -5,9 +5,9 @@ import cats.data.Xor
 
 package object Counter {
 
-  sealed trait Event
-  case class Created(id: Int) extends Event
-  case object Incremented extends Event
+  sealed trait CounterEvent extends Event
+  case class Created(id: Int) extends CounterEvent
+  case object Incremented extends CounterEvent
 
   sealed trait Command
   case class Create(id: Int) extends Command
@@ -17,7 +17,7 @@ package object Counter {
     def this() = this(created = false)
   }
 
-  type CounterAggregate = Aggregate[Event, Command, Data]
+  type CounterAggregate = Aggregate[CounterEvent, Command, Data]
 
   def createCounter(id: Int): List[String] Xor CounterAggregate = {
 

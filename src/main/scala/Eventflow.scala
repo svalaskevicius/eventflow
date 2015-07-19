@@ -11,6 +11,7 @@ object Eventflow {
     } yield counter
     result fold(err => println("Error occurred: " + err), _ => println("OK"))
   }
+
 }
 
 
