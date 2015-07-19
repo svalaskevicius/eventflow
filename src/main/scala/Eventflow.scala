@@ -1,53 +1,61 @@
-import Eventflow.Aggregate._
+
+import cats.state.State
+import cats.data.Reader
+import cats.data.Xor
+import cats.implicits._
 
 object Eventflow {
 
   def main(args: Array[String]) {
-
-    sealed trait CounterEvent;
-    case class CounterCreated() extends CounterEvent;
-    case class CounterIncremented() extends CounterEvent;
-
-    val aggregateDef = (
-      Aggregate
-        named "counter"
-        on event named "created" will (() => {})
-        on event named "incremented" will (() => {})
-        on command named "create" will (() => {})
-        on command named "increment" will (() => {})
-    )
-    println(aggregateDef)
+    val add1: State[Int, Unit] = State(n => (n + 1, ()))
+    val add2: Unit => State[Int, Int] = (Unit) => State(n => (n + 2, n))
+    println(add1.flatMap(add2).run(1).run)
   }
 
-  object Aggregate {
-    def named(name: String): Aggregate = Aggregate(name, List(), List())
+  object Counter { // no need for an object as its going to be in a module
+    sealed trait Event
+    case class Created(id: Int) extends Event
+    case class Incremented() extends Event
 
-    class CommandBuilder(retTo:Aggregate) {
-      case class CommandNameBuilder(name:String) {
-        def will(expr: () => Unit): Aggregate = retTo accepting CommandHandler(name, expr)
-      }
-      def named(a: String): CommandNameBuilder = CommandNameBuilder(a)
-    }
-    class EventProcessorBuilder(retTo:Aggregate) {
-      case class EventProcessorNameBuilder(name:String) {
-        def will(expr: () => Unit): Aggregate = retTo handling EventHandler(name, expr)
-      }
-      def named(a: String): EventProcessorNameBuilder = EventProcessorNameBuilder(a)
-    }
-    object command
-    object event
+    sealed trait Command
+    case class Create(id: Int) extends Command
+    case class Increment() extends Command
 
+    object Data {
+      def apply():Data = Data(created = false, counter = 0)
+    }
+    final case class Data(created: Boolean, counter: Int)
+
+    type Errors = List[String]
+    type Events = List[Event]
+    type CommandHandler = Command => Reader[Data, Errors Xor Events]
+    type EventHandler = Event => State[Data, Unit]
+
+    def updateState(fn: Data => Data): State[Data, Unit] = State(d => (fn(d), ()))
+    def emitEvent(ev:Event): Errors Xor Events = Xor.Right(List(ev))
+    def failCommand(err:String): Errors Xor Events = Xor.Left(List(err))
   }
 
+  class Counter {
 
-  case class CommandHandler(name: String, actions: () => Unit)
-  case class EventHandler(name: String, actions: () => Unit)
+    import Counter._
 
-  case class Aggregate(aggregateName: String, commandHandlers: List[CommandHandler], eventHandlers: List[EventHandler]) {
-    def accepting(commandHandler: CommandHandler): Aggregate = copy(commandHandlers = commandHandler :: commandHandlers)
-    def handling(eventHandler: EventHandler): Aggregate = copy(eventHandlers = eventHandler :: eventHandlers)
+    def on: EventHandler = {
+      case Created(id) => updateState (_.copy(created = true))
+      case Incremented() => updateState (d => d.copy(counter = d.counter + 1))
+    }
 
-    def on(cmd: command.type):CommandBuilder = new CommandBuilder(this)
-    def on(cmd: event.type):EventProcessorBuilder = new EventProcessorBuilder(this)
+    def handle: CommandHandler = {
+      case Create(id) => Reader {
+        case Data(false, _) => emitEvent(Created(id))
+        case Data(true, _) => failCommand("Counter has been created already.")
+      }
+      case Increment() => Reader {
+        case Data(true, _) => emitEvent(Incremented())
+        case Data(false, _) => failCommand("Counter has not been created yet.")
+      }
+    }
   }
 }
+
+
