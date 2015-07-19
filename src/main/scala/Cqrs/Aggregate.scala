@@ -17,9 +17,9 @@ object Aggregate {
 }
 
 class Aggregate[E, C, D] (
-                           private val on: Aggregate[E, C, D]#EventHandler,
-                           private val handle: Aggregate[E, C, D]#CommandHandler,
-                           private var data: D
+                           on: Aggregate[E, C, D]#EventHandler,
+                           handle: Aggregate[E, C, D]#CommandHandler,
+                           private[this] var data: D
                            ) {
   type Errors = List[String]
   type Events = List[E]
