@@ -7,7 +7,10 @@ import cats.implicits._
 
 
 object Aggregate {
+
   def updateState[D](fn: D => D): State[D, Unit] = State(d => (fn(d), ()))
+
+  def noStateChanges[D](): State[D, Unit] = updateState(identity)
 
   def emitEvent[E, Errors](ev: E): Errors Xor List[E] = Xor.Right(List(ev))
 
@@ -28,7 +31,7 @@ class Aggregate[E, C, D] (
 
   def handleCommand(cmd: C): Errors Xor Unit = handle(cmd).run(data) fold (Xor.Left(_), onEvents)
 
-  protected def onEvents(evs: Events): Errors Xor Unit = {
+  private def onEvents(evs: Events): Errors Xor Unit = {
     data = evs.foldLeft(data)((d, e) => on(e).runS(d).run)
     Xor.Right(())
   }
