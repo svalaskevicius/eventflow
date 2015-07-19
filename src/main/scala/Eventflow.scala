@@ -1,14 +1,16 @@
 
 import Cqrs._
+import cats.data.Xor
 
 object Eventflow {
 
   def main(args: Array[String]) {
-    val counter = Counter
-    println(counter.handleCommand(Create(99)))
-    println(counter.handleCommand(Create(99)))
-    println(counter.handleCommand(Increment))
-    println(counter.handleCommand(Increment))
+    val result = for {
+      counter <- createCounter(123)
+      _ <- counter.handleCommand(Increment)
+      _ <- counter.handleCommand(Increment)
+    } yield counter
+    result fold(err => println("Error occured: " + err), _ => println("OK"))
   }
 
 
@@ -24,9 +26,11 @@ object Eventflow {
     def this() = this(created = false, counter = 0)
   }
 
-  val Counter = {
+  type CounterAggregate = Aggregate[Event, Command, Data]
+
+  def createCounter(id: Int): List[String] Xor CounterAggregate = {
     import Cqrs.Aggregate._
-    new Aggregate[Event, Command, Data](
+    val c = new CounterAggregate(
       on = {
         case Created(id) => updateState(_.copy(created = true))
         case Incremented => updateState(d => d.copy(counter = d.counter + 1))
@@ -43,6 +47,7 @@ object Eventflow {
       },
       data = new Data()
     )
+    c.handleCommand(Create(id)) map (_ => c)
   }
 }
 

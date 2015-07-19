@@ -26,11 +26,11 @@ class Aggregate[E, C, D] (
   type CommandHandler = C => Reader[D, Errors Xor Events]
   type EventHandler = E => State[D, Unit]
 
-  def handleCommand(cmd: C): Option[Errors] = handle(cmd).run(data) fold (Some(_), onEvents)
+  def handleCommand(cmd: C): Errors Xor Unit = handle(cmd).run(data) fold (Xor.Left(_), onEvents)
 
-  protected def onEvents(evs: Events): Option[Errors] = {
+  protected def onEvents(evs: Events): Errors Xor Unit = {
     data = evs.foldLeft(data)((d, e) => on(e).runS(d).run)
-    None
+    Xor.Right(())
   }
 }
 
