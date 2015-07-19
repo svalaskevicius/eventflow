@@ -24,7 +24,7 @@ object Aggregate {
 
   def commandHandler[A, B] = Reader
 
-  implicit object EventRouter extends EventRouter {
+  implicit object DefaultEventRouter extends EventRouter {
     def route = ev => {
       Xor.right(())
     }
@@ -47,7 +47,8 @@ class Aggregate[E <: Event, C, D] (
     handle(cmd).run(data) fold (Xor.left, onEvents)
 
   private def onEvents(evs: Events): Errors Xor Unit = {
-    val result = evs.foldLeft(Xor.right[Errors, Unit](()))((prev, ev) => prev flatMap (_ => eventRouter.route(ev)))
+    val startState: Errors Xor Unit = Xor.right(())
+    val result = evs.foldLeft(startState)((prev, ev) => prev flatMap (_ => eventRouter.route(ev)))
     if (result.isRight) {
       applyEvents(evs)
     }
