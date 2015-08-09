@@ -3,8 +3,11 @@ package Cqrs
 import cats.data.Xor
 
 trait Event
+
 // todo: add type for aggregate id
 // todo: add type for event processor monad
+// todo: errors as string, no need for a list
+
 trait EventRouter {
   type EventReader = (String, Event) => List[String] Xor Unit
   def route: EventReader

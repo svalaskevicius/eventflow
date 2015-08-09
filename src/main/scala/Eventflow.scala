@@ -5,7 +5,7 @@ object Eventflow {
 
   def main(args: Array[String]) {
     val result = for {
-      counter <- createCounter("test counter")
+      counter <- createCounter2("test counter")
       _ <- counter.handleCommand(Increment)
       _ <- counter.handleCommand(Increment)
     } yield counter
