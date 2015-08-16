@@ -23,8 +23,8 @@ package object Counter {
 
 
   object EventStreamRunner {
-    type CommandH = Command => Option[List[String] Xor List[CounterEvent]]
-    type EventH[A] = Event => Option[A]
+    type CommandH = PartialFunction[Command, List[String] Xor List[CounterEvent]]
+    type EventH[A] = PartialFunction[Event, A]
 
     sealed trait EventStreamRunnerF[+Next]
     case class SetCommandHandler[Next](cmdh:CommandH, next: Next) extends EventStreamRunnerF[Next]
@@ -41,9 +41,9 @@ package object Counter {
 
     def handler(ch: CommandH): EventStreamRunner[Unit] = liftF(SetCommandHandler(ch, ()))
     def waitFor[A](eh: EventH[A]): EventStreamRunner[A] = liftF(EventHandler[A, A](eh, identity))
+    def runForever(): EventStreamRunner[Unit] = waitFor(PartialFunction.empty)
   }
 
-  def emptyCmdH(c: Command) = None
 
   import EventStreamRunner._
   final case class EventStreamConsumer(cmdh: CommandH, evh: Event => Option[EventStreamConsumer])
@@ -53,7 +53,7 @@ package object Counter {
     {
       case SetCommandHandler(cmdh, next) => esRunnerCompiler(cmdh)(next)
       case EventHandler(evth, cont) => {
-        lazy val self: EventStreamConsumer = EventStreamConsumer(initCmdH, (ev: Event) => evth(ev) map (cont andThen esRunnerCompiler(initCmdH)) getOrElse Some(self))
+        lazy val self: EventStreamConsumer = EventStreamConsumer(initCmdH, (ev: Event) => evth.lift(ev) map (cont andThen esRunnerCompiler(initCmdH)) getOrElse Some(self))
         Some(self)
       }
     }
@@ -67,33 +67,24 @@ package object Counter {
 
     val aggregateLogic: List[EventStreamRunner[Unit]] = List(
       for {
-        _ <- waitFor({
-                       case Created(_) => Some(())
-                       case _ => None
-                     })
-        _ <- handler({
-                       case Increment => Some(emitEvent(Incremented))
-                       case _ => None
-                     })
-        _ <- waitFor( _ => None:Option[Unit])
+        _ <- waitFor {case Created(_) => ()}
+        _ <- handler {case Increment => emitEvent(Incremented)}
+        _ <- runForever
       } yield (),
       for {
-        _ <- handler({case Create(id) => Some(emitEvent(Created(id)))})
-        _ <-  waitFor({
-                        case Created(_) => Some(())
-                        case _ => None
-                      })
+        _ <- handler {case Create(id) => emitEvent(Created(id))}
+        _ <- waitFor {case Created(_) => ()}
       } yield ()
     )
 
     val c = new CounterAggregate(
       id = id,
-      state = aggregateLogic map esRunnerCompiler(emptyCmdH) flatten,
+      state = aggregateLogic map esRunnerCompiler(PartialFunction.empty) flatten,
       on = e => d => d map (consumer => consumer.evh(e)) flatten,
       handle = c => d => d.foldLeft(None: Option[List[String] Xor List[CounterEvent]])(
           (prev:Option[List[String] Xor List[CounterEvent]], consumer) => prev match {
             case Some(_) => prev
-            case None => consumer.cmdh(c)
+            case None => consumer.cmdh.lift(c)
           }
         ).getOrElse {
           Xor.Left(List("not implemented"))
