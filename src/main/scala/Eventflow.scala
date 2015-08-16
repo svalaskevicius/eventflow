@@ -7,7 +7,7 @@ object Eventflow {
   def main(args: Array[String]) {
     DefaultEventRouter.subscribe
     val result = for {
-      counter <- createCounter("test counter")
+      counter <- newCounter("test counter")
       _ <- counter.handleCommand(Increment)
       _ <- counter.handleCommand(Increment)
       _ <- counter.handleCommand(Decrement)

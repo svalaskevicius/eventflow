@@ -12,3 +12,5 @@ addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.6.3")
 
 // if your project uses multiple Scala versions, use this for cross building
 addCompilerPlugin("org.spire-math" % "kind-projector" % "0.6.3" cross CrossVersion.binary)
+
+scalacOptions ++= Seq("-unchecked", "-deprecation", "-feature")
