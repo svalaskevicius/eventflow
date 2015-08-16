@@ -15,10 +15,12 @@ package object Counter {
   sealed trait CounterEvent extends Event
   case class Created(id: String) extends CounterEvent
   case object Incremented extends CounterEvent
+  case object Decremented extends CounterEvent
 
   sealed trait Command
   case class Create(id: String) extends Command
   case object Increment extends Command
+  case object Decrement extends Command
 
 
 
@@ -65,16 +67,21 @@ package object Counter {
 
     import Cqrs.Aggregate._
 
+    def countingLogic(c: Int): EventStreamRunner[Unit] =
+      handler {
+        case Increment => emitEvent(Incremented)
+        case Decrement => if (c > 0) emitEvent(Decremented)
+                          else failCommand("Counter cannot be decremented")
+      } >>
+      waitFor {
+        case Incremented => c + 1
+        case Decremented => c - 1
+      } >>=
+      countingLogic
+
     val aggregateLogic: List[EventStreamRunner[Unit]] = List(
-      for {
-        _ <- waitFor {case Created(_) => ()}
-        _ <- handler {case Increment => emitEvent(Incremented)}
-        _ <- runForever
-      } yield (),
-      for {
-        _ <- handler {case Create(id) => emitEvent(Created(id))}
-        _ <- waitFor {case Created(_) => ()}
-      } yield ()
+      handler {case Create(id) => emitEvent(Created(id))} >> waitFor {case Created(_) => ()},
+      waitFor {case Created(_) => ()} >> countingLogic(0)
     )
 
     val c = new CounterAggregate(
@@ -92,8 +99,4 @@ package object Counter {
     )
     c.handleCommand(Create(id)) map (_ => c)
   }
-
-  // extend this with declarative:
-  // hasSeen(event) >>= hasNotSeen(event) >>= ... -> (case Create(id) -> handler)
-  // hasSeen(event) >>=  ... -> case Create(id) -> handler
 }
