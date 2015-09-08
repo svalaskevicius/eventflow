@@ -10,6 +10,7 @@ object Eventflow {
       counter <- newCounter("test counter")
       _ <- counter.handleCommand(Increment)
       _ <- counter.handleCommand(Increment)
+      _ <- counter.handleCommand(Increment)
       _ <- counter.handleCommand(Decrement)
       _ <- counter.handleCommand(Increment)
       _ <- counter.handleCommand(Decrement)

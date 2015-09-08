@@ -12,9 +12,10 @@ import cats.std.all._
 import cats.syntax.flatMap._
 
 class EventFlow[Cmd, Evt <: Cqrs.Event] {
-  sealed trait FlowF[+Next]
   type CommandH = PartialFunction[Cmd, List[String] Xor List[Evt]]
   type EventH[A] = PartialFunction[Evt, A]
+
+  sealed trait FlowF[+Next]
   case class SetCommandHandler[Next](cmdh: CommandH, next: Next) extends FlowF[Next]
   case class EventHandler[Next, A](evth: EventH[A], whenHandled: A => Next) extends FlowF[Next]
 
@@ -32,6 +33,7 @@ class EventFlow[Cmd, Evt <: Cqrs.Event] {
   def runForever(): Flow[Unit] = waitFor(PartialFunction.empty)
 
   case class EventStreamConsumer(cmdh: CommandH, evh: Evt => Option[EventStreamConsumer])
+
   def esRunnerCompiler[A](initCmdH: CommandH)(esRunner: Flow[A]): Option[EventStreamConsumer] =
     esRunner.fold(
       _ => None,
