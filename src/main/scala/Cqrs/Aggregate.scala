@@ -1,78 +1,80 @@
 package Cqrs
 
-import cats.data.Xor
+import cats.data.{Xor, XorT}
+import cats.Monad
+import cats._
+import cats.free.Free
+import cats.free.Free.{pure, liftF}
 
-trait Event
+import cats.std.all._
+import cats.syntax.flatMap._
 
-// todo: add type for aggregate id
+
 // todo: add type for event processor monad
 // todo: errors as string, no need for a list
-
-trait EventRouter {
-  type EventReader = (String, Event) => List[String] Xor Unit
-  def route: EventReader
-  def subscribe: EventReader => (() => Unit)
-}
 
 class Projection[R] (on: EventRouter#EventReader, result: R)
 
 object Aggregate {
 
+  type AggregateId = String
+
+  final case class VersionedEvents[E](version: Int, events: List[E])
+
+  sealed trait EventDatabaseF[+Next]
+  case class ReadAggregate[Next, Evts](id: AggregateId, fromVersion: Int, onEvents: VersionedEvents[Evts] => Next) extends EventDatabaseF[Next]
+  case class WriteAggregate[Next, Evts](id: AggregateId, events: VersionedEvents[Evts], cont: Next) extends EventDatabaseF[Next]
+
+  implicit object EventDatabaseFunctor extends Functor[EventDatabaseF] {
+    def map[A, B](fa: EventDatabaseF[A])(f: A => B): EventDatabaseF[B] = fa match {
+      case c: ReadAggregate[A, t] => c.copy(onEvents = c.onEvents andThen f)
+      case c: WriteAggregate[A, t] => c.copy(cont = f(c.cont))
+    }
+  }
+
+  type EventDatabase[A] = Free[EventDatabaseF, A]
+
+  def readEvents[E](id: AggregateId, fromVersion: Int): EventDatabase[VersionedEvents[E]] = liftF(ReadAggregate[VersionedEvents[E], E](id, fromVersion, identity))
+  def writeEvents[E](id: AggregateId, events: VersionedEvents[E]): EventDatabase[Unit] = liftF(WriteAggregate(id, events, ()))
+
   def emitEvent[E, Errors](ev: E): Errors Xor List[E] = Xor.right(List(ev))
   def emitEvents[E, Errors](evs: List[E]): Errors Xor List[E] = Xor.right(evs)
 
   def failCommand[Events](err: String): List[String] Xor Events = Xor.left(List(err))
-
-  implicit object DefaultEventRouter extends EventRouter {
-    private[this] var _subscribers = Map[Int, EventReader]()
-    private[this] var _nextId = 1
-    def route = (id, ev) => {
-      Xor.right(())
-    }
-    def subscribe = subscriber  => {
-      val id = nextId
-      _subscribers += (id -> subscriber)
-      () => {
-        _subscribers -= id
-      }
-    }
-    private def nextId: Int = {
-      val id = _nextId
-      _nextId += 1
-      id
-    }
-  }
 }
 
-class Aggregate[E <: Event, C, D] (
+class Aggregate[E, C, D] (
                            id: String,
                            on: Aggregate[E, C, D]#EventHandler,
                            handle: Aggregate[E, C, D]#CommandHandler,
-                           private[this] var state: D
-                         ) (
-                           implicit private val eventRouter: EventRouter
+                           private[this] var state: D,
+                           private[this] var version: Int = 0
                          ) {
   type Errors = List[String]
   type Events = List[E]
   type CommandHandler = C => D => Errors Xor Events
   type EventHandler = E => D => D
 
-  def handleCommand(cmd: C): Errors Xor Unit =
-    handle(cmd)(state) fold (Xor.left, onEvents)
+  import Aggregate._
 
-  private def onEvents(evs: Events): Errors Xor Unit = {
-    val startState: Errors Xor Unit = Xor.right(())
-    val result = evs.foldLeft(startState)( (prev, ev) =>
-      prev flatMap (_ => eventRouter.route(id, ev))
-    )
-    if (result.isRight) {
-      applyEvents(evs)
-    }
-    result
+  def handleCommand(cmd: C): XorT[EventDatabase, Errors, Unit] = {
+    // OMG MAKE THIS READABLE!
+    XorT.right[EventDatabase, Errors, VersionedEvents[E]](readEvents[E](id, version)) >>=
+      ((evs: VersionedEvents[E]) => XorT.right[EventDatabase, Errors, Unit](applyEvents(evs)) >>
+         ((XorT.fromXor[EventDatabase][Errors, List[E]](handle(cmd)(state))) >>=
+         (evs => XorT.right(onEvents(evs)))))
   }
 
-  private def applyEvents(evs: Events): Unit = {
-    state = evs.foldLeft(state)((d, e) => on(e)(d))
+  private def onEvents(evs: Events): EventDatabase[Unit] = {
+    val vevs = VersionedEvents(version, evs)
+    writeEvents(id, vevs) >> applyEvents(vevs)
+  }
+
+  private def applyEvents(evs: VersionedEvents[E]): EventDatabase[Unit] = {
+    println(evs)
+    version = evs.version
+    state = evs.events.foldLeft(state)((d, e) => on(e)(d))
+    pure(())
   }
 }
 

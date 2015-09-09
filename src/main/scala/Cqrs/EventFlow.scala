@@ -11,7 +11,7 @@ import cats.free.Free.liftF
 import cats.std.all._
 import cats.syntax.flatMap._
 
-class EventFlow[Cmd, Evt <: Cqrs.Event] {
+class EventFlow[Cmd, Evt] {
   type CommandH = PartialFunction[Cmd, List[String] Xor List[Evt]]
   type EventH[A] = PartialFunction[Evt, A]
 
@@ -54,8 +54,6 @@ class EventFlow[Cmd, Evt <: Cqrs.Event] {
   def newAggregate(
     id: String,
     aggregateLogic: List[Flow[Unit]]
-  ) (
-    implicit eventRouter: EventRouter
   ) : Aggregate =
     new Aggregate(
       id = id,

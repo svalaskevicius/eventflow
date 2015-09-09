@@ -1,10 +1,10 @@
 package Domain
 
 import Cqrs._
-import cats.data.Xor
+import cats.data.{Xor, XorT}
 import cats.syntax.flatMap._
 
-sealed trait CounterEvent extends Event
+sealed trait CounterEvent
 
 sealed trait CounterCommand
 
@@ -37,8 +37,8 @@ package object Counter extends EventFlow[CounterCommand, CounterEvent] {
     waitFor {case Created(_) => ()} >> countingLogic(0)
   )
 
-  def newCounter(id: String): List[String] Xor Aggregate = {
+  def newCounter(id: String): XorT[EventDatabase, List[String], Aggregate] = {
     val c = newAggregate(id, aggregateLogic)
-    c.handleCommand(Create(id)) map (_ => c)
+    c.handleCommand(Create(id)) >> XorT.pure[EventDatabase, List[String], Aggregate](c)
   }
 }

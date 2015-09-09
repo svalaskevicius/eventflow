@@ -1,13 +1,12 @@
 
-import Cqrs.Aggregate.DefaultEventRouter
 import Domain.Counter._
 
 object Eventflow {
 
   def main(args: Array[String]) {
-    DefaultEventRouter.subscribe
     val result = for {
       counter <- newCounter("test counter")
+      // handle command now returns monad to write. USE IT
       _ <- counter.handleCommand(Increment)
       _ <- counter.handleCommand(Increment)
       _ <- counter.handleCommand(Increment)
