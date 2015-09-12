@@ -9,21 +9,24 @@ import cats.free.Free.{pure, liftF}
 import cats.std.all._
 import cats.syntax.flatMap._
 
+import scala.collection.immutable.SortedMap
+import scala.collection.immutable.TreeMap
 
 // todo: add type for event processor monad
 // todo: errors as string, no need for a list
 
-class Projection[R] (on: EventRouter#EventReader, result: R)
+  // class Projection[R] (on: EventRouter#EventReader, result: R)
 
 object Aggregate {
 
   type AggregateId = String
+  type Errors = List[String]
 
-  final case class VersionedEvents[E](version: Int, events: List[E])
+  case class VersionedEvents[E](version: Int, events: List[E])
 
   sealed trait EventDatabaseF[+Next]
-  case class ReadAggregate[Next, Evts](id: AggregateId, fromVersion: Int, onEvents: VersionedEvents[Evts] => Next) extends EventDatabaseF[Next]
-  case class WriteAggregate[Next, Evts](id: AggregateId, events: VersionedEvents[Evts], cont: Next) extends EventDatabaseF[Next]
+  case class ReadAggregate[Next, E](id: AggregateId, fromVersion: Int, onEvents: VersionedEvents[E] => Next) extends EventDatabaseF[Next]
+  case class WriteAggregate[Next, E](id: AggregateId, events: VersionedEvents[E], cont: Next) extends EventDatabaseF[Next]
 
   implicit object EventDatabaseFunctor extends Functor[EventDatabaseF] {
     def map[A, B](fa: EventDatabaseF[A])(f: A => B): EventDatabaseF[B] = fa match {
@@ -33,9 +36,71 @@ object Aggregate {
   }
 
   type EventDatabase[A] = Free[EventDatabaseF, A]
+  type EventDatabaseWithFailure[A] = XorT[EventDatabase, Errors, A]
+
+  type InMemoryDb[E] = SortedMap[AggregateId, SortedMap[Int, List[E]]]
+
+  def newDb[E](): InMemoryDb[E] = new TreeMap()
+
+  def readFromDb[E](database: InMemoryDb[E], id: AggregateId, fromVersion: Int): Errors Xor VersionedEvents[E] = {
+    database.get(id).fold[Errors Xor VersionedEvents[E]](
+      Xor.left(List("Cannot load aggregate '"+id+"'"))
+    )(
+      (evs: SortedMap[Int, List[E]]) => Xor.right(
+        evs.from(fromVersion).foldLeft(
+          VersionedEvents[E](0, List())
+        )(
+          {case (acc, (v, e)) => VersionedEvents(v, acc.events ++ e)}
+        )
+      )
+    )
+  }
+
+  def addToDb[E](database: InMemoryDb[E], id: AggregateId, events: VersionedEvents[E]): Errors Xor InMemoryDb[E] = {
+    val currentEvents = database.get(id)
+    val currentVersion = currentEvents.fold(0)(e => if (e.isEmpty) 0 else e.lastKey)
+    if (currentVersion != events.version - 1) {
+      Xor.left(List("Unexpected version: have "+currentVersion+", want to write "+events.version))
+    } else {
+      Xor.right(
+        database.updated(
+          id,
+          currentEvents.fold(
+            (new TreeMap[Int, List[E]]()).asInstanceOf[SortedMap[Int, List[E]]]
+          )(
+            _.updated(events.version, events.events)
+          )
+        )
+      )
+    }
+  }
+
+  def runInMemoryDb_[A, E](database: InMemoryDb[E])(actions: EventDatabase[Errors Xor A]): Errors Xor A =
+    actions.fold(
+      identity,
+      {
+        case a: ReadAggregate[t, E] => {
+          println("reading from DB: '" + a + "'... "+database)
+            //          runInMemoryDb_(database)(a.onEvents(VersionedEvents[e](0, List())))
+          val d = readFromDb[E](database, a.id, a.fromVersion)
+          println("result: " + d)
+          d >>= (evs => runInMemoryDb_[A, E](database)(a.onEvents(evs)))
+        }
+        case a: WriteAggregate[t, E] => {
+          println("writing to DB: '" + a + "'... "+database)
+          val d = addToDb(database, a.id, a.events)
+          println("result: " + d)
+          d >>= (db => runInMemoryDb_(db)(a.cont))
+        }
+      }
+    )
+  def runInMemoryDb[A, E](database: InMemoryDb[E])(actions: EventDatabaseWithFailure[A]): Errors Xor A =
+    runInMemoryDb_(database)(actions.value)
 
   def readEvents[E](id: AggregateId, fromVersion: Int): EventDatabase[VersionedEvents[E]] = liftF(ReadAggregate[VersionedEvents[E], E](id, fromVersion, identity))
-  def writeEvents[E](id: AggregateId, events: VersionedEvents[E]): EventDatabase[Unit] = liftF(WriteAggregate(id, events, ()))
+  def writeEvents[E](id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[Unit] =
+    XorT.right[EventDatabase, Errors, Unit](liftF(WriteAggregate(id, events, ())))
+  def pure[A](x: A): EventDatabaseWithFailure[A] = XorT.pure[EventDatabase, Errors, A](x)
 
   def emitEvent[E, Errors](ev: E): Errors Xor List[E] = Xor.right(List(ev))
   def emitEvents[E, Errors](evs: List[E]): Errors Xor List[E] = Xor.right(evs)
@@ -57,24 +122,35 @@ class Aggregate[E, C, D] (
 
   import Aggregate._
 
-  def handleCommand(cmd: C): XorT[EventDatabase, Errors, Unit] = {
+  def initAggregate(): EventDatabaseWithFailure[Unit] = {
     // OMG MAKE THIS READABLE!
-    XorT.right[EventDatabase, Errors, VersionedEvents[E]](readEvents[E](id, version)) >>=
-      ((evs: VersionedEvents[E]) => XorT.right[EventDatabase, Errors, Unit](applyEvents(evs)) >>
-         ((XorT.fromXor[EventDatabase][Errors, List[E]](handle(cmd)(state))) >>=
-         (evs => XorT.right(onEvents(evs)))))
+    // read can fail
+    // write can fail
+    // check that there were no events saved for it before!
+
+    writeEvents(id, VersionedEvents[E](1, List()))
   }
 
-  private def onEvents(evs: Events): EventDatabase[Unit] = {
-    val vevs = VersionedEvents(version, evs)
+  def handleCommand(cmd: C): EventDatabaseWithFailure[Unit] = {
+    // OMG MAKE THIS READABLE!
+    // read can fail
+    // write can fail
+    XorT.right[EventDatabase, Errors, VersionedEvents[E]](readEvents(id, version)) >>=
+      ((evs: VersionedEvents[E]) => applyEvents(evs) >>
+         ((XorT.fromXor[EventDatabase][Errors, Events](handle(cmd)(state))) >>=
+         (evs => onEvents(evs))))
+  }
+
+  private def onEvents(evs: Events): EventDatabaseWithFailure[Unit] = {
+    val vevs = VersionedEvents[E](version+1, evs)
     writeEvents(id, vevs) >> applyEvents(vevs)
   }
 
-  private def applyEvents(evs: VersionedEvents[E]): EventDatabase[Unit] = {
-    println(evs)
+  private def applyEvents(evs: VersionedEvents[E]): EventDatabaseWithFailure[Unit] = {
+    println("Applying events on aggregate: " + evs)
     version = evs.version
     state = evs.events.foldLeft(state)((d, e) => on(e)(d))
-    pure(())
+    XorT.pure(())
   }
 }
 

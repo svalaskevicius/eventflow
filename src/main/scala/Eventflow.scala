@@ -1,5 +1,6 @@
 
 import Domain.Counter._
+import Cqrs.Aggregate._
 
 object Eventflow {
 
@@ -20,7 +21,11 @@ object Eventflow {
       _ <- counter.handleCommand(Increment)
       _ <- counter.handleCommand(Increment)
     } yield counter
+    println("------------")
+    println(result)
     result fold(err => println("Error occurred: " + err), _ => println("OK"))
+    println("------------")
+    runInMemoryDb(newDb)(result) fold(err => println("Error occurred: " + err), _ => println("OK"))
   }
 
 }

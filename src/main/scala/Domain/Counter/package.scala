@@ -37,8 +37,8 @@ package object Counter extends EventFlow[CounterCommand, CounterEvent] {
     waitFor {case Created(_) => ()} >> countingLogic(0)
   )
 
-  def newCounter(id: String): XorT[EventDatabase, List[String], Aggregate] = {
+  def newCounter(id: String): EventDatabaseWithFailure[Aggregate] = {
     val c = newAggregate(id, aggregateLogic)
-    c.handleCommand(Create(id)) >> XorT.pure[EventDatabase, List[String], Aggregate](c)
+    c.initAggregate >> c.handleCommand(Create(id)) >> pure(c)
   }
 }
