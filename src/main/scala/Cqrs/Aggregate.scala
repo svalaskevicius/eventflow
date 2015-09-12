@@ -25,11 +25,13 @@ object Aggregate {
   case class VersionedEvents[E](version: Int, events: List[E])
 
   sealed trait EventDatabaseF[+Next]
+  case class ReadAggregateExistance[Next](id: AggregateId, cont: Boolean => Next) extends EventDatabaseF[Next]
   case class ReadAggregate[Next, E](id: AggregateId, fromVersion: Int, onEvents: List[VersionedEvents[E]] => Next) extends EventDatabaseF[Next]
   case class WriteAggregate[Next, E](id: AggregateId, events: VersionedEvents[E], cont: Next) extends EventDatabaseF[Next]
 
   implicit object EventDatabaseFunctor extends Functor[EventDatabaseF] {
     def map[A, B](fa: EventDatabaseF[A])(f: A => B): EventDatabaseF[B] = fa match {
+      case c: ReadAggregateExistance[A] => c.copy(cont = c.cont andThen f)
       case c: ReadAggregate[A, t] => c.copy(onEvents = c.onEvents andThen f)
       case c: WriteAggregate[A, t] => c.copy(cont = f(c.cont))
     }
@@ -75,9 +77,14 @@ object Aggregate {
     actions.fold(
       identity,
       {
+        case a: ReadAggregateExistance[t] => {
+          println("reading existance from DB: '" + a + "'... "+database)
+          val d = readFromDb[E](database, a.id, 0)
+          println("result: " + d)
+          runInMemoryDb_[A, E](database)(a.cont(! d.isLeft))
+        }
         case a: ReadAggregate[t, E] => {
           println("reading from DB: '" + a + "'... "+database)
-            //          runInMemoryDb_(database)(a.onEvents(VersionedEvents[e](0, List())))
           val d = readFromDb[E](database, a.id, a.fromVersion)
           println("result: " + d)
           d >>= (evs => runInMemoryDb_[A, E](database)(a.onEvents(evs)))
@@ -90,8 +97,14 @@ object Aggregate {
         }
       }
     )
+
   def runInMemoryDb[A, E](database: InMemoryDb[E])(actions: EventDatabaseWithFailure[A]): Errors Xor A =
     runInMemoryDb_(database)(actions.value)
+
+  def doesAggregateExist(id: AggregateId): EventDatabaseWithFailure[Boolean] =
+    XorT.right[EventDatabase, Errors, Boolean](
+      liftF(ReadAggregateExistance[Boolean](id, identity))
+    )
 
   def readNewEvents[E](id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[List[VersionedEvents[E]]] =
     XorT.right[EventDatabase, Errors, List[VersionedEvents[E]]](
@@ -126,8 +139,9 @@ class Aggregate[E, C, D] (
   import Aggregate._
 
   def initAggregate(): EventDatabaseWithFailure[Unit] = {
-    //TODO: check that there were no events saved for it before!
-    writeEvents(id, VersionedEvents[E](1, List()))
+    doesAggregateExist(id) >>=
+      ((e: Boolean) => if (e) XorT.left[EventDatabase, Errors, Unit](Free.pure(List("Aggregate '"+id+"' already exists")))
+                       else writeEvents(id, VersionedEvents[E](1, List())))
   }
 
   def handleCommand(cmd: C): EventDatabaseWithFailure[Unit] = {
