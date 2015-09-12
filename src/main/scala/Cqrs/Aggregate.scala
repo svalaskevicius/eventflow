@@ -104,8 +104,10 @@ class Aggregate[E, C, D] (
   private def applyEvents(evs: List[VersionedEvents[E]]): EventDatabaseWithFailure[Unit] = {
     println("Applying events on aggregate: " + evs)
     evs.map(ve => {
-      version = ve.version
-      state = ve.events.foldLeft(state)((d, e) => on(e)(d))
+      if (version < ve.version) {
+        version = ve.version
+        state = ve.events.foldLeft(state)((d, e) => on(e)(d))
+      }
     })
     XorT.pure(())
   }
