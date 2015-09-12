@@ -12,7 +12,7 @@ import cats.std.all._
 import cats.syntax.flatMap._
 
 class EventFlow[Cmd, Evt] {
-  type CommandH = PartialFunction[Cmd, List[String] Xor List[Evt]]
+  type CommandH = PartialFunction[Cmd, Aggregate.Error Xor List[Evt]]
   type EventH[A] = PartialFunction[Evt, A]
 
   sealed trait FlowF[+Next]
@@ -51,6 +51,8 @@ class EventFlow[Cmd, Evt] {
 
   type Aggregate = Cqrs.Aggregate[Evt, Cmd, List[EventStreamConsumer]]
 
+  case class ErrorCannotFindHandler(id: Aggregate.AggregateId) extends Aggregate.Error
+
   def newAggregate(
     id: String,
     aggregateLogic: List[Flow[Unit]]
@@ -59,13 +61,13 @@ class EventFlow[Cmd, Evt] {
       id = id,
       state = (aggregateLogic map esRunnerCompiler(PartialFunction.empty)).flatten,
       on = e => d => (d map (consumer => consumer.evh(e))).flatten,
-      handle = c => d => d.foldLeft(None: Option[List[String] Xor List[Evt]])(
-        (prev:Option[List[String] Xor List[Evt]], consumer) => prev match {
+      handle = c => d => d.foldLeft(None: Option[Aggregate.Error Xor List[Evt]])(
+        (prev:Option[Aggregate.Error Xor List[Evt]], consumer) => prev match {
           case Some(_) => prev
           case None => consumer.cmdh.lift(c)
         }
       ).getOrElse {
-        Xor.Left(List("Could not find a matching command handler"))
+        Xor.Left(ErrorCannotFindHandler(id))
       }
     )
 }
