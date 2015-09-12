@@ -25,7 +25,7 @@ object Aggregate {
   case class VersionedEvents[E](version: Int, events: List[E])
 
   sealed trait EventDatabaseF[+Next]
-  case class ReadAggregate[Next, E](id: AggregateId, fromVersion: Int, onEvents: VersionedEvents[E] => Next) extends EventDatabaseF[Next]
+  case class ReadAggregate[Next, E](id: AggregateId, fromVersion: Int, onEvents: List[VersionedEvents[E]] => Next) extends EventDatabaseF[Next]
   case class WriteAggregate[Next, E](id: AggregateId, events: VersionedEvents[E], cont: Next) extends EventDatabaseF[Next]
 
   implicit object EventDatabaseFunctor extends Functor[EventDatabaseF] {
@@ -42,16 +42,12 @@ object Aggregate {
 
   def newDb[E](): InMemoryDb[E] = new TreeMap()
 
-  def readFromDb[E](database: InMemoryDb[E], id: AggregateId, fromVersion: Int): Errors Xor VersionedEvents[E] = {
-    database.get(id).fold[Errors Xor VersionedEvents[E]](
+  def readFromDb[E](database: InMemoryDb[E], id: AggregateId, fromVersion: Int): Errors Xor List[VersionedEvents[E]] = {
+    database.get(id).fold[Errors Xor List[VersionedEvents[E]]](
       Xor.left(List("Cannot load aggregate '"+id+"'"))
     )(
       (evs: SortedMap[Int, List[E]]) => Xor.right(
-        evs.from(fromVersion).foldLeft(
-          VersionedEvents[E](0, List())
-        )(
-          {case (acc, (v, e)) => VersionedEvents(v, acc.events ++ e)}
-        )
+        evs.from(fromVersion + 1).toList.map(v => VersionedEvents[E](v._1, v._2))
       )
     )
   }
@@ -97,7 +93,7 @@ object Aggregate {
   def runInMemoryDb[A, E](database: InMemoryDb[E])(actions: EventDatabaseWithFailure[A]): Errors Xor A =
     runInMemoryDb_(database)(actions.value)
 
-  def readEvents[E](id: AggregateId, fromVersion: Int): EventDatabase[VersionedEvents[E]] = liftF(ReadAggregate[VersionedEvents[E], E](id, fromVersion, identity))
+  def readNewEvents[E](id: AggregateId, fromVersion: Int): EventDatabase[List[VersionedEvents[E]]] = liftF(ReadAggregate[List[VersionedEvents[E]], E](id, fromVersion, identity))
   def writeEvents[E](id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[Unit] =
     XorT.right[EventDatabase, Errors, Unit](liftF(WriteAggregate(id, events, ())))
   def pure[A](x: A): EventDatabaseWithFailure[A] = XorT.pure[EventDatabase, Errors, A](x)
@@ -135,21 +131,23 @@ class Aggregate[E, C, D] (
     // OMG MAKE THIS READABLE!
     // read can fail
     // write can fail
-    XorT.right[EventDatabase, Errors, VersionedEvents[E]](readEvents(id, version)) >>=
-      ((evs: VersionedEvents[E]) => applyEvents(evs) >>
+    XorT.right[EventDatabase, Errors, List[VersionedEvents[E]]](readNewEvents(id, version)) >>=
+      ((evs: List[VersionedEvents[E]]) => applyEvents(evs) >>
          ((XorT.fromXor[EventDatabase][Errors, Events](handle(cmd)(state))) >>=
          (evs => onEvents(evs))))
   }
 
   private def onEvents(evs: Events): EventDatabaseWithFailure[Unit] = {
     val vevs = VersionedEvents[E](version+1, evs)
-    writeEvents(id, vevs) >> applyEvents(vevs)
+    writeEvents(id, vevs) >> applyEvents(List(vevs))
   }
 
-  private def applyEvents(evs: VersionedEvents[E]): EventDatabaseWithFailure[Unit] = {
+  private def applyEvents(evs: List[VersionedEvents[E]]): EventDatabaseWithFailure[Unit] = {
     println("Applying events on aggregate: " + evs)
-    version = evs.version
-    state = evs.events.foldLeft(state)((d, e) => on(e)(d))
+    evs.map(ve => {
+      version = ve.version
+      state = ve.events.foldLeft(state)((d, e) => on(e)(d))
+    })
     XorT.pure(())
   }
 }
