@@ -93,9 +93,16 @@ object Aggregate {
   def runInMemoryDb[A, E](database: InMemoryDb[E])(actions: EventDatabaseWithFailure[A]): Errors Xor A =
     runInMemoryDb_(database)(actions.value)
 
-  def readNewEvents[E](id: AggregateId, fromVersion: Int): EventDatabase[List[VersionedEvents[E]]] = liftF(ReadAggregate[List[VersionedEvents[E]], E](id, fromVersion, identity))
+  def readNewEvents[E](id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[List[VersionedEvents[E]]] =
+    XorT.right[EventDatabase, Errors, List[VersionedEvents[E]]](
+      liftF(ReadAggregate[List[VersionedEvents[E]], E](id, fromVersion, identity))
+    )
+
   def writeEvents[E](id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[Unit] =
-    XorT.right[EventDatabase, Errors, Unit](liftF(WriteAggregate(id, events, ())))
+    XorT.right[EventDatabase, Errors, Unit](
+      liftF(WriteAggregate(id, events, ()))
+    )
+
   def pure[A](x: A): EventDatabaseWithFailure[A] = XorT.pure[EventDatabase, Errors, A](x)
 
   def emitEvent[E, Errors](ev: E): Errors Xor List[E] = Xor.right(List(ev))
@@ -119,23 +126,19 @@ class Aggregate[E, C, D] (
   import Aggregate._
 
   def initAggregate(): EventDatabaseWithFailure[Unit] = {
-    // OMG MAKE THIS READABLE!
-    // read can fail
-    // write can fail
-    // check that there were no events saved for it before!
-
+    //TODO: check that there were no events saved for it before!
     writeEvents(id, VersionedEvents[E](1, List()))
   }
 
   def handleCommand(cmd: C): EventDatabaseWithFailure[Unit] = {
-    // OMG MAKE THIS READABLE!
-    // read can fail
-    // write can fail
-    XorT.right[EventDatabase, Errors, List[VersionedEvents[E]]](readNewEvents(id, version)) >>=
+    readNewEvents(id, version) >>=
       ((evs: List[VersionedEvents[E]]) => applyEvents(evs) >>
-         ((XorT.fromXor[EventDatabase][Errors, Events](handle(cmd)(state))) >>=
-         (evs => onEvents(evs))))
+         handleCmd(cmd) >>=
+         (evs => onEvents(evs)))
   }
+
+  private def handleCmd(cmd: C): EventDatabaseWithFailure[Events] =
+    XorT.fromXor[EventDatabase][Errors, Events](handle(cmd)(state))
 
   private def onEvents(evs: Events): EventDatabaseWithFailure[Unit] = {
     val vevs = VersionedEvents[E](version+1, evs)
