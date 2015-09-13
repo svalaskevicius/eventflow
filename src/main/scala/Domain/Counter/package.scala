@@ -6,12 +6,12 @@ import cats.syntax.flatMap._
 
 package Counter {
   sealed trait Event
-  case class Created(id: String) extends Event
+  final case class Created(id: String) extends Event
   case object Incremented extends Event
   case object Decremented extends Event
 
   sealed trait Command
-  case class Create(id: String) extends Command
+  final case class Create(id: String) extends Command
   case object Increment extends Command
   case object Decrement extends Command
 }

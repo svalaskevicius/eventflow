@@ -53,7 +53,7 @@ object InMemoryDb {
     }
   }
 
-  def runInMemoryDb_[A, E]: EventDatabaseOp ~> Db[E, ?] = new (EventDatabaseOp ~> Db[E, ?]) {
+  def runInMemoryDb_[E]: EventDatabaseOp ~> Db[E, ?] = new (EventDatabaseOp ~> Db[E, ?]) {
     def apply[A](fa: EventDatabaseOp[A]): Db[E, A] = fa match {
       case ReadAggregateExistance(id) => State(database => {
         println("reading existance from DB: '" + fa + "'... "+database)

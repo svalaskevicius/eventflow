@@ -30,7 +30,7 @@ class EventFlow[Cmd, Evt] {
 
   def handler(ch: CommandH): Flow[Unit] = liftF(SetCommandHandler(ch, ()))
   def waitFor[A](eh: EventH[A]): Flow[A] = liftF(EventHandler[A, A](eh, identity))
-  def runForever(): Flow[Unit] = waitFor(PartialFunction.empty)
+  def runForever(): Flow[Unit] = waitFor(PartialFunction.empty[Evt, Unit])
 
   case class EventStreamConsumer(cmdh: CommandH, evh: Evt => Option[EventStreamConsumer])
 
@@ -57,10 +57,10 @@ class EventFlow[Cmd, Evt] {
     id: String,
     aggregateLogic: List[Flow[Unit]]
   ) : Aggregate =
-    new Aggregate(
+    Aggregate(
       id = id,
-      state = (aggregateLogic map esRunnerCompiler(PartialFunction.empty)).flatten,
-      on = e => d => (d map (consumer => consumer.evh(e))).flatten,
+      state = (aggregateLogic map esRunnerCompiler(PartialFunction.empty)).map(Option.option2Iterable _).flatten,
+      on = e => d => (d map (consumer => consumer.evh(e))).map(Option.option2Iterable _).flatten,
       handle = c => d => d.foldLeft(None: Option[Aggregate.Error Xor List[Evt]])(
         (prev:Option[Aggregate.Error Xor List[Evt]], consumer) => prev match {
           case Some(_) => prev
@@ -68,7 +68,8 @@ class EventFlow[Cmd, Evt] {
         }
       ).getOrElse {
         Xor.Left(ErrorCannotFindHandler(id))
-      }
+      },
+      version = 0
     )
 }
 
