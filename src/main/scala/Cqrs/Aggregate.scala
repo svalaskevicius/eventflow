@@ -12,14 +12,12 @@ import cats.syntax.flatMap._
 import scala.collection.immutable.SortedMap
 import scala.collection.immutable.TreeMap
 
-// todo: add type for event processor monad
-// todo: errors as string, no need for a list
-
-  // class Projection[R] (on: EventRouter#EventReader, result: R)
+// class Projection[R] (on: EventRouter#EventReader, result: R)
 
 object Aggregate {
 
   type AggregateId = String
+
   trait Error
   case class ErrorExistsAlready(id: AggregateId) extends Error
   case class ErrorDoesNotExist(id: AggregateId) extends Error
@@ -68,12 +66,12 @@ object Aggregate {
 }
 
 class Aggregate[E, C, D] (
-                           id: String,
-                           on: Aggregate[E, C, D]#EventHandler,
-                           handle: Aggregate[E, C, D]#CommandHandler,
-                           private[this] var state: D,
-                           private[this] var version: Int = 0
-                         ) {
+  id: String,
+  on: Aggregate[E, C, D]#EventHandler,
+  handle: Aggregate[E, C, D]#CommandHandler,
+  private[this] var state: D,
+  private[this] var version: Int = 0
+) {
   type Events = List[E]
   type CommandHandler = C => D => Aggregate.Error Xor Events
   type EventHandler = E => D => D
@@ -104,11 +102,11 @@ class Aggregate[E, C, D] (
   private def applyEvents(evs: List[VersionedEvents[E]]): EventDatabaseWithFailure[Unit] = {
     println("Applying events on aggregate: " + evs)
     evs.map(ve => {
-      if (version < ve.version) {
-        version = ve.version
-        state = ve.events.foldLeft(state)((d, e) => on(e)(d))
-      }
-    })
+              if (version < ve.version) {
+                version = ve.version
+                state = ve.events.foldLeft(state)((d, e) => on(e)(d))
+              }
+            })
     XorT.pure(())
   }
 }
