@@ -1,9 +1,12 @@
 package Cqrs
 
+import cats.Id
 import cats.data.{Xor, XorT}
 import cats.Monad
+import cats.arrow.NaturalTransformation
 import cats._
 import cats.free.Free
+import cats.state._
 import cats.free.Free.{pure, liftF}
 
 import cats.std.all._
@@ -17,6 +20,7 @@ object InMemoryDb {
   import Aggregate._
 
   type DbBackend[E] = SortedMap[AggregateId, SortedMap[Int, List[E]]]
+  type Db[E, A] = State[DbBackend[E], A]
 
   def newDb[E](): DbBackend[E] = new TreeMap()
 
@@ -49,32 +53,35 @@ object InMemoryDb {
     }
   }
 
-  def runInMemoryDb_[A, E](database: DbBackend[E])(actions: EventDatabase[Error Xor A]): Error Xor A =
-    actions.fold(
-      identity,
-      {
-        case a: ReadAggregateExistance[t] => {
-          println("reading existance from DB: '" + a + "'... "+database)
-          val doesNotExist = readFromDb[E](database, a.id, 0).fold(_.isInstanceOf[ErrorDoesNotExist], _ => false)
-          println("result: " + (if (doesNotExist) "does not exist" else "aggregate exists"))
-          runInMemoryDb_[A, E](database)(a.cont(!doesNotExist))
-        }
-        case a: ReadAggregate[t, E] => {
-          println("reading from DB: '" + a + "'... "+database)
-          val d = readFromDb[E](database, a.id, a.fromVersion)
-          println("result: " + d)
-          d >>= (evs => runInMemoryDb_[A, E](database)(a.onEvents(evs)))
-        }
-        case a: WriteAggregate[t, E] => {
-          println("writing to DB: '" + a + "'... "+database)
-          val d = addToDb(database, a.id, a.events)
-          println("result: " + d)
-          d >>= (db => runInMemoryDb_(db)(a.cont))
-        }
-      }
-    )
+  def runInMemoryDb_[A, E]: EventDatabaseOp ~> Db[E, ?] = new (EventDatabaseOp ~> Db[E, ?]) {
+    def apply[A](fa: EventDatabaseOp[A]): Db[E, A] = fa match {
+      case ReadAggregateExistance(id) => State(database => {
+        println("reading existance from DB: '" + fa + "'... "+database)
+        // fix to allow err through if it does not match
+        val doesNotExist = readFromDb[E](database, id, 0).fold(_.isInstanceOf[ErrorDoesNotExist], _ => false)
+        println("result: " + (if (doesNotExist) "does not exist" else "aggregate exists"))
+        (database, Xor.right[Error, Boolean](!doesNotExist))
+      })
+      case ReadAggregate(id, version) => State(database => {
+        println("reading from DB: '" + fa + "'... "+database)
+        val d = readFromDb[E](database, id, version)
+        println("result: " + d)
+        (database, d.asInstanceOf[A]) // TODO: why is this hack needed for scala? looks to be because of the type E as scala just forgets to match it :/
+      })
+      case WriteAggregate(id, events) => State((database: DbBackend[E]) => {
+        println("writing to DB: '" + fa + "'... "+database)
+        val d = addToDb(database, id, events)
+        println("result: " + d)
+        d.fold[(DbBackend[E], Error Xor Unit)](
+          (err: Error) => (database, Xor.left[Error, Unit](err)),
+          (db: DbBackend[Any]) => (db.asInstanceOf[DbBackend[E]], Xor.right[Error, Unit](())) // another scala's quirk?
+        )
+      })
+    }
+  }
+
 
   def runInMemoryDb[A, E](database: DbBackend[E])(actions: EventDatabaseWithFailure[A]): Error Xor A =
-    runInMemoryDb_(database)(actions.value)
+    actions.value.foldMap[Db[E, ?]](runInMemoryDb_).runA(database).run
 }
 

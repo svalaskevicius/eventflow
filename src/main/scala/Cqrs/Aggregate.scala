@@ -26,35 +26,27 @@ object Aggregate {
 
   case class VersionedEvents[E](version: Int, events: List[E])
 
-  sealed trait EventDatabaseF[+Next]
-  case class ReadAggregateExistance[Next](id: AggregateId, cont: Boolean => Next) extends EventDatabaseF[Next]
-  case class ReadAggregate[Next, E](id: AggregateId, fromVersion: Int, onEvents: List[VersionedEvents[E]] => Next) extends EventDatabaseF[Next]
-  case class WriteAggregate[Next, E](id: AggregateId, events: VersionedEvents[E], cont: Next) extends EventDatabaseF[Next]
+  sealed trait EventDatabaseOp[A]
+  case class ReadAggregateExistance(id: AggregateId) extends EventDatabaseOp[Error Xor Boolean]
+  case class ReadAggregate[E](id: AggregateId, fromVersion: Int) extends EventDatabaseOp[Error Xor List[VersionedEvents[E]]]
+  case class WriteAggregate[E](id: AggregateId, events: VersionedEvents[E]) extends EventDatabaseOp[Error Xor Unit]
 
-  implicit object EventDatabaseFunctor extends Functor[EventDatabaseF] {
-    def map[A, B](fa: EventDatabaseF[A])(f: A => B): EventDatabaseF[B] = fa match {
-      case c: ReadAggregateExistance[A] => c.copy(cont = c.cont andThen f)
-      case c: ReadAggregate[A, t] => c.copy(onEvents = c.onEvents andThen f)
-      case c: WriteAggregate[A, t] => c.copy(cont = f(c.cont))
-    }
-  }
-
-  type EventDatabase[A] = Free[EventDatabaseF, A]
+  type EventDatabase[A] = Free[EventDatabaseOp, A]
   type EventDatabaseWithFailure[A] = XorT[EventDatabase, Error, A]
 
   def doesAggregateExist(id: AggregateId): EventDatabaseWithFailure[Boolean] =
-    XorT.right[EventDatabase, Error, Boolean](
-      liftF(ReadAggregateExistance[Boolean](id, identity))
+    XorT[EventDatabase, Error, Boolean](
+      liftF(ReadAggregateExistance(id))
     )
 
   def readNewEvents[E](id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[List[VersionedEvents[E]]] =
-    XorT.right[EventDatabase, Error, List[VersionedEvents[E]]](
-      liftF(ReadAggregate[List[VersionedEvents[E]], E](id, fromVersion, identity))
+    XorT[EventDatabase, Error, List[VersionedEvents[E]]](
+      liftF[EventDatabaseOp, Error Xor List[VersionedEvents[E]]](ReadAggregate[E](id, fromVersion))
     )
 
   def writeEvents[E](id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[Unit] =
-    XorT.right[EventDatabase, Error, Unit](
-      liftF(WriteAggregate(id, events, ()))
+    XorT[EventDatabase, Error, Unit](
+      liftF[EventDatabaseOp, Error Xor Unit](WriteAggregate(id, events))
     )
 
   def pure[A](x: A): EventDatabaseWithFailure[A] = XorT.pure[EventDatabase, Error, A](x)

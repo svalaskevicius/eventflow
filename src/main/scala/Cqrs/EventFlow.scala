@@ -22,7 +22,7 @@ class EventFlow[Cmd, Evt] {
   implicit object FlowFunctor extends Functor[FlowF] {
     def map[A, B](fa: FlowF[A])(f: A => B): FlowF[B] = fa match {
       case ch: SetCommandHandler[A] => SetCommandHandler[B](ch.cmdh, f(ch.next))
-      case eh: EventHandler[A, t] => EventHandler[B, t](eh.evth, eh.whenHandled andThen f)
+      case eh: EventHandler[A, t] => EventHandler[B, t](eh.evth, f compose eh.whenHandled)
     }
   }
 
