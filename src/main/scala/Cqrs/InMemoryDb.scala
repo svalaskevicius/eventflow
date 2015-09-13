@@ -57,10 +57,9 @@ object InMemoryDb {
     def apply[A](fa: EventDatabaseOp[A]): Db[E, A] = fa match {
       case ReadAggregateExistance(id) => State(database => {
         println("reading existance from DB: '" + fa + "'... "+database)
-        // fix to allow err through if it does not match
-        val doesNotExist = readFromDb[E](database, id, 0).fold(_.isInstanceOf[ErrorDoesNotExist], _ => false)
-        println("result: " + (if (doesNotExist) "does not exist" else "aggregate exists"))
-        (database, Xor.right[Error, Boolean](!doesNotExist))
+        val doesNotExist = readFromDb[E](database, id, 0).map(_ => false).recover({case ErrorDoesNotExist(_) => true})
+        println("result: " + doesNotExist)
+        (database, doesNotExist.map(!_).asInstanceOf[A])
       })
       case ReadAggregate(id, version) => State(database => {
         println("reading from DB: '" + fa + "'... "+database)
