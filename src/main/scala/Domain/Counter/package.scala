@@ -4,19 +4,19 @@ import Cqrs._
 import cats.data.{Xor, XorT}
 import cats.syntax.flatMap._
 
-sealed trait CounterEvent
+package Counter {
+  sealed trait Event
+  case class Created(id: String) extends Event
+  case object Incremented extends Event
+  case object Decremented extends Event
 
-sealed trait CounterCommand
+  sealed trait Command
+  case class Create(id: String) extends Command
+  case object Increment extends Command
+  case object Decrement extends Command
+}
 
-package object Counter extends EventFlow[CounterCommand, CounterEvent] {
-
-  case class Created(id: String) extends CounterEvent
-  case object Incremented extends CounterEvent
-  case object Decremented extends CounterEvent
-
-  case class Create(id: String) extends CounterCommand
-  case object Increment extends CounterCommand
-  case object Decrement extends CounterCommand
+package object Counter extends EventFlow[Counter.Command, Counter.Event] {
 
   import Cqrs.Aggregate._
 
