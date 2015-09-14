@@ -6,8 +6,8 @@ import Cqrs.InMemoryDb._
 object Eventflow {
 
   def main(args: Array[String]) {
-   val result = for {
-     c <- newCounter("test counter")
+    val result = for {
+      c <- newCounter("test counter")
       _ <- c.handleCommand(Increment)
       _ <- c.handleCommand(Increment)
       _ <- c.handleCommand(Increment)
@@ -20,16 +20,11 @@ object Eventflow {
       _ <- c.handleCommand(Increment)
       _ <- c.handleCommand(Increment)
       _ <- c.handleCommand(Increment)
-   } yield (())
+    } yield (())
     println("------------")
-    println(result)
     val result1 = runCounter(result)
-    println(result1)
-   // println(result fold(err => "Error occurred: " + err, _ => "OK"))
-    println("------------")
     runInMemoryDb(newDb)(result1) fold(err => println("Error occurred: " + err), _ => println("OK"))
+    println("------------")
   }
-
 }
-
 

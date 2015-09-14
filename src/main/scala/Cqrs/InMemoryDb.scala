@@ -58,8 +58,9 @@ object InMemoryDb {
       case ReadAggregateExistance(id) => State(database => {
         println("reading existance from DB: '" + fa + "'... "+database)
         val doesNotExist = readFromDb[E](database, id, 0).map(_ => false).recover({case ErrorDoesNotExist(_) => true})
-        println("result: " + doesNotExist)
-        (database, doesNotExist.map(!_).asInstanceOf[A])
+        val exists = doesNotExist.map(!_)
+        println("result: " + exists)
+        (database, exists.asInstanceOf[A])
       })
       case ReadAggregate(id, version) => State(database => {
         println("reading from DB: '" + fa + "'... "+database)

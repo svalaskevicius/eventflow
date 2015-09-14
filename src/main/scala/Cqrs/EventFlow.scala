@@ -54,13 +54,8 @@ class EventFlow[Cmd, Evt] {
 
   case object ErrorCannotFindHandler extends Aggregate.Error
 
-  def newAggregate(
-//    id: String
-//    aggregateLogic: List[Flow[Unit]]
-  ) : Aggregate =
+  def newAggregate() : Aggregate =
     Aggregate(
- //     id = id,
-//      state = (aggregateLogic map esRunnerCompiler(PartialFunction.empty)).map(Option.option2Iterable _).flatten,
       on = e => d => (d map (consumer => consumer.evh(e))).map(Option.option2Iterable _).flatten,
       handle = c => d => d.foldLeft(None: Option[Aggregate.Error Xor List[Evt]])(
         (prev:Option[Aggregate.Error Xor List[Evt]], consumer) => prev match {
@@ -70,7 +65,6 @@ class EventFlow[Cmd, Evt] {
       ).getOrElse {
         Xor.Left(ErrorCannotFindHandler)
       }
-  //    version = 0
     )
 
   def runFlow[A](aggregateLogic: List[Flow[Unit]])(aggregate: EAD[A]): Aggregate.EventDatabaseWithFailure[(Aggregate.AggregateState[List[EventStreamConsumer]], A)] = {
