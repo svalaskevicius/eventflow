@@ -75,10 +75,10 @@ final case class Aggregate[E, C, D] (
   type CommandHandler = C => D => Aggregate.Error Xor Events
   type EventHandler = E => D => D
 
-  implicit def liftToAggregateDef[A](f: EventDatabaseWithFailure[A]): AD[A] =
+  def liftToAggregateDef[A](f: EventDatabaseWithFailure[A]): AD[A] =
     StateT[EventDatabaseWithFailure, AggregateState[D], A](s => f.map((s, _)))
 
-  def initAggregate(): AD[Unit] = {
+  def initAggregate(): AD[Unit] = liftToAggregateDef {
     doesAggregateExist(id) >>=
       ((e: Boolean) => if (e) XorT.left[EventDatabase, Error, Unit](Free.pure(ErrorExistsAlready(id)))
                        else writeEvents(id, VersionedEvents[E](1, List())))

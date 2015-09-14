@@ -39,8 +39,7 @@ package object Counter extends EventFlow[Counter.Command, Counter.Event] {
 
   def newCounter(id: String): EAD[Aggregate] = {
     val c = newAggregate(id)
-    import c.liftToAggregateDef
-    c.initAggregate >> c.handleCommand(Create(id)) >> pure(c)
+    c.initAggregate >> c.handleCommand(Create(id)) >> c.liftToAggregateDef(pure(c))
   }
 
   def runCounter[A] = (runFlow[A](aggregateLogic) _)
