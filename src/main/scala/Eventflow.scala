@@ -1,6 +1,5 @@
 
 import Domain.Counter._
-import Cqrs.Aggregate._
 import Cqrs.InMemoryDb._
 
 object Eventflow {

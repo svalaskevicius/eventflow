@@ -7,7 +7,6 @@ import cats.free.Free
 import cats.free.Free.{pure, liftF}
 import cats.state._
 
-import cats.std.all._
 import cats.syntax.flatMap._
 
 // class Projection[R] (on: EventRouter#EventReader, result: R)

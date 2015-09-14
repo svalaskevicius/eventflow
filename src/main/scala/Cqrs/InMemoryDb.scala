@@ -1,7 +1,6 @@
 package Cqrs
 
-import cats.Id
-import cats.data.{Xor, XorT}
+import cats.data.Xor
 import cats.Monad
 import cats.arrow.NaturalTransformation
 import cats._
@@ -10,7 +9,6 @@ import cats.state._
 import cats.free.Free.{pure, liftF}
 
 import cats.std.all._
-import cats.syntax.flatMap._
 
 import scala.collection.immutable.TreeMap
 

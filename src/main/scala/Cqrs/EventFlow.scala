@@ -1,15 +1,10 @@
 package Cqrs
 
-import Cqrs._
-
 import cats.data.Xor
 import cats.Monad
 import cats._
 import cats.free.Free
 import cats.free.Free.liftF
-
-import cats.std.all._
-import cats.syntax.flatMap._
 
 class EventFlow[Cmd, Evt] {
   type CommandH = PartialFunction[Cmd, Aggregate.Error Xor List[Evt]]
