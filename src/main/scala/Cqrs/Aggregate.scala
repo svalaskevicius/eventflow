@@ -10,9 +10,6 @@ import cats.state._
 import cats.std.all._
 import cats.syntax.flatMap._
 
-import scala.collection.immutable.SortedMap
-import scala.collection.immutable.TreeMap
-
 // class Projection[R] (on: EventRouter#EventReader, result: R)
 
 object Aggregate {
@@ -88,8 +85,11 @@ final case class Aggregate[E, C, D] (
 
   def handleCommand(cmd: C): AD[Unit] = {
     import StateT._
-    // WOA this is SPARTA!!!
-    (cats.syntax.flatMap.flatMapSyntax[AD, Unit](StateT[EventDatabaseWithFailure, AggregateState[D], List[VersionedEvents[E]]](vs => readNewEvents[E](vs.id, vs.version).map((vs, _))) >>=
+    // WOAH this is SPARTA!!!
+      (cats.syntax.flatMap.flatMapSyntax[AD, Unit](
+         StateT[EventDatabaseWithFailure, AggregateState[D], List[VersionedEvents[E]]](
+           vs => readNewEvents[E](vs.id, vs.version).map((vs, _))
+         ) >>=
         (applyEvents _)) >>
        handleCmd(cmd)) >>=
       (onEvents _)
