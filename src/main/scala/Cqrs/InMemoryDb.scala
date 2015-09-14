@@ -12,14 +12,13 @@ import cats.free.Free.{pure, liftF}
 import cats.std.all._
 import cats.syntax.flatMap._
 
-import scala.collection.immutable.SortedMap
 import scala.collection.immutable.TreeMap
 
 object InMemoryDb {
 
   import Aggregate._
 
-  type DbBackend[E] = SortedMap[AggregateId, SortedMap[Int, List[E]]]
+  type DbBackend[E] = TreeMap[AggregateId, TreeMap[Int, List[E]]]
   type Db[E, A] = State[DbBackend[E], A]
 
   def newDb[E](): DbBackend[E] = new TreeMap()
@@ -28,7 +27,7 @@ object InMemoryDb {
     database.get(id).fold[Error Xor List[VersionedEvents[E]]](
       Xor.left(ErrorDoesNotExist(id))
     )(
-      (evs: SortedMap[Int, List[E]]) => Xor.right(
+      (evs: TreeMap[Int, List[E]]) => Xor.right(
         evs.from(fromVersion + 1).toList.map(v => VersionedEvents[E](v._1, v._2))
       )
     )
@@ -43,9 +42,7 @@ object InMemoryDb {
       Xor.right(
         database.updated(
           id,
-          currentEvents.fold(
-            (new TreeMap[Int, List[E]]()).asInstanceOf[SortedMap[Int, List[E]]]
-          )(
+          currentEvents.fold(new TreeMap[Int, List[E]])(
             _.updated(events.version, events.events)
           )
         )
@@ -66,7 +63,7 @@ object InMemoryDb {
         println("reading from DB: '" + fa + "'... "+database)
         val d = readFromDb[E](database, id, version)
         println("result: " + d)
-        (database, d.asInstanceOf[A]) // TODO: why is this hack needed for scala? looks to be because of the type E as scala just forgets to match it :/
+        (database, d.asInstanceOf[A]) // TODO: why is this hack needed for scala?
       })
       case WriteAggregate(id, events) => State((database: DbBackend[E]) => {
         println("writing to DB: '" + fa + "'... "+database)
