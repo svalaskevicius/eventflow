@@ -17,4 +17,5 @@ wartremoverErrors ++= Warts.allBut(Wart.Any, Wart.Nothing, Wart.Throw, Wart.AsIn
 
 scalacOptions ++= Seq("-unchecked", "-deprecation", "-feature",
                       "-Xlint", "-Ywarn-unused-import", "-Yno-adapted-args", "-Ywarn-dead-code",
-                      "-Ywarn-numeric-widen", "-Ywarn-value-discard", "-Ywarn-infer-any")
+                      "-Ywarn-numeric-widen", "-Ywarn-value-discard", "-Ywarn-infer-any",
+                      "–explaintypes")
