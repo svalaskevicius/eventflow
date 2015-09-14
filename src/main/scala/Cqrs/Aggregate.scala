@@ -18,6 +18,7 @@ import scala.collection.immutable.TreeMap
 object Aggregate {
 
   type AggregateId = String
+  val emptyAggregateId = ""
 
   trait Error
   final case class ErrorExistsAlready(id: AggregateId) extends Error
@@ -35,7 +36,7 @@ object Aggregate {
   type EventDatabase[A] = Free[EventDatabaseOp, A]
   type EventDatabaseWithFailure[A] = XorT[EventDatabase, Error, A]
 
-  final case class AggregateState[D](state: D, version: Int)
+  final case class AggregateState[D](id: AggregateId, state: D, version: Int)
   type AggregateDef[D, A] = StateT[EventDatabaseWithFailure, AggregateState[D], A]
 
 
@@ -63,7 +64,6 @@ object Aggregate {
 }
 
 final case class Aggregate[E, C, D] (
-  id: String,
   on: Aggregate[E, C, D]#EventHandler,
   handle: Aggregate[E, C, D]#CommandHandler
 ) {
@@ -78,16 +78,18 @@ final case class Aggregate[E, C, D] (
   def liftToAggregateDef[A](f: EventDatabaseWithFailure[A]): AD[A] =
     StateT[EventDatabaseWithFailure, AggregateState[D], A](s => f.map((s, _)))
 
-  def initAggregate(): AD[Unit] = liftToAggregateDef {
-    doesAggregateExist(id) >>=
-      ((e: Boolean) => if (e) XorT.left[EventDatabase, Error, Unit](Free.pure(ErrorExistsAlready(id)))
-                       else writeEvents(id, VersionedEvents[E](1, List())))
-  }
+  def initAggregate(id: AggregateId): AD[Unit] =
+    liftToAggregateDef (doesAggregateExist(id)) >>=
+      ((e: Boolean) => StateT[EventDatabaseWithFailure, AggregateState[D], Unit](
+         vs => {
+           if (e) XorT.left[EventDatabase, Error, (AggregateState[D], Unit)](Free.pure(ErrorExistsAlready(id)))
+           else writeEvents(id, VersionedEvents[E](1, List())).map(_ => (vs.copy(id = id), ()))
+       }))
 
   def handleCommand(cmd: C): AD[Unit] = {
     import StateT._
     // WOA this is SPARTA!!!
-    (cats.syntax.flatMap.flatMapSyntax[AD, Unit](StateT[EventDatabaseWithFailure, AggregateState[D], List[VersionedEvents[E]]](vs => readNewEvents[E](id, vs.version).map((vs, _))) >>=
+    (cats.syntax.flatMap.flatMapSyntax[AD, Unit](StateT[EventDatabaseWithFailure, AggregateState[D], List[VersionedEvents[E]]](vs => readNewEvents[E](vs.id, vs.version).map((vs, _))) >>=
         (applyEvents _)) >>
        handleCmd(cmd)) >>=
       (onEvents _)
@@ -101,7 +103,7 @@ final case class Aggregate[E, C, D] (
     StateT[EventDatabaseWithFailure, AggregateState[D], List[VersionedEvents[E]]](
       vs => {
         val vevs = VersionedEvents[E](vs.version+1, evs)
-        writeEvents(id, vevs).map(_ => (vs, List(vevs)))
+        writeEvents(vs.id, vevs).map(_ => (vs, List(vevs)))
       }) >>=
       (applyEvents _)
 
@@ -111,7 +113,7 @@ final case class Aggregate[E, C, D] (
         println("Applying events on aggregate: " + evs)
         val vs_ = evs.foldLeft(vs)((vs_, ve) => {
                                      if (vs_.version < ve.version) {
-                                       AggregateState[D](ve.events.foldLeft(vs_.state)((d, e) => on(e)(d)), ve.version)
+                                       vs_.copy(state = ve.events.foldLeft(vs_.state)((d, e) => on(e)(d)), version = ve.version)
                                      } else {
                                        vs_
                                      }
