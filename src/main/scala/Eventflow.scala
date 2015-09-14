@@ -6,26 +6,28 @@ import Cqrs.InMemoryDb._
 object Eventflow {
 
   def main(args: Array[String]) {
-    val result = for {
-      c <- newCounter("test counter")
-      c <- c.handleCommand(Increment)
-      c <- c.handleCommand(Increment)
-      c <- c.handleCommand(Increment)
-      c <- c.handleCommand(Decrement)
-      c <- c.handleCommand(Increment)
-      c <- c.handleCommand(Decrement)
-      c <- c.handleCommand(Decrement)
-      c <- c.handleCommand(Decrement)
-      c <- c.handleCommand(Increment)
-      c <- c.handleCommand(Increment)
-      c <- c.handleCommand(Increment)
-      c <- c.handleCommand(Increment)
-    } yield c
+   val result = for {
+     c <- newCounter("test counter")
+      _ <- c.handleCommand(Increment)
+      _ <- c.handleCommand(Increment)
+      _ <- c.handleCommand(Increment)
+      _ <- c.handleCommand(Decrement)
+      _ <- c.handleCommand(Increment)
+      _ <- c.handleCommand(Decrement)
+      _ <- c.handleCommand(Decrement)
+      _ <- c.handleCommand(Decrement)
+      _ <- c.handleCommand(Increment)
+      _ <- c.handleCommand(Increment)
+      _ <- c.handleCommand(Increment)
+      _ <- c.handleCommand(Increment)
+   } yield (())
     println("------------")
     println(result)
-    println(result fold(err => "Error occurred: " + err, _ => "OK"))
+    val result1 = runCounter(result)
+    println(result1)
+   // println(result fold(err => "Error occurred: " + err, _ => "OK"))
     println("------------")
-    runInMemoryDb(newDb)(result) fold(err => println("Error occurred: " + err), _ => println("OK"))
+    runInMemoryDb(newDb)(result1) fold(err => println("Error occurred: " + err), _ => println("OK"))
   }
 
 }

@@ -37,8 +37,11 @@ package object Counter extends EventFlow[Counter.Command, Counter.Event] {
     waitFor {case Created(_) => ()} >> countingLogic(0)
   )
 
-  def newCounter(id: String): EventDatabaseWithFailure[Aggregate] = {
-    val c = newAggregate(id, aggregateLogic)
+  def newCounter(id: String): EAD[Aggregate] = {
+    val c = newAggregate(id)
+    import c.liftToAggregateDef
     c.initAggregate >> c.handleCommand(Create(id)) >> pure(c)
   }
+
+  def runCounter[A] = (runFlow[A](aggregateLogic) _)
 }

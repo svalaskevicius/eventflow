@@ -5,6 +5,7 @@ import cats.Monad
 import cats._
 import cats.free.Free
 import cats.free.Free.{pure, liftF}
+import cats.state._
 
 import cats.std.all._
 import cats.syntax.flatMap._
@@ -34,6 +35,10 @@ object Aggregate {
   type EventDatabase[A] = Free[EventDatabaseOp, A]
   type EventDatabaseWithFailure[A] = XorT[EventDatabase, Error, A]
 
+  final case class AggregateState[D](state: D, version: Int)
+  type AggregateDef[D, A] = StateT[EventDatabaseWithFailure, AggregateState[D], A]
+
+
   def doesAggregateExist(id: AggregateId): EventDatabaseWithFailure[Boolean] =
     XorT[EventDatabase, Error, Boolean](
       liftF(ReadAggregateExistance(id))
@@ -60,49 +65,58 @@ object Aggregate {
 final case class Aggregate[E, C, D] (
   id: String,
   on: Aggregate[E, C, D]#EventHandler,
-  handle: Aggregate[E, C, D]#CommandHandler,
-  val state: D,
-  val version: Int
+  handle: Aggregate[E, C, D]#CommandHandler
 ) {
+  import Aggregate._
+
+  type AD[A] = AggregateDef[D, A]
+
   type Events = List[E]
   type CommandHandler = C => D => Aggregate.Error Xor Events
   type EventHandler = E => D => D
 
-  import Aggregate._
+  implicit def liftToAggregateDef[A](f: EventDatabaseWithFailure[A]): AD[A] =
+    StateT[EventDatabaseWithFailure, AggregateState[D], A](s => f.map((s, _)))
 
-  def initAggregate(): EventDatabaseWithFailure[Unit] = {
+  def initAggregate(): AD[Unit] = {
     doesAggregateExist(id) >>=
       ((e: Boolean) => if (e) XorT.left[EventDatabase, Error, Unit](Free.pure(ErrorExistsAlready(id)))
                        else writeEvents(id, VersionedEvents[E](1, List())))
   }
 
-  def handleCommand(cmd: C): EventDatabaseWithFailure[Aggregate[E, C, D]] = {
-    (((readNewEvents(id, version) >>=
-         applyEvents((version, state)) _) >>=
-        (vs => (handleCmd(cmd)(vs) >>=
-                  (onEvents(vs) _)))))
-     }
-
-  private def handleCmd(cmd: C)(vs: (Int, D)): EventDatabaseWithFailure[Events] =
-    XorT.fromXor[EventDatabase][Error, Events](handle(cmd)(vs._2))
-
-  private def onEvents(vs: (Int, D))(evs: Events): EventDatabaseWithFailure[Aggregate[E, C, D]] = {
-    val vevs = VersionedEvents[E](vs._1+1, evs)
-    writeEvents(id, vevs) >>
-      applyEvents(vs)(List(vevs)) >>=
-      (s => XorT.pure(this.copy(version = s._1, state = s._2)))
+  def handleCommand(cmd: C): AD[Unit] = {
+    import StateT._
+    // WOA this is SPARTA!!!
+    (cats.syntax.flatMap.flatMapSyntax[AD, Unit](StateT[EventDatabaseWithFailure, AggregateState[D], List[VersionedEvents[E]]](vs => readNewEvents[E](id, vs.version).map((vs, _))) >>=
+        (applyEvents _)) >>
+       handleCmd(cmd)) >>=
+      (onEvents _)
   }
 
-  private def applyEvents(vs: (Int, D))(evs: List[VersionedEvents[E]]): EventDatabaseWithFailure[(Int, D)] = {
-    println("Applying events on aggregate: " + evs)
-    val vs_ = evs.foldLeft(vs)((vs_, ve) => {
-              if (vs_._1 < ve.version) {
-                (ve.version, ve.events.foldLeft(vs_._2)((d, e) => on(e)(d)))
-              } else {
-                vs_
-              }
-            })
-    XorT.pure(vs_)
-  }
+  private def handleCmd(cmd: C): AD[Events] = StateT[EventDatabaseWithFailure, AggregateState[D], Events](vs =>
+    XorT.fromXor[EventDatabase][Error, Events](handle(cmd)(vs.state)).map((vs, _))
+  )
+
+  private def onEvents(evs: Events): AD[Unit] =
+    StateT[EventDatabaseWithFailure, AggregateState[D], List[VersionedEvents[E]]](
+      vs => {
+        val vevs = VersionedEvents[E](vs.version+1, evs)
+        writeEvents(id, vevs).map(_ => (vs, List(vevs)))
+      }) >>=
+      (applyEvents _)
+
+  private def applyEvents(evs: List[VersionedEvents[E]]): AD[Unit] =
+    StateT[EventDatabaseWithFailure, AggregateState[D], Unit](
+      vs => {
+        println("Applying events on aggregate: " + evs)
+        val vs_ = evs.foldLeft(vs)((vs_, ve) => {
+                                     if (vs_.version < ve.version) {
+                                       AggregateState[D](ve.events.foldLeft(vs_.state)((d, e) => on(e)(d)), ve.version)
+                                     } else {
+                                       vs_
+                                     }
+                                   })
+        XorT.pure((vs_, ()))
+      })
 }
 
