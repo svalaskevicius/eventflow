@@ -63,7 +63,7 @@ object InMemoryDb {
         println("result: " + d)
         (database, d.asInstanceOf[A]) // TODO: why is this hack needed for scala?
       })
-      case WriteAggregate(id, events) => State((database: DbBackend[E]) => {
+      case AppendAggregateEvents(id, events) => State((database: DbBackend[E]) => {
         println("writing to DB: '" + fa + "'... "+database)
         val d = addToDb(database, id, events)
         println("result: " + d)

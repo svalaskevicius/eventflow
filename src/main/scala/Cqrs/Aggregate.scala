@@ -9,8 +9,6 @@ import cats.state._
 
 import cats.syntax.flatMap._
 
-// class Projection[R] (on: EventRouter#EventReader, result: R)
-
 object Aggregate {
 
   type AggregateId = String
@@ -27,7 +25,7 @@ object Aggregate {
   sealed trait EventDatabaseOp[A]
   final case class ReadAggregateExistance(id: AggregateId) extends EventDatabaseOp[Error Xor Boolean]
   final case class ReadAggregate[E](id: AggregateId, fromVersion: Int) extends EventDatabaseOp[Error Xor List[VersionedEvents[E]]]
-  final case class WriteAggregate[E](id: AggregateId, events: VersionedEvents[E]) extends EventDatabaseOp[Error Xor Unit]
+  final case class AppendAggregateEvents[E](id: AggregateId, events: VersionedEvents[E]) extends EventDatabaseOp[Error Xor Unit]
 
   type EventDatabase[A] = Free[EventDatabaseOp, A]
   type EventDatabaseWithFailure[A] = XorT[EventDatabase, Error, A]
@@ -46,9 +44,9 @@ object Aggregate {
       liftF[EventDatabaseOp, Error Xor List[VersionedEvents[E]]](ReadAggregate[E](id, fromVersion))
     )
 
-  def writeEvents[E](id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[Unit] =
+  def appendEvents[E](id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[Unit] =
     XorT[EventDatabase, Error, Unit](
-      liftF[EventDatabaseOp, Error Xor Unit](WriteAggregate(id, events))
+      liftF[EventDatabaseOp, Error Xor Unit](AppendAggregateEvents(id, events))
     )
 
   def pure[A](x: A): EventDatabaseWithFailure[A] = XorT.pure[EventDatabase, Error, A](x)
@@ -79,7 +77,7 @@ final case class Aggregate[E, C, D] (
       ((e: Boolean) => StateT[EventDatabaseWithFailure, AggregateState[D], Unit](
          vs => {
            if (e) XorT.left[EventDatabase, Error, (AggregateState[D], Unit)](Free.pure(ErrorExistsAlready(id)))
-           else writeEvents(id, VersionedEvents[E](1, List())).map(_ => (vs.copy(id = id), ()))
+           else appendEvents(id, VersionedEvents[E](1, List())).map(_ => (vs.copy(id = id), ()))
        }))
 
   def handleCommand(cmd: C): AD[Unit] = {
@@ -102,7 +100,7 @@ final case class Aggregate[E, C, D] (
     StateT[EventDatabaseWithFailure, AggregateState[D], List[VersionedEvents[E]]](
       vs => {
         val vevs = VersionedEvents[E](vs.version+1, evs)
-        writeEvents(vs.id, vevs).map(_ => (vs, List(vevs)))
+        appendEvents(vs.id, vevs).map(_ => (vs, List(vevs)))
       }) >>=
       (applyEvents _)
 
