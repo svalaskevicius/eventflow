@@ -61,7 +61,7 @@ object InMemoryDb {
         println("reading from DB: '" + fa + "'... "+database)
         val d = readFromDb[E](database, id, version)
         println("result: " + d)
-        (database, d.asInstanceOf[A]) // TODO: why is this hack needed for scala?
+        (database, d.asInstanceOf[A]) // TODO: why is this hack needed?
       })
       case AppendAggregateEvents(id, events) => State((database: DbBackend[E]) => {
         println("writing to DB: '" + fa + "'... "+database)
@@ -69,7 +69,7 @@ object InMemoryDb {
         println("result: " + d)
         d.fold[(DbBackend[E], Error Xor Unit)](
           (err: Error) => (database, Xor.left[Error, Unit](err)),
-          (db: DbBackend[Any]) => (db.asInstanceOf[DbBackend[E]], Xor.right[Error, Unit](())) // another scala's quirk?
+          (db: DbBackend[Any]) => (db.asInstanceOf[DbBackend[E]], Xor.right[Error, Unit](())) // TODO: another quirk (Any in param)?
         )
       })
     }

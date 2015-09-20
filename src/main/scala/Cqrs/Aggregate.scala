@@ -82,8 +82,8 @@ final case class Aggregate[E, C, D] (
 
   def handleCommand(cmd: C): AD[Unit] = {
     import StateT._
-    // WOAH this is SPARTA!!!
-      (cats.syntax.flatMap.flatMapSyntax[AD, Unit](
+    // WOAH this is SPARTA!!! (TODO)
+      (flatMapSyntax[AD, Unit](
          StateT[EventDatabaseWithFailure, AggregateState[D], List[VersionedEvents[E]]](
            vs => readNewEvents[E](vs.id, vs.version).map((vs, _))
          ) >>=
