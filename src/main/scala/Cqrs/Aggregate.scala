@@ -63,7 +63,9 @@ final case class Aggregate[E, C, D] (
 ) {
   import Aggregate._
 
+  type ADStateRun[A] = AggregateState[D] => EventDatabaseWithFailure[(AggregateState[D], A)]
   type AD[A] = AggregateDef[D, A]
+  def AD[A](a: ADStateRun[A]) : AD[A] = StateT[EventDatabaseWithFailure, AggregateState[D], A](a)
 
   type Events = List[E]
   type CommandHandler = C => D => Aggregate.Error Xor Events
@@ -82,9 +84,7 @@ final case class Aggregate[E, C, D] (
 
   def handleCommand(cmd: C): AD[Unit] = {
     for {
-      events <- StateT[EventDatabaseWithFailure, AggregateState[D], List[VersionedEvents[E]]](
-        vs => readNewEvents[E](vs.id, vs.version).map((vs, _))
-      )
+      events <- AD(vs => readNewEvents[E](vs.id, vs.version).map((vs, _)))
       _ <- applyEvents(events)
       resultEvents <- handleCmd(cmd)
       _ <- onEvents(resultEvents)
