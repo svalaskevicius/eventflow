@@ -81,15 +81,14 @@ final case class Aggregate[E, C, D] (
        }))
 
   def handleCommand(cmd: C): AD[Unit] = {
-    import StateT._
-    // WOAH this is SPARTA!!! (TODO)
-      (flatMapSyntax[AD, Unit](
-         StateT[EventDatabaseWithFailure, AggregateState[D], List[VersionedEvents[E]]](
-           vs => readNewEvents[E](vs.id, vs.version).map((vs, _))
-         ) >>=
-        (applyEvents _)) >>
-       handleCmd(cmd)) >>=
-      (onEvents _)
+    for {
+      events <- StateT[EventDatabaseWithFailure, AggregateState[D], List[VersionedEvents[E]]](
+        vs => readNewEvents[E](vs.id, vs.version).map((vs, _))
+      )
+      _ <- applyEvents(events)
+      resultEvents <- handleCmd(cmd)
+      _ <- onEvents(resultEvents)
+    } yield (())
   }
 
   private def handleCmd(cmd: C): AD[Events] = StateT[EventDatabaseWithFailure, AggregateState[D], Events](vs =>
