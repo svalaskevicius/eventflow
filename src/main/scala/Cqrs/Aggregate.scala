@@ -33,21 +33,16 @@ object Aggregate {
   final case class AggregateState[D](id: AggregateId, state: D, version: Int)
   type AggregateDef[D, A] = StateT[EventDatabaseWithFailure, AggregateState[D], A]
 
+  def lift[A](a: EventDatabaseOp[Error Xor A]): EventDatabaseWithFailure[A] =
+    XorT[EventDatabase, Error, A](liftF[EventDatabaseOp, Error Xor A](a))
 
-  def doesAggregateExist(id: AggregateId): EventDatabaseWithFailure[Boolean] =
-    XorT[EventDatabase, Error, Boolean](
-      liftF(ReadAggregateExistance(id))
-    )
+  def doesAggregateExist(id: AggregateId): EventDatabaseWithFailure[Boolean] = lift(ReadAggregateExistance(id))
 
   def readNewEvents[E](id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[List[VersionedEvents[E]]] =
-    XorT[EventDatabase, Error, List[VersionedEvents[E]]](
-      liftF[EventDatabaseOp, Error Xor List[VersionedEvents[E]]](ReadAggregate[E](id, fromVersion))
-    )
+      lift(ReadAggregate[E](id, fromVersion))
 
   def appendEvents[E](id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[Unit] =
-    XorT[EventDatabase, Error, Unit](
-      liftF[EventDatabaseOp, Error Xor Unit](AppendAggregateEvents(id, events))
-    )
+      lift(AppendAggregateEvents(id, events))
 
   def pure[A](x: A): EventDatabaseWithFailure[A] = XorT.pure[EventDatabase, Error, A](x)
 
