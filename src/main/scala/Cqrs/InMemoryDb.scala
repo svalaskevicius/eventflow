@@ -31,6 +31,13 @@ object InMemoryDb {
     )
   }
 
+  def readExistanceFromDb[E](database: DbBackend[E], id: AggregateId): Error Xor Boolean = {
+    val doesNotExist = readFromDb[E](database, id, 0).
+      map { _ => false }.
+      recover({case ErrorDoesNotExist(_) => true})
+    doesNotExist.map[Boolean](!_)
+  }
+
   def addToDb[E](database: DbBackend[E], id: AggregateId, events: VersionedEvents[E]): Error Xor DbBackend[E] = {
     val currentEvents = database.get(id)
     val currentVersion = currentEvents.fold(0)(e => if (e.isEmpty) 0 else e.lastKey)
@@ -52,10 +59,9 @@ object InMemoryDb {
     def apply[A](fa: EventDatabaseOp[A]): Db[E, A] = fa match {
       case ReadAggregateExistance(id) => State(database => {
         println("reading existance from DB: '" + fa + "'... "+database)
-        val doesNotExist = readFromDb[E](database, id, 0).map(_ => false).recover({case ErrorDoesNotExist(_) => true})
-        val exists = doesNotExist.map(!_)
+        val exists = readExistanceFromDb(database, id);
         println("result: " + exists)
-        (database, exists.asInstanceOf[A])
+        (database, exists.asInstanceOf[A]) // TODO: remove cast
       })
       case ReadAggregate(id, version) => State(database => {
         println("reading from DB: '" + fa + "'... "+database)
