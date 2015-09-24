@@ -91,7 +91,7 @@ final case class Aggregate[E, C, D] (
 
   private def onEvents(evs: Events): AD[Unit] =
     AD(vs => {
-         val vevs = VersionedEvents[E](vs.version+1, evs)
+         val vevs = VersionedEvents[E](vs.version + 1, evs)
          appendEvents(vs.id, vevs).map(_ => (vs, List(vevs)))
        }) >>=
       (applyEvents _)

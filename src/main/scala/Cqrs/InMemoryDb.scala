@@ -61,7 +61,7 @@ object InMemoryDb {
         println("reading existance from DB: '" + fa + "'... "+database)
         val exists = readExistanceFromDb(database, id);
         println("result: " + exists)
-        (database, exists.asInstanceOf[A]) // TODO: remove cast
+        (database, exists)
       })
       case ReadAggregate(id, version) => State(database => {
         println("reading from DB: '" + fa + "'... "+database)
@@ -71,11 +71,11 @@ object InMemoryDb {
       })
       case AppendAggregateEvents(id, events) => State((database: DbBackend[E]) => {
         println("writing to DB: '" + fa + "'... "+database)
-        val d = addToDb(database, id, events)
+        val d = addToDb[E](database, id, events.asInstanceOf[VersionedEvents[E]])
         println("result: " + d)
         d.fold[(DbBackend[E], Error Xor Unit)](
-          (err: Error) => (database, Xor.left[Error, Unit](err)),
-          (db: DbBackend[Any]) => (db.asInstanceOf[DbBackend[E]], Xor.right[Error, Unit](())) // TODO: another quirk (Any in param)?
+          err => (database, Xor.left[Error, Unit](err)),
+          db => (db, Xor.right[Error, Unit](()))
         )
       })
     }
