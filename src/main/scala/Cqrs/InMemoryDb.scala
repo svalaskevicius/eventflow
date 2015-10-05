@@ -16,29 +16,29 @@ object InMemoryDb {
 
   import Aggregate._
 
-  type DbBackend[E] = TreeMap[AggregateId, TreeMap[Int, List[E]]]
-  type Db[E, A] = State[DbBackend[E], A]
+  type DbBackend = TreeMap[AggregateId, TreeMap[Int, List[Event]]]
+  type Db[A] = State[DbBackend, A]
 
-  def newDb[E](): DbBackend[E] = new TreeMap()
+  def newDb(): DbBackend = new TreeMap()
 
-  def readFromDb[E](database: DbBackend[E], id: AggregateId, fromVersion: Int): Error Xor List[VersionedEvents[E]] = {
-    database.get(id).fold[Error Xor List[VersionedEvents[E]]](
+  def readFromDb(database: DbBackend, id: AggregateId, fromVersion: Int): Error Xor List[VersionedEvents] = {
+    database.get(id).fold[Error Xor List[VersionedEvents]](
       Xor.left(ErrorDoesNotExist(id))
     )(
-      (evs: TreeMap[Int, List[E]]) => Xor.right(
-        evs.from(fromVersion + 1).toList.map(v => VersionedEvents[E](v._1, v._2))
+      (evs: TreeMap[Int, List[Event]]) => Xor.right(
+        evs.from(fromVersion + 1).toList.map(v => VersionedEvents(v._1, v._2))
       )
     )
   }
 
-  def readExistanceFromDb[E](database: DbBackend[E], id: AggregateId): Error Xor Boolean = {
-    val doesNotExist = readFromDb[E](database, id, 0).
+  def readExistanceFromDb(database: DbBackend, id: AggregateId): Error Xor Boolean = {
+    val doesNotExist = readFromDb(database, id, 0).
       map { _ => false }.
       recover({case ErrorDoesNotExist(_) => true})
     doesNotExist.map[Boolean](!_)
   }
 
-  def addToDb[E](database: DbBackend[E], id: AggregateId, events: VersionedEvents[E]): Error Xor DbBackend[E] = {
+  def addToDb(database: DbBackend, id: AggregateId, events: VersionedEvents): Error Xor DbBackend = {
     val currentEvents = database.get(id)
     val currentVersion = currentEvents.fold(0)(e => if (e.isEmpty) 0 else e.lastKey)
     if (currentVersion != events.version - 1) {
@@ -47,7 +47,7 @@ object InMemoryDb {
       Xor.right(
         database.updated(
           id,
-          currentEvents.fold(new TreeMap[Int, List[E]])(
+          currentEvents.fold(new TreeMap[Int, List[Event]])(
             _.updated(events.version, events.events)
           )
         )
@@ -55,8 +55,8 @@ object InMemoryDb {
     }
   }
 
-  def runInMemoryDb_[E]: EventDatabaseOp ~> Db[E, ?] = new (EventDatabaseOp ~> Db[E, ?]) {
-    def apply[A](fa: EventDatabaseOp[A]): Db[E, A] = fa match {
+  def runInMemoryDb_ = new (EventDatabaseOp ~> Db) {
+    def apply[A](fa: EventDatabaseOp[A]): Db[A] = fa match {
       case ReadAggregateExistance(id) => State(database => {
         println("reading existance from DB: '" + fa + "'... "+database)
         val exists = readExistanceFromDb(database, id);
@@ -65,15 +65,15 @@ object InMemoryDb {
       })
       case ReadAggregate(id, version) => State(database => {
         println("reading from DB: '" + fa + "'... "+database)
-        val d = readFromDb[E](database, id, version)
+        val d = readFromDb(database, id, version)
         println("result: " + d)
-        (database, d.asInstanceOf[A]) // TODO: why is this hack needed?
+        (database, d)
       })
-      case AppendAggregateEvents(id, events) => State((database: DbBackend[E]) => {
+      case AppendAggregateEvents(id, events) => State((database: DbBackend) => {
         println("writing to DB: '" + fa + "'... "+database)
-        val d = addToDb[E](database, id, events.asInstanceOf[VersionedEvents[E]])
+        val d = addToDb(database, id, events)
         println("result: " + d)
-        d.fold[(DbBackend[E], Error Xor Unit)](
+        d.fold[(DbBackend, Error Xor Unit)](
           err => (database, Xor.left[Error, Unit](err)),
           db => (db, Xor.right[Error, Unit](()))
         )
@@ -82,7 +82,7 @@ object InMemoryDb {
   }
 
 
-  def runInMemoryDb[A, E](database: DbBackend[E])(actions: EventDatabaseWithFailure[A]): Error Xor A =
-    actions.value.foldMap[Db[E, ?]](runInMemoryDb_).runA(database).run
+  def runInMemoryDb[A](database: DbBackend)(actions: EventDatabaseWithFailure[A]): Error Xor A =
+    actions.value.foldMap[Db](runInMemoryDb_).runA(database).run
 }
 

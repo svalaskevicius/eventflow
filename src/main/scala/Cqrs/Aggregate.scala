@@ -20,12 +20,13 @@ object Aggregate {
   final case class ErrorUnexpectedVersion(id: AggregateId, currentVersion: Int, targetVersion: Int) extends Error
   final case class ErrorCommandFailure(message: String) extends Error
 
-  final case class VersionedEvents[E](version: Int, events: List[E])
+  trait Event
+  final case class VersionedEvents(version: Int, events: List[Event])
 
   sealed trait EventDatabaseOp[A]
   final case class ReadAggregateExistance(id: AggregateId) extends EventDatabaseOp[Error Xor Boolean]
-  final case class ReadAggregate[E](id: AggregateId, fromVersion: Int) extends EventDatabaseOp[Error Xor List[VersionedEvents[E]]]
-  final case class AppendAggregateEvents[E](id: AggregateId, events: VersionedEvents[E]) extends EventDatabaseOp[Error Xor Unit]
+  final case class ReadAggregate(id: AggregateId, fromVersion: Int) extends EventDatabaseOp[Error Xor List[VersionedEvents]]
+  final case class AppendAggregateEvents(id: AggregateId, events: VersionedEvents) extends EventDatabaseOp[Error Xor Unit]
 
   type EventDatabase[A] = Free[EventDatabaseOp, A]
   type EventDatabaseWithFailure[A] = XorT[EventDatabase, Error, A]
@@ -38,23 +39,23 @@ object Aggregate {
 
   def doesAggregateExist(id: AggregateId): EventDatabaseWithFailure[Boolean] = lift(ReadAggregateExistance(id))
 
-  def readNewEvents[E](id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[List[VersionedEvents[E]]] =
-      lift(ReadAggregate[E](id, fromVersion))
+  def readNewEvents(id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[List[VersionedEvents]] =
+      lift(ReadAggregate(id, fromVersion))
 
-  def appendEvents[E](id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[Unit] =
+  def appendEvents(id: AggregateId, events: VersionedEvents): EventDatabaseWithFailure[Unit] =
       lift(AppendAggregateEvents(id, events))
 
   def pure[A](x: A): EventDatabaseWithFailure[A] = XorT.pure[EventDatabase, Error, A](x)
 
-  def emitEvent[E](ev: E): Error Xor List[E] = Xor.right(List(ev))
-  def emitEvents[E](evs: List[E]): Error Xor List[E] = Xor.right(evs)
+  def emitEvent(ev: Event): Error Xor List[Event] = Xor.right(List(ev))
+  def emitEvents(evs: List[Event]): Error Xor List[Event] = Xor.right(evs)
 
   def failCommand[Events](err: String): Error Xor Events = Xor.left(ErrorCommandFailure(err))
 }
 
-final case class Aggregate[E, C, D] (
-  on: Aggregate[E, C, D]#EventHandler,
-  handle: Aggregate[E, C, D]#CommandHandler
+final case class Aggregate[C, D] (
+  on: Aggregate[C, D]#EventHandler,
+  handle: Aggregate[C, D]#CommandHandler
 ) {
   import Aggregate._
 
@@ -62,9 +63,9 @@ final case class Aggregate[E, C, D] (
   type AD[A] = AggregateDef[D, A]
   def AD[A](a: ADStateRun[A]) : AD[A] = StateT[EventDatabaseWithFailure, AggregateState[D], A](a)
 
-  type Events = List[E]
+  type Events = List[Event]
   type CommandHandler = C => D => Aggregate.Error Xor Events
-  type EventHandler = E => D => D
+  type EventHandler = Event => D => D
 
   def liftToAggregateDef[A](f: EventDatabaseWithFailure[A]): AD[A] = AD(s => f.map((s, _)))
 
@@ -73,12 +74,12 @@ final case class Aggregate[E, C, D] (
       ((e: Boolean) => AD(
          vs => {
            if (e) XorT.left[EventDatabase, Error, (AggregateState[D], Unit)](Free.pure(ErrorExistsAlready(id)))
-           else appendEvents(id, VersionedEvents[E](1, List())).map(_ => (vs.copy(id = id), ()))
+           else appendEvents(id, VersionedEvents(1, List())).map(_ => (vs.copy(id = id), ()))
        }))
 
   def handleCommand(cmd: C): AD[Unit] = {
     for {
-      events <- AD(vs => readNewEvents[E](vs.id, vs.version).map((vs, _)))
+      events <- AD(vs => readNewEvents(vs.id, vs.version).map((vs, _)))
       _ <- applyEvents(events)
       resultEvents <- handleCmd(cmd)
       _ <- onEvents(resultEvents)
@@ -91,12 +92,12 @@ final case class Aggregate[E, C, D] (
 
   private def onEvents(evs: Events): AD[Unit] =
     AD(vs => {
-         val vevs = VersionedEvents[E](vs.version + 1, evs)
+         val vevs = VersionedEvents(vs.version + 1, evs)
          appendEvents(vs.id, vevs).map(_ => (vs, List(vevs)))
        }) >>=
       (applyEvents _)
 
-  private def applyEvents(evs: List[VersionedEvents[E]]): AD[Unit] =
+  private def applyEvents(evs: List[VersionedEvents]): AD[Unit] =
     AD(vs => {
          println("Applying events on aggregate: " + evs)
          val vs_ = evs.foldLeft(vs)((vs_, ve) => {
