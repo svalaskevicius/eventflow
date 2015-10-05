@@ -55,8 +55,8 @@ object InMemoryDb {
     }
   }
 
-  def runInMemoryDb_[E]: EventDatabaseOp ~> Db[E, ?] = new (EventDatabaseOp ~> Db[E, ?]) {
-    def apply[A](fa: EventDatabaseOp[A]): Db[E, A] = fa match {
+  def runInMemoryDb_[E]: EventDatabaseOp[E, ?] ~> Db[E, ?] = new (EventDatabaseOp[E, ?] ~> Db[E, ?]) {
+    def apply[A](fa: EventDatabaseOp[E, A]): Db[E, A] = fa match {
       case ReadAggregateExistance(id) => State(database => {
         println("reading existance from DB: '" + fa + "'... "+database)
         val exists = readExistanceFromDb(database, id);
@@ -82,7 +82,7 @@ object InMemoryDb {
   }
 
 
-  def runInMemoryDb[A, E](database: DbBackend[E])(actions: EventDatabaseWithFailure[A]): Error Xor A =
+  def runInMemoryDb[A, E](database: DbBackend[E])(actions: EventDatabaseWithFailure[E, A]): Error Xor A =
     actions.value.foldMap[Db[E, ?]](runInMemoryDb_).runA(database).run
 }
 
