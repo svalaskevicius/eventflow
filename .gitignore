@@ -1,3 +1,4 @@
 target/
 /.ensime
+/project/.ensime
 /.ensime_cache/
