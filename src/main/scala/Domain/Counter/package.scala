@@ -5,7 +5,8 @@ import cats.data.{Xor, XorT}
 import cats.syntax.flatMap._
 
 package Counter {
-  sealed trait Event
+  sealed trait Event extends Aggregate.Event
+
   final case class Created(id: String) extends Event
   case object Incremented extends Event
   case object Decremented extends Event
@@ -16,7 +17,7 @@ package Counter {
   case object Decrement extends Command
 }
 
-package object Counter extends EventFlow[Counter.Command, Counter.Event] {
+package object Counter extends EventFlow[Counter.Command] {
 
   import Cqrs.Aggregate._
 

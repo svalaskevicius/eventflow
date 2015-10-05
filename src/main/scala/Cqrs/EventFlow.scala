@@ -6,9 +6,9 @@ import cats._
 import cats.free.Free
 import cats.free.Free.liftF
 
-class EventFlow[Cmd, Evt] {
-  type CommandH = PartialFunction[Cmd, Aggregate.Error Xor List[Evt]]
-  type EventH[A] = PartialFunction[Evt, A]
+class EventFlow[Cmd] {
+  type CommandH = PartialFunction[Cmd, Aggregate.Error Xor List[Aggregate.Event]]
+  type EventH[A] = PartialFunction[Aggregate.Event, A]
 
   sealed trait FlowF[+Next]
   case class SetCommandHandler[Next](cmdh: CommandH, next: Next) extends FlowF[Next]
@@ -25,9 +25,9 @@ class EventFlow[Cmd, Evt] {
 
   def handler(ch: CommandH): Flow[Unit] = liftF(SetCommandHandler(ch, ()))
   def waitFor[A](eh: EventH[A]): Flow[A] = liftF(EventHandler[A, A](eh, identity))
-  def runForever(): Flow[Unit] = waitFor(PartialFunction.empty[Evt, Unit])
+  def runForever(): Flow[Unit] = waitFor(PartialFunction.empty[Aggregate.Event, Unit])
 
-  case class EventStreamConsumer(cmdh: CommandH, evh: Evt => Option[EventStreamConsumer])
+  case class EventStreamConsumer(cmdh: CommandH, evh: Aggregate.Event => Option[EventStreamConsumer])
 
   def esRunnerCompiler[A](initCmdH: CommandH)(esRunner: Flow[A]): Option[EventStreamConsumer] =
     esRunner.fold(
@@ -37,14 +37,14 @@ class EventFlow[Cmd, Evt] {
         case EventHandler(evth, cont) => {
           lazy val self: EventStreamConsumer = EventStreamConsumer(
             initCmdH,
-            (ev: Evt) => evth.lift(ev) map (cont andThen esRunnerCompiler(initCmdH)) getOrElse Some(self)
+            (ev: Aggregate.Event) => evth.lift(ev) map (cont andThen esRunnerCompiler(initCmdH)) getOrElse Some(self)
           )
           Some(self)
         }
       }
     )
 
-  type Aggregate = Cqrs.Aggregate[Evt, Cmd, List[EventStreamConsumer]]
+  type Aggregate = Cqrs.Aggregate[Cmd, List[EventStreamConsumer]]
   type EAD[A] = Cqrs.Aggregate.AggregateDef[List[EventStreamConsumer], A]
 
   case object ErrorCannotFindHandler extends Aggregate.Error
@@ -52,8 +52,8 @@ class EventFlow[Cmd, Evt] {
   def newAggregate() : Aggregate =
     Aggregate(
       on = e => d => (d map (consumer => consumer.evh(e))).map(Option.option2Iterable _).flatten,
-      handle = c => d => d.foldLeft(None: Option[Aggregate.Error Xor List[Evt]])(
-        (prev:Option[Aggregate.Error Xor List[Evt]], consumer) => prev match {
+      handle = c => d => d.foldLeft(None: Option[Aggregate.Error Xor List[Aggregate.Event]])(
+        (prev:Option[Aggregate.Error Xor List[Aggregate.Event]], consumer) => prev match {
           case Some(_) => prev
           case None => consumer.cmdh.lift(c)
         }
