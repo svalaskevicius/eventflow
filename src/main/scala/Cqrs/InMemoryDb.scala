@@ -67,11 +67,11 @@ object InMemoryDb {
         println("reading from DB: '" + fa + "'... "+database)
         val d = readFromDb[E](database, id, version)
         println("result: " + d)
-        (database, d.asInstanceOf[A]) // TODO: why is this hack needed?
+        (database, d)
       })
       case AppendAggregateEvents(id, events) => State((database: DbBackend[E]) => {
         println("writing to DB: '" + fa + "'... "+database)
-        val d = addToDb[E](database, id, events.asInstanceOf[VersionedEvents[E]])
+        val d = addToDb[E](database, id, events)
         println("result: " + d)
         d.fold[(DbBackend[E], Error Xor Unit)](
           err => (database, Xor.left[Error, Unit](err)),
