@@ -50,11 +50,7 @@ object Aggregate {
   implicit def eventDatabaseWithFailureMonad[E]: MonadError[EventDatabaseWithAnyFailure[E, ?, ?], Error] = XorT.xorTMonadError[EventDatabase[E, ?], Error]
   implicit def aggregateDefMonad[E, D]: MonadState[AggregateDefAnyD[E, ?, ?], AggregateState[D]] = StateT.stateTMonadState[EventDatabaseWithFailure[E, ?], AggregateState[D]]
 
-  def pure[E, A](x: A): EventDatabaseWithFailure[E, A] = {
-//    import Free.freeMonad
-//    val a = freeMonad[EventDatabaseOp[E, ?]]
-    XorT.pure[EventDatabase[E, ?], Error, A](x)
-  }
+  def pure[E, A](x: A): EventDatabaseWithFailure[E, A] = eventDatabaseWithFailureMonad[E].pure(x)
 
   def emitEvent[E](ev: E): Error Xor List[E] = Xor.right(List(ev))
   def emitEvents[E](evs: List[E]): Error Xor List[E] = Xor.right(evs)
