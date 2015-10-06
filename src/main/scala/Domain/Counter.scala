@@ -36,7 +36,7 @@ object Counter {
     waitFor {case Created(_) => ()} >> countingLogic(0)
   )
 
-  def newCounter(id: AggregateId): EAD[Aggregate] = {
+  def newCounter(id: AggregateId): EAD[FlowAggregate] = {
     val c = newAggregate
     c.initAggregate(id) >> c.handleCommand(Create(id)) >> c.liftToAggregateDef(pure(c))
   }
