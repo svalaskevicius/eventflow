@@ -18,6 +18,7 @@ object Counter {
 
   val flow = new EventFlow[Command, Event]
   import flow._
+  type CounterAggregate = FlowAggregate
 
   def countingLogic(c: Int): Flow[Unit] =
     handler {
@@ -41,5 +42,5 @@ object Counter {
     c.initAggregate(id) >> c.handleCommand(Create(id)) >> c.liftToAggregateDef(pure(c))
   }
 
-  def runCounter[A] = runFlow[A](aggregateLogic) _
+  def startCounter[A] = startFlow[A](aggregateLogic) _
 }

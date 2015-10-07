@@ -64,9 +64,9 @@ class EventFlow[Cmd, Evt] {
 
   import Aggregate._
 
-  def runFlow[A](aggregateLogic: List[Flow[Unit]])(aggregate: EAD[A]): EventDatabaseWithFailure[Evt, (AggregateState[List[EventStreamConsumer]], A)] = {
+  def startFlow[A](aggregateLogic: List[Flow[Unit]])(aggregate: EAD[A]): StatefulEventDatabaseWithFailure[Evt, List[EventStreamConsumer], A] = {
     val initState = (aggregateLogic map esRunnerCompiler(PartialFunction.empty)).map(Option.option2Iterable _).flatten
-    aggregate.run(AggregateState(emptyAggregateId, initState, 0))
+    runAggregateFromStart(aggregate, initState)
   }
 }
 

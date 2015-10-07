@@ -82,7 +82,9 @@ object InMemoryDb {
   }
 
 
-  def runInMemoryDb[A, E](database: DbBackend[E])(actions: EventDatabaseWithFailure[E, A]): Error Xor A =
-    actions.value.foldMap[Db[E, ?]](runInMemoryDb_).runA(database).run
+  def runInMemoryDb[E, A](database: DbBackend[E])(actions: EventDatabaseWithFailure[E, A]): Error Xor (DbBackend[E], A) = {
+    val (db, r) = actions.value.foldMap[Db[E, ?]](runInMemoryDb_).run(database).run
+    r map ((db, _))
+  }
 }
 

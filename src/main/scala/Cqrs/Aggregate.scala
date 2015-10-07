@@ -56,6 +56,15 @@ object Aggregate {
   def emitEvents[E](evs: List[E]): Error Xor List[E] = Xor.right(evs)
 
   def failCommand[Events](err: String): Error Xor Events = Xor.left(ErrorCommandFailure(err))
+
+  type StatefulEventDatabaseWithFailure[E, D, A] = EventDatabaseWithFailure[E, (AggregateState[D], A)]
+
+  def runAggregateFromStart[E, D, A](a: AggregateDef[E, D, A], initState: D): StatefulEventDatabaseWithFailure[E, D, A] =
+    a.run(AggregateState(emptyAggregateId, initState, 0))
+
+  def continueAggregate[E, D, A](a: AggregateDef[E, D, A], state: AggregateState[D]): StatefulEventDatabaseWithFailure[E, D, A] =
+    a.run(state)
+
 }
 
 final case class Aggregate[E, C, D] (
@@ -64,6 +73,7 @@ final case class Aggregate[E, C, D] (
 ) {
   import Aggregate._
 
+  type State = AggregateState[D]
   type ADStateRun[A] = AggregateState[D] => EventDatabaseWithFailure[E, (AggregateState[D], A)]
   type AD[A] = AggregateDef[E, D, A]
   def AD[A](a: ADStateRun[A]) : AD[A] = StateT[EventDatabaseWithFailure[E, ?], AggregateState[D], A](a)
