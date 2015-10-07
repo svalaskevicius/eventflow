@@ -42,5 +42,5 @@ object Counter {
     c.initAggregate(id) >> c.handleCommand(Create(id)) >> c.liftToAggregateDef(pure(c))
   }
 
-  def startCounter[A] = startFlow[A](aggregateLogic) _
+  def startCounter = startFlow[FlowAggregate](aggregateLogic) _ compose (newCounter _)
 }
