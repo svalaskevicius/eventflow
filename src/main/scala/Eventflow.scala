@@ -1,8 +1,9 @@
 
 import Domain.Counter._
+import Domain.CounterProjection
+import Domain.CounterProjection._
 import Cqrs.InMemoryDb._
 import Cqrs.Aggregate._
-import Cqrs.CounterProjection
 
 object Eventflow {
 
