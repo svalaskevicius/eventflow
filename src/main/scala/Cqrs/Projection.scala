@@ -12,7 +12,7 @@ object Projection {
   }
 
   def applyNewEventsFromDbToProjection[E, D](db: DbBackend[E], initialProjection: Projection[D])(implicit handler: Handler[E, D]): Projection[D] = {
-    val prefix = handler.hashPrefix
+    val prefix = handler.hashPrefix + "_"
     println("====== vv =====.... " + handler.hashPrefix)
 
     def applyNewEventsToData(data: D, aggregateId: AggregateId, events: TreeMap[Int, List[E]]) = {

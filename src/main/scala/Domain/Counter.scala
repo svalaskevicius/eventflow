@@ -58,7 +58,7 @@ object CounterProjection {
 
     import Counter._
 
-    def hashPrefix = "Counter_"
+    def hashPrefix = "Counter"
 
     def handle(id: AggregateId, e: Event, d: Data) = e match {
       case Created(id) => println ("created "+id) ; d
