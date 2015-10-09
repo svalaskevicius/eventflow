@@ -124,7 +124,5 @@ final case class Aggregate[E, C, D] (
                                     })
          eventDatabaseWithFailureMonad[E].pure((vs_, ()))
        })
-
-  def continue[A](actions: Aggregate[E, C, D] => AD[A], state: State) = continueAggregate(actions(this), state)
 }
 
