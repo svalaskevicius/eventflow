@@ -22,34 +22,49 @@ object Aggregate {
 
   final case class VersionedEvents[E](version: Int, events: List[E])
 
-  sealed trait EventDatabaseOp[A]
-  final case class ReadAggregateExistance(id: AggregateId) extends EventDatabaseOp[Error Xor Boolean]
-  final case class ReadAggregate[E](id: AggregateId, fromVersion: Int) extends EventDatabaseOp[Error Xor List[VersionedEvents[E]]]
-  final case class AppendAggregateEvents[E](id: AggregateId, events: VersionedEvents[E]) extends EventDatabaseOp[Error Xor Unit]
+  sealed trait EventDatabaseOp[E, A]
+  final case class ReadAggregateExistance[E](id: AggregateId) extends EventDatabaseOp[E, Error Xor Boolean]
+  final case class ReadAggregate[E](id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor List[VersionedEvents[E]]]
+  final case class AppendAggregateEvents[E](id: AggregateId, events: VersionedEvents[E]) extends EventDatabaseOp[E, Error Xor Unit]
 
-  type EventDatabase[A] = Free[EventDatabaseOp, A]
-  type EventDatabaseWithFailure[A] = XorT[EventDatabase, Error, A]
+  type EventDatabase[E, A] = Free[EventDatabaseOp[E, ?], A]
+  type EventDatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabase[E, ?], Err, A]
+  type EventDatabaseWithFailure[E, A] = EventDatabaseWithAnyFailure[E, Error, A]
 
   final case class AggregateState[D](id: AggregateId, state: D, version: Int)
-  type AggregateDef[D, A] = StateT[EventDatabaseWithFailure, AggregateState[D], A]
+  type AggregateDefAnyD[E, D, A] = StateT[EventDatabaseWithFailure[E, ?], D, A]
+  type AggregateDef[E, D, A] = AggregateDefAnyD[E, AggregateState[D], A]
 
-  def lift[A](a: EventDatabaseOp[Error Xor A]): EventDatabaseWithFailure[A] =
-    XorT[EventDatabase, Error, A](liftF[EventDatabaseOp, Error Xor A](a))
+  def lift[E, A](a: EventDatabaseOp[E, Error Xor A]): EventDatabaseWithFailure[E, A] =
+    XorT[EventDatabase[E, ?], Error, A](liftF[EventDatabaseOp[E, ?], Error Xor A](a))
 
-  def doesAggregateExist(id: AggregateId): EventDatabaseWithFailure[Boolean] = lift(ReadAggregateExistance(id))
+  def doesAggregateExist[E](id: AggregateId): EventDatabaseWithFailure[E, Boolean] = lift(ReadAggregateExistance[E](id))
 
-  def readNewEvents[E](id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[List[VersionedEvents[E]]] =
+  def readNewEvents[E](id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[E, List[VersionedEvents[E]]] =
       lift(ReadAggregate[E](id, fromVersion))
 
-  def appendEvents[E](id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[Unit] =
+  def appendEvents[E](id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[E, Unit] =
       lift(AppendAggregateEvents(id, events))
 
-  def pure[A](x: A): EventDatabaseWithFailure[A] = XorT.pure[EventDatabase, Error, A](x)
+  implicit def eventDatabaseMonad[E]: Monad[EventDatabase[E, ?]] = Free.freeMonad[EventDatabaseOp[E, ?]]
+  implicit def eventDatabaseWithFailureMonad[E]: MonadError[EventDatabaseWithAnyFailure[E, ?, ?], Error] = XorT.xorTMonadError[EventDatabase[E, ?], Error]
+  implicit def aggregateDefMonad[E, D]: MonadState[AggregateDefAnyD[E, ?, ?], AggregateState[D]] = StateT.stateTMonadState[EventDatabaseWithFailure[E, ?], AggregateState[D]]
+
+  def pure[E, A](x: A): EventDatabaseWithFailure[E, A] = eventDatabaseWithFailureMonad[E].pure(x)
 
   def emitEvent[E](ev: E): Error Xor List[E] = Xor.right(List(ev))
   def emitEvents[E](evs: List[E]): Error Xor List[E] = Xor.right(evs)
 
   def failCommand[Events](err: String): Error Xor Events = Xor.left(ErrorCommandFailure(err))
+
+  type StatefulEventDatabaseWithFailure[E, D, A] = EventDatabaseWithFailure[E, (AggregateState[D], A)]
+
+  def runAggregateFromStart[E, D, A](a: AggregateDef[E, D, A], initState: D): StatefulEventDatabaseWithFailure[E, D, A] =
+    a.run(AggregateState(emptyAggregateId, initState, 0))
+
+  def continueAggregate[E, D, A](a: AggregateDef[E, D, A], state: AggregateState[D]): StatefulEventDatabaseWithFailure[E, D, A] =
+    a.run(state)
+
 }
 
 final case class Aggregate[E, C, D] (
@@ -58,21 +73,22 @@ final case class Aggregate[E, C, D] (
 ) {
   import Aggregate._
 
-  type ADStateRun[A] = AggregateState[D] => EventDatabaseWithFailure[(AggregateState[D], A)]
-  type AD[A] = AggregateDef[D, A]
-  def AD[A](a: ADStateRun[A]) : AD[A] = StateT[EventDatabaseWithFailure, AggregateState[D], A](a)
+  type State = AggregateState[D]
+  type ADStateRun[A] = AggregateState[D] => EventDatabaseWithFailure[E, (AggregateState[D], A)]
+  type AD[A] = AggregateDef[E, D, A]
+  def AD[A](a: ADStateRun[A]) : AD[A] = StateT[EventDatabaseWithFailure[E, ?], AggregateState[D], A](a)
 
   type Events = List[E]
   type CommandHandler = C => D => Aggregate.Error Xor Events
   type EventHandler = E => D => D
 
-  def liftToAggregateDef[A](f: EventDatabaseWithFailure[A]): AD[A] = AD(s => f.map((s, _)))
+  def liftToAggregateDef[A](f: EventDatabaseWithFailure[E, A]): AD[A] = AD(s => f.map((s, _)))
 
   def initAggregate(id: AggregateId): AD[Unit] =
     liftToAggregateDef (doesAggregateExist(id)) >>=
       ((e: Boolean) => AD(
          vs => {
-           if (e) XorT.left[EventDatabase, Error, (AggregateState[D], Unit)](Free.pure(ErrorExistsAlready(id)))
+           if (e) XorT.left[EventDatabase[E, ?], Error, (AggregateState[D], Unit)](eventDatabaseMonad[E].pure(ErrorExistsAlready(id)))
            else appendEvents(id, VersionedEvents[E](1, List())).map(_ => (vs.copy(id = id), ()))
        }))
 
@@ -86,7 +102,7 @@ final case class Aggregate[E, C, D] (
   }
 
   private def handleCmd(cmd: C): AD[Events] = AD(vs =>
-    XorT.fromXor[EventDatabase][Error, Events](handle(cmd)(vs.state)).map((vs, _))
+    XorT.fromXor[EventDatabase[E, ?]][Error, Events](handle(cmd)(vs.state)).map((vs, _))
   )
 
   private def onEvents(evs: Events): AD[Unit] =
@@ -106,7 +122,9 @@ final case class Aggregate[E, C, D] (
                                         vs_
                                       }
                                     })
-         XorT.pure((vs_, ()))
+         eventDatabaseWithFailureMonad[E].pure((vs_, ()))
        })
+
+  def continue[A](actions: Aggregate[E, C, D] => AD[A], state: State) = continueAggregate(actions(this), state)
 }
 

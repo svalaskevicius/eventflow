@@ -55,8 +55,8 @@ object InMemoryDb {
     }
   }
 
-  def runInMemoryDb_[E]: EventDatabaseOp ~> Db[E, ?] = new (EventDatabaseOp ~> Db[E, ?]) {
-    def apply[A](fa: EventDatabaseOp[A]): Db[E, A] = fa match {
+  def runInMemoryDb_[E]: EventDatabaseOp[E, ?] ~> Db[E, ?] = new (EventDatabaseOp[E, ?] ~> Db[E, ?]) {
+    def apply[A](fa: EventDatabaseOp[E, A]): Db[E, A] = fa match {
       case ReadAggregateExistance(id) => State(database => {
         println("reading existance from DB: '" + fa + "'... "+database)
         val exists = readExistanceFromDb(database, id);
@@ -67,11 +67,11 @@ object InMemoryDb {
         println("reading from DB: '" + fa + "'... "+database)
         val d = readFromDb[E](database, id, version)
         println("result: " + d)
-        (database, d.asInstanceOf[A]) // TODO: why is this hack needed?
+        (database, d)
       })
       case AppendAggregateEvents(id, events) => State((database: DbBackend[E]) => {
         println("writing to DB: '" + fa + "'... "+database)
-        val d = addToDb[E](database, id, events.asInstanceOf[VersionedEvents[E]])
+        val d = addToDb[E](database, id, events)
         println("result: " + d)
         d.fold[(DbBackend[E], Error Xor Unit)](
           err => (database, Xor.left[Error, Unit](err)),
@@ -82,7 +82,9 @@ object InMemoryDb {
   }
 
 
-  def runInMemoryDb[A, E](database: DbBackend[E])(actions: EventDatabaseWithFailure[A]): Error Xor A =
-    actions.value.foldMap[Db[E, ?]](runInMemoryDb_).runA(database).run
+  def runInMemoryDb[E, A](database: DbBackend[E])(actions: EventDatabaseWithFailure[E, A]): Error Xor (DbBackend[E], A) = {
+    val (db, r) = actions.value.foldMap[Db[E, ?]](runInMemoryDb_).run(database).run
+    r map ((db, _))
+  }
 }
 

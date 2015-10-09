@@ -1,10 +1,11 @@
 package Domain
 
 import Cqrs._
+import Cqrs.Aggregate._
 import cats.data.{Xor, XorT}
 import cats.syntax.flatMap._
 
-package Counter {
+object Counter {
   sealed trait Event
   final case class Created(id: String) extends Event
   case object Incremented extends Event
@@ -14,11 +15,10 @@ package Counter {
   final case class Create(id: String) extends Command
   case object Increment extends Command
   case object Decrement extends Command
-}
 
-package object Counter extends EventFlow[Counter.Command, Counter.Event] {
-
-  import Cqrs.Aggregate._
+  val flow = new EventFlow[Command, Event]
+  import flow._
+  type CounterAggregate = FlowAggregate
 
   def countingLogic(c: Int): Flow[Unit] =
     handler {
@@ -37,10 +37,10 @@ package object Counter extends EventFlow[Counter.Command, Counter.Event] {
     waitFor {case Created(_) => ()} >> countingLogic(0)
   )
 
-  def newCounter(id: Aggregate.AggregateId): EAD[Aggregate] = {
+  def newCounter(id: AggregateId): EAD[FlowAggregate] = {
     val c = newAggregate
     c.initAggregate(id) >> c.handleCommand(Create(id)) >> c.liftToAggregateDef(pure(c))
   }
 
-  def runCounter[A] = runFlow[A](aggregateLogic) _
+  def startCounter = startFlow[FlowAggregate](aggregateLogic) _ compose (newCounter _)
 }

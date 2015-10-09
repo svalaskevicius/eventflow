@@ -44,12 +44,12 @@ class EventFlow[Cmd, Evt] {
       }
     )
 
-  type Aggregate = Cqrs.Aggregate[Evt, Cmd, List[EventStreamConsumer]]
-  type EAD[A] = Cqrs.Aggregate.AggregateDef[List[EventStreamConsumer], A]
+  type FlowAggregate = Aggregate[Evt, Cmd, List[EventStreamConsumer]]
+  type EAD[A] = Aggregate.AggregateDef[Evt, List[EventStreamConsumer], A]
 
   case object ErrorCannotFindHandler extends Aggregate.Error
 
-  def newAggregate() : Aggregate =
+  def newAggregate() : FlowAggregate =
     Aggregate(
       on = e => d => (d map (consumer => consumer.evh(e))).map(Option.option2Iterable _).flatten,
       handle = c => d => d.foldLeft(None: Option[Aggregate.Error Xor List[Evt]])(
@@ -62,9 +62,11 @@ class EventFlow[Cmd, Evt] {
       }
     )
 
-  def runFlow[A](aggregateLogic: List[Flow[Unit]])(aggregate: EAD[A]): Aggregate.EventDatabaseWithFailure[(Aggregate.AggregateState[List[EventStreamConsumer]], A)] = {
+  import Aggregate._
+
+  def startFlow[A](aggregateLogic: List[Flow[Unit]])(aggregate: EAD[A]): StatefulEventDatabaseWithFailure[Evt, List[EventStreamConsumer], A] = {
     val initState = (aggregateLogic map esRunnerCompiler(PartialFunction.empty)).map(Option.option2Iterable _).flatten
-    aggregate.run(Aggregate.AggregateState(Aggregate.emptyAggregateId, initState, 0))
+    runAggregateFromStart(aggregate, initState)
   }
 }
 
