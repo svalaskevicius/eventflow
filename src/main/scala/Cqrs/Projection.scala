@@ -23,7 +23,7 @@ import scala.collection.immutable.TreeMap
 import Domain.Counter
 
 object CounterProjection {
-  def empty = CounterProjection(new TreeMap(), CounterProjectionData(0))
+  def empty = CounterProjection(new TreeMap(), CounterProjectionData(new TreeMap()))
 
   trait Handler[E] {
     def hashPrefix: String
@@ -35,8 +35,8 @@ object CounterProjection {
     def hashPrefix = "Counter_"
     def handle(id: AggregateId, e: Event, d: CounterProjectionData) = e match {
       case Created(id) => println ("created "+id) ; d
-      case Incremented => println ("+1") ; d.copy(counter=d.counter+1)
-      case Decremented => println ("-1") ; d.copy(counter=d.counter-1)
+      case Incremented => println ("+1") ; d.copy(counters=d.counters.updated(id, d.counters.get(id).fold( 1)(_ + 1)))
+      case Decremented => println ("-1") ; d.copy(counters=d.counters.updated(id, d.counters.get(id).fold(-1)(_ - 1)))
     }
   }
 
@@ -63,7 +63,7 @@ object CounterProjection {
 
 }
 
-final case class CounterProjectionData(counter: Int) // todo: per aggregate
+final case class CounterProjectionData(counters: TreeMap[AggregateId, Int])
 final case class CounterProjection(readEvents: TreeMap[String, Int], data: CounterProjectionData) {
 
   import CounterProjection._
