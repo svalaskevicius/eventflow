@@ -1,6 +1,5 @@
 
 import Domain.Counter._
-import Domain.CounterProjection
 import Domain.CounterProjection._
 import Cqrs.InMemoryDb._
 import Cqrs.Aggregate._
@@ -37,7 +36,7 @@ object Eventflow {
   }
 
   def main(args: Array[String]) {
-    val proj = CounterProjection.empty
+    val proj = emptyCounterProjection
     val ret = for {
       r1 <- runInMemoryDb(newDb)(startCounter("test counter"))
       c = r1._2._2
