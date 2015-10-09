@@ -44,15 +44,21 @@ object CounterProjection {
     val handler = implicitly[Handler[E]]
     val prefix = handler.hashPrefix
     println("====== vv =====.... " + handler.hashPrefix)
-    db.foldLeft(initialProjection)((proj, farg) => {
-                        val aggregateId = farg._1
-                        val aggregateHash = prefix + aggregateId
-                        val fromVersion = proj.readEvents.get(aggregateHash).fold(0)(_ + 1)
-                        val newEvents = farg._2.from(fromVersion)
-                        val newData = newEvents.foldLeft(proj.data)((x1, x2) => x2._2.foldLeft(x1)((y1, y2) => handler.handle(aggregateId, y2, y1)))
-                        val newReadEvents = proj.readEvents.updated(aggregateHash, newEvents.lastKey)
-                        CounterProjection(newReadEvents, newData)
-                      })
+
+    def applyNewEventsToData(data: CounterProjectionData, aggregateId: AggregateId, events: TreeMap[Int, List[E]]) = {
+      events.foldLeft(data)((d, el) => el._2.foldLeft(d)((d_, event) => handler.handle(aggregateId, event, d_)))
+    }
+
+    def applyNewAggregateEvents(proj: CounterProjection, aggregateId: AggregateId, events: TreeMap[Int, List[E]]) = {
+      val aggregateHash = prefix + aggregateId
+      val fromVersion = proj.readEvents.get(aggregateHash).fold(0)(_ + 1)
+      val newEvents = events.from(fromVersion)
+      val newData = applyNewEventsToData(proj.data, aggregateId, newEvents)
+      val newReadEvents = proj.readEvents.updated(aggregateHash, newEvents.lastKey)
+      CounterProjection(newReadEvents, newData)
+    }
+
+    db.foldLeft(initialProjection)((proj, farg) => applyNewAggregateEvents(proj, farg._1, farg._2))
   }
 
 }
