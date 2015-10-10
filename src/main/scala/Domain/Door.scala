@@ -90,7 +90,7 @@ object DoorProjection {
     def hashPrefix = "Door"
 
     def handle(id: AggregateId, e: Event, d: Data) = e match {
-      case Registered(id) => println ("created "+id) ; d
+      case Registered(id) => println ("created "+id) ; d.updated(id, DoorProjection.Open)
       case Door.Closed => println ("closed") ; d.updated(id, DoorProjection.Closed)
       case Door.Opened => println ("opened") ; d.updated(id, DoorProjection.Open)
       case Door.Locked(key) => println ("locked") ; d.updated(id, DoorProjection.Locked(key))
