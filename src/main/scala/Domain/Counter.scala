@@ -44,3 +44,27 @@ object Counter {
 
   def startCounter = startFlow[FlowAggregate](aggregateLogic) _ compose (newCounter _)
 }
+
+
+import scala.collection.immutable.TreeMap
+
+object CounterProjection {
+
+  type Data = TreeMap[AggregateId, Int]
+
+  def emptyCounterProjection = Projection[Data](new TreeMap(), new TreeMap())
+
+  implicit object CounterHandler extends Projection.Handler[Counter.Event, Data] {
+
+    import Counter._
+
+    def hashPrefix = "Counter"
+
+    def handle(id: AggregateId, e: Event, d: Data) = e match {
+      case Created(id) => println ("created "+id) ; d
+      case Incremented => println ("+1") ; d.updated(id, d.get(id).fold( 1)(_ + 1))
+      case Decremented => println ("-1") ; d.updated(id, d.get(id).fold(-1)(_ - 1))
+    }
+  }
+}
+
