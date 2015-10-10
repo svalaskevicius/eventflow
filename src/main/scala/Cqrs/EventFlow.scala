@@ -25,6 +25,7 @@ class EventFlow[Cmd, Evt] {
 
   def handler(ch: CommandH): Flow[Unit] = liftF(SetCommandHandler(ch, ()))
   def waitFor[A](eh: EventH[A]): Flow[A] = liftF(EventHandler[A, A](eh, identity))
+  def waitForAndSwitch[A](eh: EventH[Flow[A]]): Flow[A] = waitFor(eh).flatMap((cont: Flow[A]) => cont)
   def runForever(): Flow[Unit] = waitFor(PartialFunction.empty[Evt, Unit])
 
   case class EventStreamConsumer(cmdh: CommandH, evh: Evt => Option[EventStreamConsumer])
