@@ -192,18 +192,14 @@ object Eventflow {
         for {
           cr1 <- db(Counter.startCounter("test counter"))
           cr2 <- db(actions1.run(cr1._1))
-          _ = println(">>> "+cr1)
-          /*
-           cr2 <- runInMemoryDb(cr1._1)(actions1.run(cr1._2._1))
-           dr1 <- runInMemoryDb(newDb)(Door.registerDoor("golden gate"))
-           dr2 <- runInMemoryDb(dr1._1)(doorActions1.run(dr1._2._1))
-           dp1 = doorProj.applyNewEventsFromDb(dr2._1)
-           cp1 = counterProj.applyNewEventsFromDb(cr2._1)
-           cr3 <- runInMemoryDb(cr2._1)(actions2.run(cr2._2._1))
-           cp2 = cp1.applyNewEventsFromDb(cr3._1)
-           dr3 <- runInMemoryDb(dr2._1)(doorActions2.run(dr2._2._1))
-           dp2 = dp1.applyNewEventsFromDb(dr3._1)
-           */
+          dr1 <- db(Door.registerDoor("golden gate"))
+          dr2 <- db(doorActions1.run(dr1._1))
+          // dp1 = doorProj.applyNewEventsFromDb(dr2._1)
+          // cp1 = counterProj.applyNewEventsFromDb(cr2._1)
+          cr3 <- db(actions2.run(cr2._1))
+          // cp2 = cp1.applyNewEventsFromDb(cr3._1)
+          dr3 <- db(doorActions2.run(dr2._1))
+          // dp2 = dp1.applyNewEventsFromDb(dr3._1)
         } yield (())) .
         fold(err => {println("Error occurred: " + err._2); err._1}, r => {println("OK"); r._1})
       println(db_)
