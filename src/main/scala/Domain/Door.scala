@@ -48,7 +48,7 @@ object Door {
   def lockedDoorsLogic(key: String): Flow[Unit] =
     handler {
       case Unlock(attemptedKey) => if (key == attemptedKey) emitEvent(Unlocked(attemptedKey))
-      else failCommand("Attempted unlock key is invalid")
+                                   else failCommand("Attempted unlock key is invalid")
       case _ => failCommand("Locked door can only be unlocked.")
     } >>
       waitForAndSwitch {
