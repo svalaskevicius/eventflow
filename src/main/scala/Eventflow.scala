@@ -138,61 +138,54 @@ object Eventflow {
   }
 
 
-  def main(args: Array[String]) {
-
-    {
-      import HList._
-      val x = 12:: "asd" :: "XX" :: 10 :: HNil
-      println(x)
-      println(map(x, (a:String)=>a+a))
-      println(map(x, (a:Int)=>a+a))
-      println(map(x, (a:Boolean)=>a.toString))
-    }
+  def main(args: Array[String])
+  {
     import Domain.Counter
     import Domain.Door
     import Domain.CounterProjection._
     import Domain.DoorProjection._
 
-    import HList._
-    type DBX = DbBackend[Counter.Event] :: DbBackend[Door.Event] :: HNil.type
-    val dbs = newDb[Counter.Event] :: newDb[Door.Event] :: HNil
-
-    println(dbs)
-    println(HList.map(dbs, (x:DbBackend[Counter.Event]) => {println("got "+x); x}))
-    println(HList.map(dbs, (x:DbBackend[Door.Event]) => {println("got "+x); x}))
-
-    import Cqrs.Aggregate._
-    import cats.data.Xor
-    def applyInDb[E, A](actions: EventDatabaseWithFailure[E, A])(db: DbBackend[E]) : (DbBackend[E], Error Xor A) = {
-      val r = runInMemoryDb(db)(actions)
-      r.fold(e => (db, Xor.left(e)), res => (res._1, Xor.right(res._2)))
+    object DbRunner {
+      def empty = DbRunner[HNil](HNil)
     }
 
-    println(HList.applyUpdate1(dbs, (x:DbBackend[Counter.Event]) => {println("got "+x); (x, x)}))
-    println(HList.applyUpdate1(dbs, (x:DbBackend[Door.Event]) => {println("got "+x); (x, x)}))
+    final case class DbRunner[DBS <: HList](dbs: DBS) {
+      import cats.data.Xor
+      import cats.state.StateT
+      import HList._
+      type DbActions[A] = StateT[(DBS, Error) Xor ?, DBS, A]
 
- //   val dbs1 = HList.applyUpdate1(dbs, applyInDb(Counter.startCounter("xx")))
- //   println(dbs1)
+      def addDb[E](db: DbBackend[E]): DbRunner[DbBackend[E] :: DBS] = DbRunner(HCons(db, dbs))
 
-    import cats.state.StateT
-    import cats.state.State
-    type DbActions[DBS, A] = StateT[(DBS, Error) Xor ?, DBS, A]
+      def applyInDb[E, A](actions: EventDatabaseWithFailure[E, A])(db: DbBackend[E]) : (DbBackend[E], Error Xor A) = {
+        val r = runInMemoryDb(db)(actions)
+        r.fold(e => (db, Xor.left(e)), res => (res._1, Xor.right(res._2)))
+      }
+      def db[E, A](actions: EventDatabaseWithFailure[E, A])(implicit ev: ApplyUpdate1[DbBackend[E], DBS, Error Xor A]): DbActions[A] =
+        new DbActions[A](
+          Xor.right((dbs: DBS) => {
+                      val r = applyUpdate1(dbs, applyInDb(actions))
+                      r._2.fold(e => Xor.left((r._1, e)), a => Xor.right((r._1, a)))
+                    }))
 
-    def db[DBS <: HList, E, A](actions: EventDatabaseWithFailure[E, A])(implicit ev: HList.ApplyUpdate1[DbBackend[E], DBS, Error Xor A]): DbActions[DBS, A] =
-      new DbActions[DBS, A](Xor.right((dbs: DBS) => {
-              val r = HList.applyUpdate1(dbs, applyInDb(actions))
-              r._2.fold(e => Xor.left((r._1, e)), a => Xor.right((r._1, a)))
-            }))
+      def run[A](actions: DbActions[A]) = actions.run(dbs)
+    }
+
+    // idea: add monad instance for EventDatabaseWithFailure[E, ?], would simplify binding in the examples even more
+
+    // newAggregate(actions) - (label, state)
+    // continueAgg(label, actions) - (state)
+    // have map[label, aggstate] as part of the runner state
+    // but agg state types are different...
+    // map[label, aggstate1] :: map... :: HNil ?
+
+    val runner = DbRunner.empty .
+      addDb(newDb[Counter.Event]) .
+      addDb(newDb[Door.Event])
 
     val dbret = for {
- //     val dbret: State[DBX, Error Xor (Counter.counterAggregate.State, Unit)] = for {
- //     cr1 <- StateT[Xor[Error, ?], DBX, Unit](Xor.right[Error, DBX => (DBX, Error Xor (Counter.counterAggregate.State, Unit))]((dbss:DBX) => HList.applyUpdate1(dbss, applyInDb(Counter.startCounter("test counter")))))
-      cr1 <- db[DBX, Counter.Event, (Counter.counterAggregate.State, Unit)](Counter.startCounter("test counter"))
-      cr2 <- db[DBX, Counter.Event, (Counter.counterAggregate.State, Unit)](actions1.run(cr1._1))
- //     cr2 <- State((dbss:DBX) => HList.applyUpdate1(dbss, applyInDb(actions1.run(cr1._2))))
-      //cr1 <- db[dbs.type, Counter.Event, (Counter.counterAggregate.State, Unit)](Counter.startCounter("test counter"))
- //w1     cr1 <- State((dbss:DBX) => HList.applyUpdate1(dbss, applyInDb(Counter.startCounter("test counter"))))
- //w1     cr2 <- State((dbss:DBX) => HList.applyUpdate1(dbss, applyInDb(actions1.run(cr1._2))))
+      cr1 <- runner.db(Counter.startCounter("test counter"))
+      cr2 <- runner.db(actions1.run(cr1._1))
       _ = println(">>> "+cr1)
       /*
       cr2 <- runInMemoryDb(cr1._1)(actions1.run(cr1._2._1))
@@ -206,8 +199,7 @@ object Eventflow {
       dp2 = dp1.applyNewEventsFromDb(dr3._1)
        */
     } yield (())
-    import cats.std.all._
-    val db_ = dbret.run(dbs).fold(err => {println("Error occurred: " + err._2); err._1}, r => {println("OK"); r._1})
+    val db_ = runner.run(dbret).fold(err => {println("Error occurred: " + err._2); err._1}, r => {println("OK"); r._1})
     println(db_)
     println("=============")
     //   def runInDb[E, A](actions: EventDatabaseWithFailure[E, A])(db: DbBackend[E]): DbBackend[E] = {
