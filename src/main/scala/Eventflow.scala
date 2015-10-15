@@ -164,6 +164,7 @@ object Eventflow {
         val r = runInMemoryDb(dbinfo.db)(actions)
         r.fold(e => (dbinfo, Xor.left(e)), res => (dbinfo.copy(db = res._1), Xor.right(res._2)))
       }
+
       def db[E, A](actions: EventDatabaseWithFailure[E, A])(implicit ev: ApplyUpdate1[Info[E], DBS, Error Xor A]): DbActions[A] =
         new DbActions[A](
           Xor.right((dbs: DBS) => {
@@ -171,10 +172,13 @@ object Eventflow {
                       r._2.fold(e => Xor.left((r._1, e)), a => Xor.right((r._1, a)))
                     }))
 
+      def db[E, A, S, AA](prev: (AggregateState[S], AA), aggregate: AggregateDef[E, S, A])(implicit ev: ApplyUpdate1[Info[E], DBS, Error Xor (AggregateState[S], A)]): DbActions[(AggregateState[S], A)] = {
+        val actions = aggregate.run(prev._1)
+        db(actions)
+      }
+
       def run[A](actions: DbActions[A]) = actions.run(dbs)
     }
-
-    // idea: add monad instance for EventDatabaseWithFailure[E, ?], would simplify binding in the examples even more
 
     // newAggregate(actions) - (label, state)
     // continueAgg(label, actions) - (state)
@@ -190,15 +194,15 @@ object Eventflow {
       import runner._
       val db_ = run(
         for {
-          cr1 <- db(Counter.startCounter("test counter"))
-          cr2 <- db(actions1.run(cr1._1))
-          dr1 <- db(Door.registerDoor("golden gate"))
-          dr2 <- db(doorActions1.run(dr1._1))
+          c1 <- db(Counter.startCounter("test counter"))
+          c1 <- db(c1, actions1)
+          d1 <- db(Door.registerDoor("golden gate"))
+          d1 <- db(d1, doorActions1)
           // dp1 = doorProj.applyNewEventsFromDb(dr2._1)
           // cp1 = counterProj.applyNewEventsFromDb(cr2._1)
-          cr3 <- db(actions2.run(cr2._1))
+          c1 <- db(c1, actions2)
           // cp2 = cp1.applyNewEventsFromDb(cr3._1)
-          dr3 <- db(doorActions2.run(dr2._1))
+          d1 <- db(d1, doorActions2)
           // dp2 = dp1.applyNewEventsFromDb(dr3._1)
         } yield (())) .
         fold(err => {println("Error occurred: " + err._2); err._1}, r => {println("OK"); r._1})
