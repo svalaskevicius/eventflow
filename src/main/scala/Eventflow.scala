@@ -1,6 +1,7 @@
 
 import Cqrs.InMemoryDb._
 import Cqrs.Aggregate._
+import scala.language.higherKinds
 
 object Eventflow {
 
@@ -72,16 +73,17 @@ object Eventflow {
     type ::[H, T <: HList] = HCons[H, T]
     val :: = HCons
 
-    sealed trait Mapper[S, HL <: HList, B] {
-      type Out <: HList
+
+
+
+    sealed trait Mapper[S, HL <: HList, B, Out <: HList] {
       def apply(hl: HL, f: S => B): Out
     }
 
 
     object Mapper extends LowPrioMapper {
-      implicit def typeMatchedMapper[S, H, T <: HList, B](implicit ev: H =:= S, iTail: Mapper[S, T, B]): Mapper[S, H :: T, B] =
-        new Mapper[S, H :: T, B] {
-          type Out = B :: iTail.Out
+      implicit def typeMatchedMapper[S, H, T <: HList, B, tOut <: HList](implicit ev: H =:= S, iTail: Mapper[S, T, B, tOut]): Mapper[S, H :: T, B, B :: tOut] =
+        new Mapper[S, H :: T, B, B::tOut] {
           def apply(hc: H :: T, f: S => B) = {
             println("apply")
             HCons(f(ev(hc.head)) , iTail(hc.tail, f))
@@ -89,9 +91,8 @@ object Eventflow {
         }
     }
     trait LowPrioMapper extends LowestPrioMapper {
-      implicit def iteratedMapper[S, H, T <: HList, B](implicit iTail: Mapper[S, T, B]): Mapper[S, H :: T, B] =
-        new Mapper[S, H :: T, B] {
-          type Out = H :: iTail.Out
+      implicit def iteratedMapper[S, H, T <: HList, B, tOut <: HList](implicit iTail: Mapper[S, T, B, tOut]): Mapper[S, H :: T, B, H :: tOut] =
+        new Mapper[S, H :: T, B, H :: tOut] {
           def apply(hc: H :: T, f: S => B) = {
             println("recurse")
             HCons(hc.head, iTail(hc.tail, f))
@@ -99,17 +100,78 @@ object Eventflow {
         }
     }
     trait LowestPrioMapper {
-      implicit def tipNotFound[S,  HC <: HNil, B]: Mapper[S, HC, B] =
-              new Mapper[S, HC, B] {
-                type Out = HNil
+      implicit def tipNotFound[S,  HC <: HNil, B]: Mapper[S, HC, B, HNil.type] =
+              new Mapper[S, HC, B, HNil.type] {
                 def apply(hc:  HC, f: S => B) = {
                   println("end.")
                   HNil
                 }
           }
     }
-    def map[S, B, T <: HList](hc: T, f: S => B)(implicit ev: Mapper[S, T, B]) = ev(hc, f)
+    def map[S, B, T <: HList, tOut <: HList](hc: T, f: S => B)(implicit ev: Mapper[S, T, B, tOut]): tOut = ev(hc, f)
+// --
+    trait FF[S[_], T[_]] {
+      def apply[A](a: S[A]): T[A]
+    }
+    sealed trait KindMapper[S[_], T[_], HL <: HList, tOut <: HList] {
+      def apply(hl: HL, f: FF[S, T]): tOut
+    }
 
+
+    object KindMapper extends LowPrioKindMapper {
+      implicit def iteratedKindMapper[A, S[_], TT[_], T <: HList, tOut <: HList](implicit iTail: KindMapper[S, TT, T, tOut]): KindMapper[S, TT, S[A] :: T, TT[A] :: tOut] =
+        new KindMapper[S, TT, S[A] :: T, TT[A] :: tOut] {
+          def apply(hc: S[A] :: T, f: FF[S, TT]) = {
+            println("apply & recurse")
+            HCons(f(hc.head), iTail(hc.tail, f))
+          }
+        }
+    }
+    trait LowPrioKindMapper extends LowestPrioKindMapper {
+      implicit def iteratedKindMapperNotMatched[S[_], TT[_], H, T <: HList, tOut <: HList](implicit iTail: KindMapper[S, TT, T, tOut]): KindMapper[S, TT, H :: T, H :: tOut] =
+        new KindMapper[S, TT, H :: T, H :: tOut] {
+          def apply(hc: H :: T, f: FF[S, TT]) = {
+            println("recurse")
+            HCons(hc.head, iTail(hc.tail, f))
+          }
+        }
+    }
+    trait LowestPrioKindMapper {
+      implicit def tipNotFound[S[_], TT[_], HC <: HNil]: KindMapper[S, TT, HC, HNil.type] =
+              new KindMapper[S, TT, HC, HNil.type] {
+                def apply(hc:  HC, f: FF[S, TT]) = {
+                  println("end.")
+                  HNil
+                }
+          }
+    }
+
+    def kmap[S[_], TT[_], T <: HList, tOut <: HList](hc: T, f: FF[S, TT])(implicit ev: KindMapper[S, TT, T, tOut]): tOut = ev(hc, f)
+// --
+
+    sealed trait Extractor[S, HL <: HList] {
+      def apply(hl: HL): S
+    }
+    object Extractor extends LowPrioExtractor {
+      implicit def typeMatchedExtractor[S, H, T <: HList](implicit ev: H =:= S): Extractor[S, H :: T] =
+        new Extractor[S, H :: T] {
+          def apply(hc: H :: T) = {
+            println("apply")
+            ev(hc.head)
+          }
+        }
+    }
+    trait LowPrioExtractor {
+      implicit def iteratedExtractor[S, H, T <: HList](implicit iTail: Extractor[S, T]): Extractor[S, H :: T] =
+        new Extractor[S, H :: T] {
+          def apply(hc: H :: T) = {
+            println("recurse")
+            iTail(hc.tail)
+          }
+        }
+    }
+    def extract[S, T <: HList](hc: T)(implicit ev: Extractor[S, T]) = ev(hc)
+// -- 
     sealed trait ApplyUpdate1[S, HL <: HList, B] {
       def apply(hl: HL, f: S => (S, B)): (HL, B)
     }
@@ -140,44 +202,51 @@ object Eventflow {
 
   def main(args: Array[String])
   {
+    import Cqrs.Projection
     import Domain.Counter
     import Domain.Door
     import Domain.CounterProjection._
     import Domain.DoorProjection._
 
     object DbRunner {
-      final case class Info[E](db: DbBackend[E])
-      def empty = DbRunner[HNil](HNil)
+      def empty = DbRunner[HNil, HNil.type](HNil, HNil)
     }
 
-    final case class DbRunner[DBS <: HList](dbs: DBS) {
+    final case class DbRunner[DBS <: HList, PROJS <: HList](dbs: DBS, projections: PROJS) {
+      type ePROJS = PROJS
       import cats.data.Xor
       import cats.state.StateT
       import HList._
-      import DbRunner._
 
-      type DbActions[A] = StateT[(DBS, Error) Xor ?, DBS, A]
+      type DbActions[A] = StateT[(DbRunner[DBS, PROJS], Error) Xor ?, DbRunner[DBS, PROJS], A]
 
-      def addDb[E](db: DbBackend[E]): DbRunner[Info[E] :: DBS] = DbRunner(HCons(Info(db), dbs))
+      def addDb[E](db: DbBackend[E]): DbRunner[DbBackend[E] :: DBS, PROJS] = copy(dbs = HCons(db, dbs))
 
-      def applyInDb[E, A](actions: EventDatabaseWithFailure[E, A])(dbinfo: Info[E]) : (Info[E], Error Xor A) = {
-        val r = runInMemoryDb(dbinfo.db)(actions)
-        r.fold(e => (dbinfo, Xor.left(e)), res => (dbinfo.copy(db = res._1), Xor.right(res._2)))
+      def addProjection[D](proj: Projection[D]): DbRunner[DBS, Projection[D] :: PROJS] = copy(projections = HCons(proj, projections))
+
+
+      def applyInDb[E, A](actions: EventDatabaseWithFailure[E, A])(db: DbBackend[E]) : (DbBackend[E], Error Xor A) = {
+        val r = runInMemoryDb(db)(actions)
+        r.fold(e => (db, Xor.left(e)), res => (res._1, Xor.right(res._2)))
       }
 
-      def db[E, A](actions: EventDatabaseWithFailure[E, A])(implicit ev: ApplyUpdate1[Info[E], DBS, Error Xor A]): DbActions[A] =
+      def db[E, A](actions: EventDatabaseWithFailure[E, A])(implicit ev: ApplyUpdate1[DbBackend[E], DBS, Error Xor A]): DbActions[A] =
         new DbActions[A](
-          Xor.right((dbs: DBS) => {
+          Xor.right((runner: DbRunner[DBS, PROJS]) => {
                       val r = applyUpdate1(dbs, applyInDb(actions))
-                      r._2.fold(e => Xor.left((r._1, e)), a => Xor.right((r._1, a)))
+                      r._2.fold(e => Xor.left((runner, e)), a => Xor.right((runner.copy(dbs = r._1), a)))
                     }))
 
-      def db[E, A, S, AA](prev: (AggregateState[S], AA), aggregate: AggregateDef[E, S, A])(implicit ev: ApplyUpdate1[Info[E], DBS, Error Xor (AggregateState[S], A)]): DbActions[(AggregateState[S], A)] = {
+      def db[E, A, S, AA](prev: (AggregateState[S], AA), aggregate: AggregateDef[E, S, A])(implicit ev: ApplyUpdate1[DbBackend[E], DBS, Error Xor (AggregateState[S], A)]): DbActions[(AggregateState[S], A)] = {
         val actions = aggregate.run(prev._1)
         db(actions)
       }
 
-      def run[A](actions: DbActions[A]) = actions.run(dbs)
+      def runProjections[E](runner: DbRunner[DBS, PROJS])(implicit _extr: Extractor[DbBackend[E], DBS]) = {
+        val db = extract[DbBackend[E], DBS](runner.dbs)
+      }
+
+      def run[A](actions: DbActions[A]) = actions.run(this)
     }
 
     // newAggregate(actions) - (label, state)
@@ -186,11 +255,41 @@ object Eventflow {
     // but agg state types are different...
     // map[label, aggstate1] :: map... :: HNil ?
 
-    val runner = DbRunner.empty .
-      addDb(newDb[Counter.Event]) .
-      addDb(newDb[Door.Event])
+    val runner = DbRunner.empty.
+      addDb(newDb[Counter.Event]).
+      addDb(newDb[Door.Event]).
+      addProjection(emptyCounterProjection).
+      addProjection(emptyDoorProjection)
 
+    import HList._
+
+    val xdxa = new FF[Projection, Projection] {
+      def apply[A](x: Projection[A]) = {
+        println(x)
+        x
+      }
+    }
+    val xx = kmap(runner.projections, xdxa)
+   println(xx)
+    val xx2 = kmap(xx, xdxa)
+    println(xx2)
+    ;
+//    println(map(runner.projections, (x: Projection[Domain.CounterProjection.Data]) => {println(x); x}))
+   // println(map(xx, (x: Projection[Domain.CounterProjection.Data]) => {println(x); x}))
     {
+      val xa = map(runner.projections, (x: Projection[Domain.CounterProjection.Data]) => {println(x); x})
+ //     println(map(xa, (x: Projection[Domain.CounterProjection.Data]) => {println(x);}))
+    }
+    {
+      type X = Int :: String :: Int :: HNil.type
+      val x: X = 123 :: "ASD" :: 1 :: HNil
+      val x2: X  = map(x, (a:Int)  => a*2)
+      println(x2)
+      val x3 = map(x2, (a:Int)=> a*2)
+      println(x3)
+    }
+        ;
+  /*  {
       import runner._
       val db_ = run(
         for {
@@ -231,6 +330,8 @@ object Eventflow {
       dp2 = dp1.applyNewEventsFromDb(dr3._1)
     } yield (())
     ret fold(err => println("Error occurred: " + err), _ => println("OK"))
+
+    */
   }
 }
 
