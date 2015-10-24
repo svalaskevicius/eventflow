@@ -20,7 +20,7 @@ object Eventflow {
       _ <- handleCommand(Increment)
       _ <- handleCommand(Increment)
       _ <- handleCommand(Increment)
-    } yield (())
+    } yield ()
   }
 
   def actions2 = {
@@ -32,7 +32,7 @@ object Eventflow {
       _ <- handleCommand(Decrement)
       _ <- handleCommand(Decrement)
  //     _ <- handleCommand(Decrement)
-    } yield (())
+    } yield ()
   }
 
   def doorActions1 = {
@@ -43,7 +43,7 @@ object Eventflow {
       _ <- handleCommand(Lock("my secret"))
       _ <- handleCommand(Unlock("my secret"))
       _ <- handleCommand(Open)
-    } yield (())
+    } yield ()
   }
   def doorActions2 = {
     import Domain.Door._
@@ -53,7 +53,7 @@ object Eventflow {
       _ <- handleCommand(Lock("my secret"))
       _ <- handleCommand(Unlock("my secret"))
       _ <- handleCommand(Open)
-    } yield (())
+    } yield ()
   }
 
   def main(args: Array[String])
@@ -78,7 +78,7 @@ object Eventflow {
           d1 <- db(d1, doorActions1)
           c1 <- db(c1, actions2)
           d1 <- db(d1, doorActions2)
-        } yield (())) .
+        } yield ()) .
         fold(err => {println("Error occurred: " + err._2); err._1}, r => {println("OK"); r._1})
 
       @SuppressWarnings(Array("org.brianmckenna.wartremover.warts.OptionPartial", "org.brianmckenna.wartremover.warts.ExplicitImplicitTypes"))

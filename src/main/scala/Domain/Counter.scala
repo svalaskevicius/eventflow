@@ -43,7 +43,7 @@ object Counter {
     initAggregate(id) >> handleCommand(Create(id))
   }
 
-  def startCounter = startFlow[Unit](aggregateLogic) _ compose (newCounter _)
+  def startCounter = startFlow[Unit](aggregateLogic) _ compose newCounter
 }
 
 

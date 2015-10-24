@@ -35,13 +35,12 @@ class EventFlow[Cmd, Evt] {
       _ => None,
       {
         case SetCommandHandler(cmdh, next) => esRunnerCompiler(cmdh)(next)
-        case EventHandler(evth, cont) => {
+        case EventHandler(evth, cont) =>
           lazy val self: EventStreamConsumer = EventStreamConsumer(
             initCmdH,
             (ev: Evt) => evth.lift(ev) map (cont andThen esRunnerCompiler(initCmdH)) getOrElse Some(self)
           )
           Some(self)
-        }
       }
     )
 
@@ -52,7 +51,7 @@ class EventFlow[Cmd, Evt] {
 
   val flowAggregate: FlowAggregate =
     Aggregate(
-      on = e => d => (d map (consumer => consumer.evh(e))).map(Option.option2Iterable _).flatten,
+      on = e => d => (d map (consumer => consumer.evh(e))).flatMap(Option.option2Iterable),
       handle = c => d => d.foldLeft(None: Option[Aggregate.Error Xor List[Evt]])(
         (prev:Option[Aggregate.Error Xor List[Evt]], consumer) => prev match {
           case Some(_) => prev
@@ -66,7 +65,7 @@ class EventFlow[Cmd, Evt] {
   import Aggregate._
 
   def startFlow[A](aggregateLogic: List[Flow[Unit]])(aggregate: EAD[A]): StatefulEventDatabaseWithFailure[Evt, List[EventStreamConsumer], A] = {
-    val initState = (aggregateLogic map esRunnerCompiler(PartialFunction.empty)).map(Option.option2Iterable _).flatten
+    val initState = (aggregateLogic map esRunnerCompiler(PartialFunction.empty)).flatMap(Option.option2Iterable)
     runAggregateFromStart(aggregate, initState)
   }
 }

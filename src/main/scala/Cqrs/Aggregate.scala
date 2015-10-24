@@ -23,7 +23,7 @@ object Aggregate {
   final case class VersionedEvents[E](version: Int, events: List[E])
 
   sealed trait EventDatabaseOp[E, A]
-  final case class ReadAggregateExistance[E](id: AggregateId) extends EventDatabaseOp[E, Error Xor Boolean]
+  final case class ReadAggregateExistence[E](id: AggregateId) extends EventDatabaseOp[E, Error Xor Boolean]
   final case class ReadAggregate[E](id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor List[VersionedEvents[E]]]
   final case class AppendAggregateEvents[E](id: AggregateId, events: VersionedEvents[E]) extends EventDatabaseOp[E, Error Xor Unit]
 
@@ -38,7 +38,7 @@ object Aggregate {
   def lift[E, A](a: EventDatabaseOp[E, Error Xor A]): EventDatabaseWithFailure[E, A] =
     XorT[EventDatabase[E, ?], Error, A](liftF[EventDatabaseOp[E, ?], Error Xor A](a))
 
-  def doesAggregateExist[E](id: AggregateId): EventDatabaseWithFailure[E, Boolean] = lift(ReadAggregateExistance[E](id))
+  def doesAggregateExist[E](id: AggregateId): EventDatabaseWithFailure[E, Boolean] = lift(ReadAggregateExistence[E](id))
 
   def readNewEvents[E](id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[E, List[VersionedEvents[E]]] =
       lift(ReadAggregate[E](id, fromVersion))
@@ -98,7 +98,7 @@ final case class Aggregate[E, C, D] (
       _ <- applyEvents(events)
       resultEvents <- handleCmd(cmd)
       _ <- onEvents(resultEvents)
-    } yield (())
+    } yield ()
   }
 
   private def handleCmd(cmd: C): AD[Events] = AD(vs =>
@@ -110,7 +110,7 @@ final case class Aggregate[E, C, D] (
          val vevs = VersionedEvents[E](vs.version + 1, evs)
          appendEvents(vs.id, vevs).map(_ => (vs, List(vevs)))
        }) >>=
-      (applyEvents _)
+      applyEvents _
 
   private def applyEvents(evs: List[VersionedEvents[E]]): AD[Unit] =
     AD(vs => {

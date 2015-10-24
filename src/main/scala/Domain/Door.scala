@@ -65,7 +65,7 @@ object Door {
     initAggregate(id) >> handleCommand(Register(id))
   }
 
-  def registerDoor = startFlow[Unit](aggregateLogic) _ compose (newDoor _)
+  def registerDoor = startFlow[Unit](aggregateLogic) _ compose newDoor
 }
 
 

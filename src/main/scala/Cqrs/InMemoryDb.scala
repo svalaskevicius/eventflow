@@ -19,7 +19,7 @@ object InMemoryDb {
   type DbBackend[E] = TreeMap[AggregateId, TreeMap[Int, List[E]]]
   type Db[E, A] = State[DbBackend[E], A]
 
-  def newDb[E](): DbBackend[E] = new TreeMap()
+  def newDb[E]: DbBackend[E] = new TreeMap()
 
   def readFromDb[E](database: DbBackend[E], id: AggregateId, fromVersion: Int): Error Xor List[VersionedEvents[E]] = {
     database.get(id).fold[Error Xor List[VersionedEvents[E]]](
@@ -31,7 +31,7 @@ object InMemoryDb {
     )
   }
 
-  def readExistanceFromDb[E](database: DbBackend[E], id: AggregateId): Error Xor Boolean = {
+  def readExistenceFromDb[E](database: DbBackend[E], id: AggregateId): Error Xor Boolean = {
     val doesNotExist = readFromDb[E](database, id, 0).
       map { _ => false }.
       recover({case ErrorDoesNotExist(_) => true})
@@ -57,9 +57,9 @@ object InMemoryDb {
 
   def runInMemoryDb_[E]: EventDatabaseOp[E, ?] ~> Db[E, ?] = new (EventDatabaseOp[E, ?] ~> Db[E, ?]) {
     def apply[A](fa: EventDatabaseOp[E, A]): Db[E, A] = fa match {
-      case ReadAggregateExistance(id) => State(database => {
-        println("reading existance from DB: '" + fa + "'... "+database)
-        val exists = readExistanceFromDb(database, id);
+      case ReadAggregateExistence(id) => State(database => {
+        println("reading existence from DB: '" + fa + "'... "+database)
+        val exists = readExistenceFromDb(database, id)
         println("result: " + exists)
         (database, exists)
       })
