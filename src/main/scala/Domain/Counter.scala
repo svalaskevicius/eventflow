@@ -2,7 +2,7 @@ package Domain
 
 import Cqrs._
 import Cqrs.Aggregate._
-import cats.data.{Xor, XorT}
+import cats.data.{ Xor, XorT }
 import cats.syntax.flatMap._
 
 object Counter {
@@ -27,15 +27,15 @@ object Counter {
       case Decrement => if (c > 0) emitEvent(Decremented)
                         else failCommand("Counter cannot be decremented")
     } >>
-    waitFor {
-      case Incremented => c + 1
-      case Decremented => c - 1
-    } >>=
-    countingLogic
+      waitFor {
+        case Incremented => c + 1
+        case Decremented => c - 1
+      } >>=
+      countingLogic
 
   val aggregateLogic: List[Flow[Unit]] = List(
-    handler {case Create(id) => emitEvent(Created(id))} >> waitFor {case Created(_) => ()},
-    waitFor {case Created(_) => ()} >> countingLogic(0)
+    handler { case Create(id) => emitEvent(Created(id)) } >> waitFor { case Created(_) => () },
+    waitFor { case Created(_) => () } >> countingLogic(0)
   )
 
   def newCounter(id: AggregateId): EAD[Unit] = {
@@ -45,7 +45,6 @@ object Counter {
 
   def startCounter = startFlow[Unit](aggregateLogic) _ compose newCounter
 }
-
 
 import scala.collection.immutable.TreeMap
 
@@ -62,9 +61,11 @@ object CounterProjection {
     def hashPrefix = "Counter"
 
     def handle(id: AggregateId, e: Event, d: Data) = e match {
-      case Created(id) => println ("created "+id) ; d
-      case Incremented => println ("+1") ; d.updated(id, d.get(id).fold( 1)(_ + 1))
-      case Decremented => println ("-1") ; d.updated(id, d.get(id).fold(-1)(_ - 1))
+      case Created(id) =>
+        println("created " + id); d
+      case Incremented =>
+        println("+1"); d.updated(id, d.get(id).fold(1)(_ + 1))
+      case Decremented => println("-1"); d.updated(id, d.get(id).fold(-1)(_ - 1))
     }
   }
 }

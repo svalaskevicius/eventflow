@@ -1,10 +1,10 @@
 package Cqrs
 
-import cats.data.{Xor, XorT}
+import cats.data.{ Xor, XorT }
 import cats.Monad
 import cats._
 import cats.free.Free
-import cats.free.Free.{pure, liftF}
+import cats.free.Free.{ pure, liftF }
 import cats.state._
 
 import cats.syntax.flatMap._
@@ -41,10 +41,10 @@ object Aggregate {
   def doesAggregateExist[E](id: AggregateId): EventDatabaseWithFailure[E, Boolean] = lift(ReadAggregateExistence[E](id))
 
   def readNewEvents[E](id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[E, List[VersionedEvents[E]]] =
-      lift(ReadAggregate[E](id, fromVersion))
+    lift(ReadAggregate[E](id, fromVersion))
 
   def appendEvents[E](id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[E, Unit] =
-      lift(AppendAggregateEvents(id, events))
+    lift(AppendAggregateEvents(id, events))
 
   implicit def eventDatabaseMonad[E]: Monad[EventDatabase[E, ?]] = Free.freeMonad[EventDatabaseOp[E, ?]]
   implicit def eventDatabaseWithFailureMonad[E]: MonadError[EventDatabaseWithAnyFailure[E, ?, ?], Error] = XorT.xorTMonadError[EventDatabase[E, ?], Error]
@@ -67,7 +67,7 @@ object Aggregate {
 
 }
 
-final case class Aggregate[E, C, D] (
+final case class Aggregate[E, C, D](
   on: Aggregate[E, C, D]#EventHandler,
   handle: Aggregate[E, C, D]#CommandHandler
 ) {
@@ -76,7 +76,7 @@ final case class Aggregate[E, C, D] (
   type State = AggregateState[D]
   type ADStateRun[A] = AggregateState[D] => EventDatabaseWithFailure[E, (AggregateState[D], A)]
   type AD[A] = AggregateDef[E, D, A]
-  def AD[A](a: ADStateRun[A]) : AD[A] = StateT[EventDatabaseWithFailure[E, ?], AggregateState[D], A](a)
+  def AD[A](a: ADStateRun[A]): AD[A] = StateT[EventDatabaseWithFailure[E, ?], AggregateState[D], A](a)
 
   type Events = List[E]
   type CommandHandler = C => D => Aggregate.Error Xor Events
@@ -85,12 +85,13 @@ final case class Aggregate[E, C, D] (
   def liftToAggregateDef[A](f: EventDatabaseWithFailure[E, A]): AD[A] = AD(s => f.map((s, _)))
 
   def initAggregate(id: AggregateId): AD[Unit] =
-    liftToAggregateDef (doesAggregateExist(id)) >>=
+    liftToAggregateDef(doesAggregateExist(id)) >>=
       ((e: Boolean) => AD(
-         vs => {
-           if (e) XorT.left[EventDatabase[E, ?], Error, (AggregateState[D], Unit)](eventDatabaseMonad[E].pure(ErrorExistsAlready(id)))
-           else appendEvents(id, VersionedEvents[E](1, List())).map(_ => (vs.copy(id = id), ()))
-       }))
+        vs => {
+          if (e) XorT.left[EventDatabase[E, ?], Error, (AggregateState[D], Unit)](eventDatabaseMonad[E].pure(ErrorExistsAlready(id)))
+          else appendEvents(id, VersionedEvents[E](1, List())).map(_ => (vs.copy(id = id), ()))
+        }
+      ))
 
   def handleCommand(cmd: C): AD[Unit] = {
     for {
@@ -102,27 +103,26 @@ final case class Aggregate[E, C, D] (
   }
 
   private def handleCmd(cmd: C): AD[Events] = AD(vs =>
-    XorT.fromXor[EventDatabase[E, ?]][Error, Events](handle(cmd)(vs.state)).map((vs, _))
-  )
+    XorT.fromXor[EventDatabase[E, ?]][Error, Events](handle(cmd)(vs.state)).map((vs, _)))
 
   private def onEvents(evs: Events): AD[Unit] =
     AD(vs => {
-         val vevs = VersionedEvents[E](vs.version + 1, evs)
-         appendEvents(vs.id, vevs).map(_ => (vs, List(vevs)))
-       }) >>=
+      val vevs = VersionedEvents[E](vs.version + 1, evs)
+      appendEvents(vs.id, vevs).map(_ => (vs, List(vevs)))
+    }) >>=
       applyEvents _
 
   private def applyEvents(evs: List[VersionedEvents[E]]): AD[Unit] =
     AD(vs => {
-         println("Applying events on aggregate: " + evs)
-         val vs_ = evs.foldLeft(vs)((vs_, ve) => {
-                                      if (vs_.version < ve.version) {
-                                        vs_.copy(state = ve.events.foldLeft(vs_.state)((d, e) => on(e)(d)), version = ve.version)
-                                      } else {
-                                        vs_
-                                      }
-                                    })
-         eventDatabaseWithFailureMonad[E].pure((vs_, ()))
-       })
+      println("Applying events on aggregate: " + evs)
+      val vs_ = evs.foldLeft(vs)((vs_, ve) => {
+        if (vs_.version < ve.version) {
+          vs_.copy(state = ve.events.foldLeft(vs_.state)((d, e) => on(e)(d)), version = ve.version)
+        } else {
+          vs_
+        }
+      })
+      eventDatabaseWithFailureMonad[E].pure((vs_, ()))
+    })
 }
 

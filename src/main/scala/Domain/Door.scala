@@ -2,7 +2,7 @@ package Domain
 
 import Cqrs._
 import Cqrs.Aggregate._
-import cats.data.{Xor, XorT}
+import cats.data.{ Xor, XorT }
 import cats.syntax.flatMap._
 
 object Door {
@@ -56,8 +56,8 @@ object Door {
       }
 
   val aggregateLogic: List[Flow[Unit]] = List(
-    handler {case Register(id) => emitEvent(Registered(id))} >> waitFor {case Registered(_) => ()},
-    waitFor {case Registered(_) => ()} >> openDoorsLogic
+    handler { case Register(id) => emitEvent(Registered(id)) } >> waitFor { case Registered(_) => () },
+    waitFor { case Registered(_) => () } >> openDoorsLogic
   )
 
   def newDoor(id: AggregateId): EAD[Unit] = {
@@ -67,7 +67,6 @@ object Door {
 
   def registerDoor = startFlow[Unit](aggregateLogic) _ compose newDoor
 }
-
 
 import scala.collection.immutable.TreeMap
 

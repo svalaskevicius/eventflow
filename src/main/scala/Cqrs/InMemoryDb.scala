@@ -6,7 +6,7 @@ import cats.arrow.NaturalTransformation
 import cats._
 import cats.free.Free
 import cats.state._
-import cats.free.Free.{pure, liftF}
+import cats.free.Free.{ pure, liftF }
 
 import cats.std.all._
 
@@ -25,16 +25,16 @@ object InMemoryDb {
     database.get(id).fold[Error Xor List[VersionedEvents[E]]](
       Xor.left(ErrorDoesNotExist(id))
     )(
-      (evs: TreeMap[Int, List[E]]) => Xor.right(
-        evs.from(fromVersion + 1).toList.map(v => VersionedEvents[E](v._1, v._2))
+        (evs: TreeMap[Int, List[E]]) => Xor.right(
+          evs.from(fromVersion + 1).toList.map(v => VersionedEvents[E](v._1, v._2))
+        )
       )
-    )
   }
 
   def readExistenceFromDb[E](database: DbBackend[E], id: AggregateId): Error Xor Boolean = {
     val doesNotExist = readFromDb[E](database, id, 0).
       map { _ => false }.
-      recover({case ErrorDoesNotExist(_) => true})
+      recover({ case ErrorDoesNotExist(_) => true })
     doesNotExist.map[Boolean](!_)
   }
 
@@ -58,19 +58,19 @@ object InMemoryDb {
   def runInMemoryDb_[E]: EventDatabaseOp[E, ?] ~> Db[E, ?] = new (EventDatabaseOp[E, ?] ~> Db[E, ?]) {
     def apply[A](fa: EventDatabaseOp[E, A]): Db[E, A] = fa match {
       case ReadAggregateExistence(id) => State(database => {
-        println("reading existence from DB: '" + fa + "'... "+database)
+        println("reading existence from DB: '" + fa + "'... " + database)
         val exists = readExistenceFromDb(database, id)
         println("result: " + exists)
         (database, exists)
       })
       case ReadAggregate(id, version) => State(database => {
-        println("reading from DB: '" + fa + "'... "+database)
+        println("reading from DB: '" + fa + "'... " + database)
         val d = readFromDb[E](database, id, version)
         println("result: " + d)
         (database, d)
       })
       case AppendAggregateEvents(id, events) => State((database: DbBackend[E]) => {
-        println("writing to DB: '" + fa + "'... "+database)
+        println("writing to DB: '" + fa + "'... " + database)
         val d = addToDb[E](database, id, events)
         println("result: " + d)
         d.fold[(DbBackend[E], Error Xor Unit)](
@@ -80,7 +80,6 @@ object InMemoryDb {
       })
     }
   }
-
 
   def runInMemoryDb[E, A](database: DbBackend[E])(actions: EventDatabaseWithFailure[E, A]): Error Xor (DbBackend[E], A) = {
     val (db, r) = actions.value.foldMap[Db[E, ?]](runInMemoryDb_).run(database).run

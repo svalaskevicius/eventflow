@@ -37,7 +37,7 @@ object Eventflow {
 
   def doorActions1 = {
     import Domain.Door._
-    import  doorAggregate._
+    import doorAggregate._
     for {
       _ <- handleCommand(Close)
       _ <- handleCommand(Lock("my secret"))
@@ -47,7 +47,7 @@ object Eventflow {
   }
   def doorActions2 = {
     import Domain.Door._
-    import  doorAggregate._
+    import doorAggregate._
     for {
       _ <- handleCommand(Close)
       _ <- handleCommand(Lock("my secret"))
@@ -56,8 +56,7 @@ object Eventflow {
     } yield ()
   }
 
-  def main(args: Array[String])
-  {
+  def main(args: Array[String]) {
     import Domain._
     import CounterProjection.CounterHandler
     import DoorProjection.DoorHandler
@@ -78,8 +77,9 @@ object Eventflow {
           d1 <- db(d1, doorActions1)
           c1 <- db(c1, actions2)
           d1 <- db(d1, doorActions2)
-        } yield ()) .
-        fold(err => {println("Error occurred: " + err._2); err._1}, r => {println("OK"); r._1})
+        } yield ()
+      ).
+        fold(err => { println("Error occurred: " + err._2); err._1 }, r => { println("OK"); r._1 })
 
       @SuppressWarnings(Array("org.brianmckenna.wartremover.warts.OptionPartial", "org.brianmckenna.wartremover.warts.ExplicitImplicitTypes"))
       val _ = pprint.pprintln(db_, colors = pprint.Colors.Colored)

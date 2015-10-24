@@ -3,9 +3,9 @@ package Cqrs
 import cats.data.Xor
 import cats.state.StateT
 
-import Cqrs.Aggregate.{AggregateDef, AggregateState, EventDatabaseWithFailure, Error}
-import Cqrs.InMemoryDb.{DbBackend, runInMemoryDb}
-import lib.{HList, HNil}
+import Cqrs.Aggregate.{ AggregateDef, AggregateState, EventDatabaseWithFailure, Error }
+import Cqrs.InMemoryDb.{ DbBackend, runInMemoryDb }
+import lib.{ HList, HNil }
 import lib.HList._
 
 object BatchRunner {
@@ -48,8 +48,7 @@ final case class BatchRunner[DBS <: HList, PROJS <: HList](dbs: DBS, projections
 
   def addProjection[D](proj: Projection[D]): BatchRunner[DBS, Projection[D] :: PROJS] = copy(projections = proj :: projections)
 
-
-  def applyInDb[E, A](actions: EventDatabaseWithFailure[E, A])(db: DbBackend[E]) : (DbBackend[E], Error Xor A) = {
+  def applyInDb[E, A](actions: EventDatabaseWithFailure[E, A])(db: DbBackend[E]): (DbBackend[E], Error Xor A) = {
     val r = runInMemoryDb(db)(actions)
     r.fold(e => (db, Xor.left(e)), res => (res._1, Xor.right(res._2)))
   }
@@ -59,7 +58,8 @@ final case class BatchRunner[DBS <: HList, PROJS <: HList](dbs: DBS, projections
       Xor.right((runner: BatchRunner[DBS, PROJS]) => {
         val r = applyUpdate1(runner.dbs, applyInDb(actions))
         r._2.fold(e => Xor.left((runner, e)), a => Xor.right((runner.copy(dbs = r._1).runProjections, a)))
-      }))
+      })
+    )
 
   def db[E, A, S, AA](prev: (AggregateState[S], AA), aggregate: AggregateDef[E, S, A])(implicit ev: ApplyUpdate1[DbBackend[E], DBS, Error Xor (AggregateState[S], A)], _extr: Extractor[DbBackend[E], DBS], _projHandlers: ProjectionHandlers[E, PROJS]): DbActions[(AggregateState[S], A)] = {
     val actions = aggregate.run(prev._1)
