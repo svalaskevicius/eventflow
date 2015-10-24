@@ -2,7 +2,7 @@ package lib
 
 sealed trait HList
 
-final case class HCons[H, T <: HList](head : H, tail : T) extends HList
+final case class HCons[H, T <: HList](head: H, tail: T) extends HList
 
 trait HNil extends HList
 object HNil extends HNil
@@ -12,20 +12,16 @@ object HList {
   val :: = HCons
 
   implicit class HListOps[HL <: HList](val hl: HL) {
-    def ::[H](v : H) = HCons(v, hl)
+    def ::[H](v: H) = HCons(v, hl)
   }
-
-
-
 
   sealed trait Mapper[S, HL <: HList, B, Out <: HList] {
     def apply(hl: HL, f: S => B): Out
   }
 
-
   object Mapper extends LowPrioMapper {
     implicit def typeMatchedMapper[S, H, T <: HList, B, tOut <: HList](implicit ev: H =:= S, iTail: Mapper[S, T, B, tOut]): Mapper[S, H :: T, B, B :: tOut] =
-      new Mapper[S, H :: T, B, B::tOut] {
+      new Mapper[S, H :: T, B, B :: tOut] {
         def apply(hc: H :: T, f: S => B) = f(ev(hc.head)) :: iTail(hc.tail, f)
       }
   }
@@ -38,9 +34,9 @@ object HList {
   }
 
   trait LowestPrioMapper {
-    implicit def tipNotFound[S,  HC <: HNil, B]: Mapper[S, HC, B, HNil.type] =
+    implicit def tipNotFound[S, HC <: HNil, B]: Mapper[S, HC, B, HNil.type] =
       new Mapper[S, HC, B, HNil.type] {
-        def apply(hc:  HC, f: S => B) = HNil
+        def apply(hc: HC, f: S => B) = HNil
       }
   }
 
@@ -86,7 +82,6 @@ object HList {
         }
       }
   }
-  def applyUpdate1[S, B, T <:HList](hc: T, f: S=>(S, B))(implicit ev: ApplyUpdate1[S, T, B]) = ev(hc, f)
+  def applyUpdate1[S, B, T <: HList](hc: T, f: S => (S, B))(implicit ev: ApplyUpdate1[S, T, B]) = ev(hc, f)
 }
-
 

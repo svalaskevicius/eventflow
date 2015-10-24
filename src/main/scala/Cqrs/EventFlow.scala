@@ -53,11 +53,11 @@ class EventFlow[Cmd, Evt] {
     Aggregate(
       on = e => d => (d map (consumer => consumer.evh(e))).flatMap(Option.option2Iterable),
       handle = c => d => d.foldLeft(None: Option[Aggregate.Error Xor List[Evt]])(
-        (prev:Option[Aggregate.Error Xor List[Evt]], consumer) => prev match {
-          case Some(_) => prev
-          case None => consumer.cmdh.lift(c)
-        }
-      ).getOrElse {
+      (prev: Option[Aggregate.Error Xor List[Evt]], consumer) => prev match {
+        case Some(_) => prev
+        case None => consumer.cmdh.lift(c)
+      }
+    ).getOrElse {
         Xor.Left(ErrorCannotFindHandler)
       }
     )
