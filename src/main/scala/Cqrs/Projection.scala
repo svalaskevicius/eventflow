@@ -11,6 +11,8 @@ object Projection {
     def handle(id: AggregateId, e: E, data: D): D
   }
 
+  def empty[D](d: D): Projection[D] = Projection(TreeMap.empty, d)
+
   def applyNewEventsFromDbToProjection[E, D](db: DbBackend[E], initialProjection: Projection[D])(implicit handler: Handler[E, D]): Projection[D] = {
     val prefix = handler.hashPrefix
 
@@ -41,8 +43,9 @@ final case class Projection[D](readEvents: TreeMap[String, Int], data: D) {
   import Projection._
 
   def applyNewEventsFromDb[E](db: DbBackend[E])(implicit handler: Handler[E, D]): Projection[D] = {
+    println("==== >> before >> " + this)
     val r = applyNewEventsFromDbToProjection(db, this)
-    println(r)
+    println("==== >> after >> " + r)
     r
   }
 }

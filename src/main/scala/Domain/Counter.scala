@@ -53,7 +53,7 @@ object CounterProjection {
 
   type Data = TreeMap[AggregateId, Int]
 
-  def emptyCounterProjection = Projection[Data](new TreeMap(), new TreeMap())
+  def emptyCounterProjection = Projection.empty[Data](new TreeMap())
 
   implicit object CounterHandler extends Projection.Handler[Counter.Event, Data] {
 

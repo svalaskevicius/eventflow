@@ -80,7 +80,7 @@ object DoorProjection {
 
   type Data = TreeMap[AggregateId, State]
 
-  def emptyDoorProjection = Projection[Data](new TreeMap(), new TreeMap())
+  def emptyDoorProjection = Projection.empty[Data](new TreeMap())
 
   implicit object DoorHandler extends Projection.Handler[Door.Event, Data] {
 
