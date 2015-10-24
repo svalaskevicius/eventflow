@@ -13,7 +13,7 @@ object HList {
   type ::[H, T <: HList] = HCons[H, T]
   val :: = HCons
 
-  implicit class HListOps[HL <: HList](val hl: HL) extends AnyVal {
+  implicit class HListOps[HL <: HList](val hl: HL) {
     def ::[H](v : H) = HCons(v, hl)
   }
 
