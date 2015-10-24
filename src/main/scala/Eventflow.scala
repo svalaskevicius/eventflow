@@ -79,14 +79,15 @@ object Eventflow {
       implicit def collectHandlers[E, D, T <: HList](implicit h: Projection.Handler[E, D], iTail: APHandlers[E, T]): APHandlers[E, Projection[D] :: T] = {
         println(">>> ! AA1!")
         new APHandlers[E, Projection[D] :: T] {
-          def update(db: DbBackend[E], pr: Projection[D] :: T) = HCons(pr.head.applyNewEventsFromDb(db), iTail.update(db, pr.tail))
+          import HList._
+          def update(db: DbBackend[E], pr: Projection[D] :: T) = pr.head.applyNewEventsFromDb(db) :: iTail.update(db, pr.tail)
         }
       }
     }
     trait ALPPHandlers extends AVLPPHandlers {
       implicit def collectSkipHandlers[E, D, T <: HList](implicit iTail: APHandlers[E, T]): APHandlers[E, Projection[D] :: T] =
         new APHandlers[E, Projection[D] :: T] {
-          def update(db: DbBackend[E], pr: Projection[D] :: T) = HCons(pr.head, iTail.update(db, pr.tail))
+          def update(db: DbBackend[E], pr: Projection[D] :: T) = pr.head :: iTail.update(db, pr.tail)
         }
     }
     trait AVLPPHandlers {
@@ -105,9 +106,9 @@ object Eventflow {
 
       type DbActions[A] = StateT[(DbRunner[DBS, PROJS], Error) Xor ?, DbRunner[DBS, PROJS], A]
 
-      def addDb[E](db: DbBackend[E]): DbRunner[DbBackend[E] :: DBS, PROJS] = copy(dbs = HCons(db, dbs))
+      def addDb[E](db: DbBackend[E]): DbRunner[DbBackend[E] :: DBS, PROJS] = copy(dbs = db :: dbs)
 
-      def addProjection[D](proj: Projection[D]): DbRunner[DBS, Projection[D] :: PROJS] = copy(projections = HCons(proj, projections))
+      def addProjection[D](proj: Projection[D]): DbRunner[DBS, Projection[D] :: PROJS] = copy(projections = proj :: projections)
 
 
       def applyInDb[E, A](actions: EventDatabaseWithFailure[E, A])(db: DbBackend[E]) : (DbBackend[E], Error Xor A) = {
