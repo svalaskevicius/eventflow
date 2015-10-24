@@ -1,12 +1,11 @@
 
-import Domain.Counter._
-import Domain.Door._
 import Cqrs.InMemoryDb._
-import Cqrs.Aggregate._
+import Cqrs.BatchRunner
 
 object Eventflow {
 
   def actions1 = {
+    import Domain.Counter._
     import counterAggregate._
     for {
       _ <- handleCommand(Increment)
@@ -21,10 +20,11 @@ object Eventflow {
       _ <- handleCommand(Increment)
       _ <- handleCommand(Increment)
       _ <- handleCommand(Increment)
-    } yield (())
+    } yield ()
   }
 
   def actions2 = {
+    import Domain.Counter._
     import counterAggregate._
     for {
       _ <- handleCommand(Decrement)
@@ -32,56 +32,58 @@ object Eventflow {
       _ <- handleCommand(Decrement)
       _ <- handleCommand(Decrement)
  //     _ <- handleCommand(Decrement)
-    } yield (())
+    } yield ()
   }
 
   def doorActions1 = {
+    import Domain.Door._
     import  doorAggregate._
     for {
       _ <- handleCommand(Close)
       _ <- handleCommand(Lock("my secret"))
       _ <- handleCommand(Unlock("my secret"))
       _ <- handleCommand(Open)
-    } yield (())
+    } yield ()
   }
   def doorActions2 = {
+    import Domain.Door._
     import  doorAggregate._
     for {
       _ <- handleCommand(Close)
       _ <- handleCommand(Lock("my secret"))
       _ <- handleCommand(Unlock("my secret"))
       _ <- handleCommand(Open)
-    } yield (())
+    } yield ()
   }
 
-  def main(args: Array[String]) {
+  def main(args: Array[String])
+  {
+    import Domain._
+    import CounterProjection.CounterHandler
+    import DoorProjection.DoorHandler
 
-    import Domain.CounterProjection._
-    import Domain.DoorProjection._
+    val runner = BatchRunner.empty.
+      addDb(newDb[Counter.Event]).
+      addDb(newDb[Door.Event]).
+      addProjection(CounterProjection.emptyCounterProjection).
+      addProjection(DoorProjection.emptyDoorProjection)
 
-    val proj = emptyCounterProjection
-    val ret = for {
-      // todo: add custom structure to keep DB conn, projections, and binding to run things automatically w/o much typing here:
-      // this might need to extract a typeclass for DB and Projection
-      r1 <- runInMemoryDb(newDb)(startCounter("test counter"))
-      r2 <- runInMemoryDb(r1._1)(actions1.run(r1._2._1))
-      p1 = proj.applyNewEventsFromDb(r2._1)
-      r3 <- runInMemoryDb(r2._1)(actions2.run(r2._2._1))
-      p2 = p1.applyNewEventsFromDb(r3._1)
-    } yield (())
-    ret fold(err => println("Error occurred: " + err), _ => println("OK"))
-    //====
-    val doorProj = emptyDoorProjection
-    val doorRet = for {
-    // todo: add custom structure to keep DB conn, projections, and binding to run things automatically w/o much typing here:
-    // this might need to extract a typeclass for DB and Projection
-      r1 <- runInMemoryDb(newDb)(registerDoor("golden gate"))
-      r2 <- runInMemoryDb(r1._1)(doorActions1.run(r1._2._1))
-      p1 = doorProj.applyNewEventsFromDb(r2._1)
-      r3 <- runInMemoryDb(r2._1)(doorActions2.run(r2._2._1))
-      p2 = p1.applyNewEventsFromDb(r3._1)
-    } yield (())
-    doorRet fold(err => println("Error occurred: " + err), _ => println("OK"))
+    {
+      import runner._
+      val db_ = run(
+        for {
+          c1 <- db(Counter.startCounter("test counter"))
+          c1 <- db(c1, actions1)
+          d1 <- db(Door.registerDoor("golden gate"))
+          d1 <- db(d1, doorActions1)
+          c1 <- db(c1, actions2)
+          d1 <- db(d1, doorActions2)
+        } yield ()) .
+        fold(err => {println("Error occurred: " + err._2); err._1}, r => {println("OK"); r._1})
+
+      @SuppressWarnings(Array("org.brianmckenna.wartremover.warts.OptionPartial", "org.brianmckenna.wartremover.warts.ExplicitImplicitTypes"))
+      val _ = pprint.pprintln(db_, colors = pprint.Colors.Colored)
+    }
   }
 }
 

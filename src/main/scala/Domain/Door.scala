@@ -48,7 +48,7 @@ object Door {
   def lockedDoorsLogic(key: String): Flow[Unit] =
     handler {
       case Unlock(attemptedKey) => if (key == attemptedKey) emitEvent(Unlocked(attemptedKey))
-      else failCommand("Attempted unlock key is invalid")
+                                   else failCommand("Attempted unlock key is invalid")
       case _ => failCommand("Locked door can only be unlocked.")
     } >>
       waitForAndSwitch {
@@ -65,7 +65,7 @@ object Door {
     initAggregate(id) >> handleCommand(Register(id))
   }
 
-  def registerDoor = startFlow[Unit](aggregateLogic) _ compose (newDoor _)
+  def registerDoor = startFlow[Unit](aggregateLogic) _ compose newDoor
 }
 
 
@@ -80,7 +80,7 @@ object DoorProjection {
 
   type Data = TreeMap[AggregateId, State]
 
-  def emptyDoorProjection = Projection[Data](new TreeMap(), new TreeMap())
+  def emptyDoorProjection = Projection.empty[Data](new TreeMap())
 
   implicit object DoorHandler extends Projection.Handler[Door.Event, Data] {
 
