@@ -26,18 +26,14 @@ object HList {
   object Mapper extends LowPrioMapper {
     implicit def typeMatchedMapper[S, H, T <: HList, B, tOut <: HList](implicit ev: H =:= S, iTail: Mapper[S, T, B, tOut]): Mapper[S, H :: T, B, B :: tOut] =
       new Mapper[S, H :: T, B, B::tOut] {
-        def apply(hc: H :: T, f: S => B) = {
-          f(ev(hc.head)) :: iTail(hc.tail, f)
-        }
+        def apply(hc: H :: T, f: S => B) = f(ev(hc.head)) :: iTail(hc.tail, f)
       }
   }
 
   trait LowPrioMapper extends LowestPrioMapper {
     implicit def iteratedMapper[S, H, T <: HList, B, tOut <: HList](implicit iTail: Mapper[S, T, B, tOut]): Mapper[S, H :: T, B, H :: tOut] =
       new Mapper[S, H :: T, B, H :: tOut] {
-        def apply(hc: H :: T, f: S => B) = {
-          hc.head :: iTail(hc.tail, f)
-        }
+        def apply(hc: H :: T, f: S => B) = hc.head :: iTail(hc.tail, f)
       }
   }
 
@@ -57,17 +53,13 @@ object HList {
   object Extractor extends LowPrioExtractor {
     implicit def typeMatchedExtractor[S, H, T <: HList](implicit ev: H =:= S): Extractor[S, H :: T] =
       new Extractor[S, H :: T] {
-        def apply(hc: H :: T) = {
-          ev(hc.head)
-        }
+        def apply(hc: H :: T) = ev(hc.head)
       }
   }
   trait LowPrioExtractor {
     implicit def iteratedExtractor[S, H, T <: HList](implicit iTail: Extractor[S, T]): Extractor[S, H :: T] =
       new Extractor[S, H :: T] {
-        def apply(hc: H :: T) = {
-          iTail(hc.tail)
-        }
+        def apply(hc: H :: T) = iTail(hc.tail)
       }
   }
   def extract[S, T <: HList](hc: T)(implicit ev: Extractor[S, T]) = ev(hc)
