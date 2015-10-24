@@ -70,58 +70,6 @@ object Eventflow {
       def empty = DbRunner[HNil, HNil.type](HNil, HNil)
     }
 
-    sealed trait X[E, Q] {
-      def apply: Projection.Handler[E, Q]
-    }
-    sealed trait PHandlers[E, PROJS <: HList, HND <: HList] {
-      def x[Q]: X[E, Q]
-   //   def handlers: HND
-    }
-
-    object PHandlers extends LPPHandlers {
-      implicit def collectHandlers[E, D, T <: HList, HNDT <: HList](implicit h: Projection.Handler[E, D], iTail: PHandlers[E, T, HNDT]): PHandlers[E, Projection[D] :: T, Projection.Handler[E, D] :: HNDT] = {
-        println(">>> ! AA1!")
-        trait x1 extends PHandlers[E, Projection[D] :: T, Projection.Handler[E, D] :: HNDT] {
-     //     def handlers = HCons(h, iTail.handlers)
-          implicit def bxx[Q]: X[E, Q] = {
-            println("imp rec1")
-            iTail.x[Q]
-          }
-        }
-        new x1 {
-          def x[Q] = implicitly[X[E, Q]]
- //         implicit def bx[Q >: D <: D]: X[E, Q] = new X[E, Q] {
- //           implicit def bx: X[E, D] = new X[E, D] {
-            implicit def bx[Q]: X[E, Q] = new X[E, Q] {
-   //implicit def bx[Q](implicit ev: D=:= Q): X[E, Q] = new X[E, Q] {
-            println("imp rec2")
-            def apply = h.asInstanceOf[Projection.Handler[E, Q]]
-          }
-        }
-      }
-    }
-    trait LPPHandlers extends VLPPHandlers {
-      implicit def collectSkipHandlers[E, D, T <: HList, HNDT <: HList](implicit iTail: PHandlers[E, T, HNDT]): PHandlers[E, Projection[D] :: T, HNDT] =
-        new PHandlers[E, Projection[D] :: T, HNDT] {
- //         def handlers = iTail.handlers
-          def x[Q] = {
-            println("rec2")
-            iTail.x[Q]
-          }
-        }
-    }
-    trait VLPPHandlers {
-      implicit def collectEndHandlers[E, T <: HNil, HNDT <: HNil]: PHandlers[E, T, HNil.type] =
-        new PHandlers[E, T, HNil.type] {
- //         def handlers = HNil
-  //        def x[Q] = ???
-  def x[Q] = {
-   println("rec 3")
-   ???
- }
-        }
-    }
-
     final case class ProjectionWithHandler[E, D](p: Projection[D], h: Option[Projection.Handler[E, D]])
 
     sealed trait APHandlers[E, PROJS <: HList] {
@@ -180,17 +128,7 @@ object Eventflow {
       }
 
       def runProjections[E](implicit _extr: Extractor[DbBackend[E], DBS], _kmapper: KindMapper[Projection, Projection, PROJS, PROJS], _projHandlers: APHandlers[E, PROJS]) = {
- //       println("!! > _projHandlers "+ _projHandlers.handlers)
         val db = extract[DbBackend[E], DBS](dbs)
-        /*
-        val updater = new FF[Projection, Projection] {
-          def apply[D](x: Projection[D]) = {
-            println(x)
-            x.applyNewEventsFromDb(db)(_projHandlers.x.apply)
-          }
-        }
-        copy(projections = kmap[Projection, Projection, PROJS, PROJS](projections, updater))
-        */
         copy(projections = _projHandlers.update(db, projections))
       }
 
@@ -211,38 +149,12 @@ object Eventflow {
           c1 <- db(c1, actions1)
           d1 <- db(Door.registerDoor("golden gate"))
           d1 <- db(d1, doorActions1)
-          // dp1 = doorProj.applyNewEventsFromDb(dr2._1)
           c1 <- db(c1, actions2)
           d1 <- db(d1, doorActions2)
         } yield (())) .
         fold(err => {println("Error occurred: " + err._2); err._1}, r => {println("OK"); r._1})
       println(db_)
-      println("=============")
     }
-    //   def runInDb[E, A](actions: EventDatabaseWithFailure[E, A])(db: DbBackend[E]): DbBackend[E] = {
-      // ret type is not matching... will need to add traverse / fold instead of map
-   //   ???
-   // }
-  /*
-    val counterProj = emptyCounterProjection
-    val doorProj = emptyDoorProjection
-    val ret = for {
-    // todo: add custom structure to keep DB conn, projections, and binding to run things automatically w/o much typing here:
-    // this might need to extract a typeclass for DB and Projection
-      cr1 <- runInMemoryDb(newDb)(Counter.startCounter("test counter"))
-      cr2 <- runInMemoryDb(cr1._1)(actions1.run(cr1._2._1))
-      dr1 <- runInMemoryDb(newDb)(Door.registerDoor("golden gate"))
-      dr2 <- runInMemoryDb(dr1._1)(doorActions1.run(dr1._2._1))
-      dp1 = doorProj.applyNewEventsFromDb(dr2._1)
-      cp1 = counterProj.applyNewEventsFromDb(cr2._1)
-      cr3 <- runInMemoryDb(cr2._1)(actions2.run(cr2._2._1))
-      cp2 = cp1.applyNewEventsFromDb(cr3._1)
-      dr3 <- runInMemoryDb(dr2._1)(doorActions2.run(dr2._2._1))
-      dp2 = dp1.applyNewEventsFromDb(dr3._1)
-    } yield (())
-    ret fold(err => println("Error occurred: " + err), _ => println("OK"))
-
-    */
   }
 }
 
