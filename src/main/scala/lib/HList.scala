@@ -57,82 +57,6 @@ object HList {
 
   def map[S, B, T <: HList, tOut <: HList](hc: T, f: S => B)(implicit ev: Mapper[S, T, B, tOut]): tOut = ev(hc, f)
   // --
-  trait FF[S[_], T[_]] {
-    def apply[A](a: S[A]): T[A]
-  }
-  sealed trait KindMapper[S[_], T[_], HL <: HList, tOut <: HList] {
-    def apply(hl: HL, f: FF[S, T]): tOut
-  }
-
-
-  object KindMapper extends LowPrioKindMapper {
-    implicit def iteratedKindMapper[A, S[_], TT[_], T <: HList, tOut <: HList](implicit iTail: KindMapper[S, TT, T, tOut]): KindMapper[S, TT, S[A] :: T, TT[A] :: tOut] =
-      new KindMapper[S, TT, S[A] :: T, TT[A] :: tOut] {
-        def apply(hc: S[A] :: T, f: FF[S, TT]) = {
-          println("apply & recurse")
-          f(hc.head) :: iTail(hc.tail, f)
-        }
-      }
-  }
-  trait LowPrioKindMapper extends LowestPrioKindMapper {
-    implicit def iteratedKindMapperNotMatched[S[_], TT[_], H, T <: HList, tOut <: HList](implicit iTail: KindMapper[S, TT, T, tOut]): KindMapper[S, TT, H :: T, H :: tOut] =
-      new KindMapper[S, TT, H :: T, H :: tOut] {
-        def apply(hc: H :: T, f: FF[S, TT]) = {
-          println("recurse")
-          hc.head :: iTail(hc.tail, f)
-        }
-      }
-  }
-  trait LowestPrioKindMapper {
-    implicit def tipNotFound[S[_], TT[_], HC <: HNil]: KindMapper[S, TT, HC, HNil.type] =
-      new KindMapper[S, TT, HC, HNil.type] {
-        def apply(hc:  HC, f: FF[S, TT]) = {
-          println("end.")
-          HNil
-        }
-      }
-  }
-
-  def kmap[S[_], TT[_], T <: HList, tOut <: HList](hc: T, f: FF[S, TT])(implicit ev: KindMapper[S, TT, T, tOut]): tOut = ev(hc, f)
-  // --
-  trait FF2[S[_, _ <: HList], T[_, _ <: HList]] {
-    def apply[A, B <: HList](a: S[A, B]): T[A, B]
-  }
-  sealed trait KindMapper2[S[_, _ <: HList], T[_, _ <: HList], HL <: HList, tOut <: HList] {
-    def apply(hl: HL, f: FF2[S, T]): tOut
-  }
-
-
-  object KindMapper2 extends LowPrioKindMapper2 {
-    implicit def iteratedKindMapper[A, B <: HList, S[_, _ <: HList], TT[_, _ <:HList], T <: HList, tOut <: HList](implicit iTail: KindMapper2[S, TT, T, tOut]): KindMapper2[S, TT, S[A, B] :: T, TT[A, B] :: tOut] =
-      new KindMapper2[S, TT, S[A, B] :: T, TT[A, B] :: tOut] {
-        def apply(hc: S[A, B] :: T, f: FF2[S, TT]) = {
-          println("apply & recurse")
-          f(hc.head) :: iTail(hc.tail, f)
-        }
-      }
-  }
-  trait LowPrioKindMapper2 extends LowestPrioKindMapper2 {
-    implicit def iteratedKindMapperNotMatched[S[_, _ <: HList], TT[_, _ <: HList], H, T <: HList, tOut <: HList](implicit iTail: KindMapper2[S, TT, T, tOut]): KindMapper2[S, TT, H :: T, H :: tOut] =
-      new KindMapper2[S, TT, H :: T, H :: tOut] {
-        def apply(hc: H :: T, f: FF2[S, TT]) = {
-          println("recurse")
-          hc.head :: iTail(hc.tail, f)
-        }
-      }
-  }
-  trait LowestPrioKindMapper2 {
-    implicit def tipNotFound[S[_, _ <: HList], TT[_, _ <: HList], HC <: HNil]: KindMapper2[S, TT, HC, HNil.type] =
-      new KindMapper2[S, TT, HC, HNil.type] {
-        def apply(hc:  HC, f: FF2[S, TT]) = {
-          println("end.")
-          HNil
-        }
-      }
-  }
-
-  def kmap2[S[_, _ <: HList], TT[_, _ <: HList], T <: HList, tOut <: HList](hc: T, f: FF2[S, TT])(implicit ev: KindMapper2[S, TT, T, tOut]): tOut = ev(hc, f)
-  // --
 
   sealed trait Extractor[S, HL <: HList] {
     def apply(hl: HL): S
@@ -156,39 +80,6 @@ object HList {
       }
   }
   def extract[S, T <: HList](hc: T)(implicit ev: Extractor[S, T]) = ev(hc)
-  // --
-
-  sealed trait Extractor2[S, -HL <: HList] {
-    def apply(hl: HL): Option[S]
-  }
-  object Extractor2 extends LowPrioExtractor2 {
-    implicit def typeMatchedExtractor[S, H, T <: HList](implicit ev: H =:= S): Extractor2[S, H :: T] =
-      new Extractor2[S, H :: T] {
-        def apply(hc: H :: T) = {
-          println("apply e2")
-          Some(ev(hc.head))
-        }
-      }
-  }
-  trait LowPrioExtractor2 extends LowestPrioExtractor2 {
-    implicit def iteratedExtractor[S, H, T <: HList](implicit iTail: Extractor2[S, T]): Extractor2[S, H :: T] =
-      new Extractor2[S, H :: T] {
-        def apply(hc: H :: T) = {
-          println("recurse e2")
-          iTail(hc.tail)
-        }
-      }
-  }
-  trait LowestPrioExtractor2 {
-    implicit def missingExtractor[S, HC <: HNil]: Extractor2[S, HC] =
-      new Extractor2[S, HC] {
-        def apply(hc: HC): Option[S] = {
-          println("missing e2 " + hc)
-          None
-        }
-      }
-  }
-  def extract2[S, T <: HList](hc: T)(implicit ev: Extractor2[S, T]) = ev(hc)
   // --
   sealed trait ApplyUpdate1[S, HL <: HList, B] {
     def apply(hl: HL, f: S => (S, B)): (HL, B)

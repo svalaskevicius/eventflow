@@ -70,35 +70,32 @@ object Eventflow {
       def empty = DbRunner[HNil, HNil.type](HNil, HNil)
     }
 
-    final case class ProjectionWithHandler[E, D](p: Projection[D], h: Option[Projection.Handler[E, D]])
-
     sealed trait APHandlers[E, PROJS <: HList] {
-      def update(db: DbBackend[E], pr: PROJS): PROJS
+      def apply(db: DbBackend[E], pr: PROJS): PROJS
     }
     object APHandlers extends ALPPHandlers {
       implicit def collectHandlers[E, D, T <: HList](implicit h: Projection.Handler[E, D], iTail: APHandlers[E, T]): APHandlers[E, Projection[D] :: T] = {
         println(">>> ! AA1!")
         new APHandlers[E, Projection[D] :: T] {
           import HList._
-          def update(db: DbBackend[E], pr: Projection[D] :: T) = pr.head.applyNewEventsFromDb(db) :: iTail.update(db, pr.tail)
+          def apply(db: DbBackend[E], pr: Projection[D] :: T) = pr.head.applyNewEventsFromDb(db) :: iTail(db, pr.tail)
         }
       }
     }
     trait ALPPHandlers extends AVLPPHandlers {
       implicit def collectSkipHandlers[E, D, T <: HList](implicit iTail: APHandlers[E, T]): APHandlers[E, Projection[D] :: T] =
         new APHandlers[E, Projection[D] :: T] {
-          def update(db: DbBackend[E], pr: Projection[D] :: T) = pr.head :: iTail.update(db, pr.tail)
+          def apply(db: DbBackend[E], pr: Projection[D] :: T) = pr.head :: iTail(db, pr.tail)
         }
     }
     trait AVLPPHandlers {
       implicit def collectEndHandlers[E, T <: HNil]: APHandlers[E, HNil.type] =
         new APHandlers[E, HNil.type] {
-          def update(db: DbBackend[E], pr: HNil.type) = pr
+          def apply(db: DbBackend[E], pr: HNil.type) = pr
         }
     }
 
     final case class DbRunner[DBS <: HList, PROJS <: HList](dbs: DBS, projections: PROJS) {
-      type ePROJS = PROJS
       import cats.data.Xor
       import cats.state.StateT
       import HList._
@@ -116,21 +113,21 @@ object Eventflow {
         r.fold(e => (db, Xor.left(e)), res => (res._1, Xor.right(res._2)))
       }
 
-      def db[E, A](actions: EventDatabaseWithFailure[E, A])(implicit ev: ApplyUpdate1[DbBackend[E], DBS, Error Xor A], _extr: Extractor[DbBackend[E], DBS], _kmapper: KindMapper[Projection, Projection, PROJS, PROJS], _projHandlers: APHandlers[E, PROJS]): DbActions[A] =
+      def db[E, A](actions: EventDatabaseWithFailure[E, A])(implicit ev: ApplyUpdate1[DbBackend[E], DBS, Error Xor A], _extr: Extractor[DbBackend[E], DBS], _projHandlers: APHandlers[E, PROJS]): DbActions[A] =
         new DbActions[A](
           Xor.right((runner: DbRunner[DBS, PROJS]) => {
                       val r = applyUpdate1(runner.dbs, applyInDb(actions))
                       r._2.fold(e => Xor.left((runner, e)), a => Xor.right((runner.copy(dbs = r._1).runProjections, a)))
                     }))
 
-      def db[E, A, S, AA](prev: (AggregateState[S], AA), aggregate: AggregateDef[E, S, A])(implicit ev: ApplyUpdate1[DbBackend[E], DBS, Error Xor (AggregateState[S], A)], _extr: Extractor[DbBackend[E], DBS], _kmapper: KindMapper[Projection, Projection, PROJS, PROJS], _projHandlers: APHandlers[E, PROJS]): DbActions[(AggregateState[S], A)] = {
+      def db[E, A, S, AA](prev: (AggregateState[S], AA), aggregate: AggregateDef[E, S, A])(implicit ev: ApplyUpdate1[DbBackend[E], DBS, Error Xor (AggregateState[S], A)], _extr: Extractor[DbBackend[E], DBS], _projHandlers: APHandlers[E, PROJS]): DbActions[(AggregateState[S], A)] = {
         val actions = aggregate.run(prev._1)
         db(actions)
       }
 
-      def runProjections[E](implicit _extr: Extractor[DbBackend[E], DBS], _kmapper: KindMapper[Projection, Projection, PROJS, PROJS], _projHandlers: APHandlers[E, PROJS]) = {
+      def runProjections[E](implicit _extr: Extractor[DbBackend[E], DBS], _projHandlers: APHandlers[E, PROJS]) = {
         val db = extract[DbBackend[E], DBS](dbs)
-        copy(projections = _projHandlers.update(db, projections))
+        copy(projections = _projHandlers(db, projections))
       }
 
       def run[A](actions: DbActions[A]) = actions.run(this)
