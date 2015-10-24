@@ -16,7 +16,6 @@ object BatchRunner {
   }
   object ProjectionHandlers extends LowPrioProjectionHandlers {
     implicit def collectHandlers[E, D, T <: HList](implicit h: Projection.Handler[E, D], iTail: ProjectionHandlers[E, T]): ProjectionHandlers[E, Projection[D] :: T] = {
-      println(">>> ! AA1!")
       new ProjectionHandlers[E, Projection[D] :: T] {
         def apply(db: DbBackend[E], pr: Projection[D] :: T) = pr.head.applyNewEventsFromDb(db) :: iTail(db, pr.tail)
       }
@@ -39,9 +38,11 @@ object BatchRunner {
 
 final case class BatchRunner[DBS <: HList, PROJS <: HList](dbs: DBS, projections: PROJS) {
 
+  type Self = BatchRunner[DBS, PROJS]
+
   import BatchRunner.ProjectionHandlers
 
-  type DbActions[A] = StateT[(BatchRunner[DBS, PROJS], Error) Xor ?, BatchRunner[DBS, PROJS], A]
+  type DbActions[A] = StateT[(Self, Error) Xor ?, Self, A]
 
   def addDb[E](db: DbBackend[E]): BatchRunner[DbBackend[E] :: DBS, PROJS] = copy(dbs = db :: dbs)
 
@@ -70,5 +71,5 @@ final case class BatchRunner[DBS <: HList, PROJS <: HList](dbs: DBS, projections
     copy(projections = _projHandlers(db, projections))
   }
 
-  def run[A](actions: DbActions[A]) = actions.run(this)
+  def run[A](actions: DbActions[A]): (Self, Error) Xor (Self, A) = actions.run(this)
 }

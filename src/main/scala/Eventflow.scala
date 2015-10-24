@@ -59,6 +59,8 @@ object Eventflow {
   def main(args: Array[String])
   {
     import Domain._
+    import CounterProjection.CounterHandler
+    import DoorProjection.DoorHandler
 
     val runner = BatchRunner.empty.
       addDb(newDb[Counter.Event]).
@@ -78,7 +80,9 @@ object Eventflow {
           d1 <- db(d1, doorActions2)
         } yield (())) .
         fold(err => {println("Error occurred: " + err._2); err._1}, r => {println("OK"); r._1})
-      println(db_)
+
+      @SuppressWarnings(Array("org.brianmckenna.wartremover.warts.OptionPartial", "org.brianmckenna.wartremover.warts.ExplicitImplicitTypes"))
+      val _ = pprint.pprintln(db_, colors = pprint.Colors.Colored)
     }
   }
 }

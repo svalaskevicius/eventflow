@@ -27,7 +27,6 @@ object Projection {
       Projection[D](newReadEvents, newData)
     }
 
-    println("====== vv =====.... " + handler.hashPrefix)
     db.foldLeft(initialProjection)((proj, farg) => applyNewAggregateEvents(proj, farg._1, farg._2))
   }
 }
@@ -36,10 +35,6 @@ final case class Projection[D](readEvents: TreeMap[String, Int], data: D) {
 
   import Projection._
 
-  def applyNewEventsFromDb[E](db: DbBackend[E])(implicit handler: Handler[E, D]): Projection[D] = {
-    println("==== >> before >> " + this)
-    val r = applyNewEventsFromDbToProjection(db, this)
-    println("==== >> after >> " + r)
-    r
-  }
+  def applyNewEventsFromDb[E](db: DbBackend[E])(implicit handler: Handler[E, D]): Projection[D] =
+    applyNewEventsFromDbToProjection(db, this)
 }

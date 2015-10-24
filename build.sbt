@@ -5,6 +5,7 @@ version := "1.0"
 scalaVersion := "2.11.7"
 
 libraryDependencies += "org.spire-math" %% "cats" % "0.2.0"
+libraryDependencies += "com.lihaoyi" %% "pprint" % "0.3.6"
 
 resolvers += Resolver.sonatypeRepo("releases")
 
