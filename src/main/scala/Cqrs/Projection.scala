@@ -14,14 +14,12 @@ object Projection {
   def empty[D](d: D): Projection[D] = Projection(TreeMap.empty, d)
 
   def applyNewEventsFromDbToProjection[E, D](db: DbBackend[E], initialProjection: Projection[D])(implicit handler: Handler[E, D]): Projection[D] = {
-    val prefix = handler.hashPrefix
-
     def applyNewEventsToData(data: D, aggregateId: AggregateId, events: TreeMap[Int, List[E]]) = {
       events.foldLeft(data)((d, el) => el._2.foldLeft(d)((d_, event) => handler.handle(aggregateId, event, d_)))
     }
 
     def applyNewAggregateEvents(proj: Projection[D], aggregateId: AggregateId, events: TreeMap[Int, List[E]]) = {
-      val aggregateHash = prefix + "_" + aggregateId
+      val aggregateHash = handler.hashPrefix + "_" + aggregateId
       val fromVersion = proj.readEvents.get(aggregateHash).fold(0)(_ + 1)
       val newEvents = events.from(fromVersion)
       val newData = applyNewEventsToData(proj.data, aggregateId, newEvents)
@@ -29,12 +27,8 @@ object Projection {
       Projection[D](newReadEvents, newData)
     }
 
-    if (prefix.isEmpty) {
-      initialProjection
-    } else {
-      println("====== vv =====.... " + handler.hashPrefix)
-      db.foldLeft(initialProjection)((proj, farg) => applyNewAggregateEvents(proj, farg._1, farg._2))
-    }
+    println("====== vv =====.... " + handler.hashPrefix)
+    db.foldLeft(initialProjection)((proj, farg) => applyNewAggregateEvents(proj, farg._1, farg._2))
   }
 }
 
