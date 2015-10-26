@@ -1,10 +1,24 @@
 package Cqrs
 
-import cats.data.Xor
-import cats.Monad
 import cats._
+import cats.data.Xor
 import cats.free.Free
 import cats.free.Free.liftF
+import shapeless.Generic
+
+import scala.reflect.ClassTag
+
+trait PromotionHandler[C, E] {
+  def create(cmd: C): E
+}
+
+object PromotionHandler {
+  implicit def transform[C, E, CRepr, ERepr](implicit genericC: Generic.Aux[C, CRepr],
+                                                      genericE: Generic.Aux[E, ERepr],
+                                                      proof: CRepr =:= ERepr): PromotionHandler[C, E] = new PromotionHandler[C, E] {
+    def create(cmd: C): E = genericE.from(genericC.to(cmd))
+  }
+}
 
 class EventFlow[Cmd, Evt] {
   type CommandH = PartialFunction[Cmd, Aggregate.Error Xor List[Evt]]
@@ -22,6 +36,18 @@ class EventFlow[Cmd, Evt] {
   }
 
   type Flow[A] = Free[FlowF, A]
+
+  def safeCast[I, O : ClassTag](in: I) = in match {
+    case x: O => Some(x)
+    case _ => None
+  }
+
+  def handler[C <: Cmd : ClassTag, E <: Evt](implicit promotionHandler: PromotionHandler[C, E], proofE: E <:< Evt): PartialFunction[Cmd, Aggregate.Error Xor List[Evt]] =
+    Function.unlift[Cmd, Aggregate.Error Xor List[Evt]] {(c: Cmd) =>
+      for {
+        cmd <- safeCast[Cmd, C](c)
+      } yield Xor.right(promotionHandler.create(cmd)).map(e => List(proofE(e)))
+    }
 
   def handler(ch: CommandH): Flow[Unit] = liftF(SetCommandHandler(ch, ()))
   def waitFor[A](eh: EventH[A]): Flow[A] = liftF(EventHandler[A, A](eh, identity))
