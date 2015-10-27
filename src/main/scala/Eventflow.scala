@@ -65,7 +65,8 @@ object Eventflow {
       addDb(newDb[Counter.Event]).
       addDb(newDb[Door.Event]).
       addProjection(CounterProjection.emptyCounterProjection).
-      addProjection(DoorProjection.emptyDoorProjection)
+      addProjection(DoorProjection.emptyDoorProjection).
+      addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
 
     {
       import runner._
