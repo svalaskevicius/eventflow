@@ -38,44 +38,33 @@ object OpenDoorsCountersProjection {
 
     def hashPrefix = "Counter"
 
+    def updateDoorCounter(d: Data, doorId: AggregateId, counterId: AggregateId, init: => Int, update: Int => Int): Data =
+      d.copy(
+        doorCounters = modify(
+          d.doorCounters,
+          doorId,
+          DoorState(TreeMap.empty),
+          (ds: DoorState) => DoorState(
+            modify(
+              ds.counters,
+              counterId,
+              init,
+              update
+            )
+          )
+        )
+      )
+
     def handle(id: AggregateId, e: Event, d: Data) = e match {
       case Incremented => println ("inc") ; {
         d.nextDoor match {
-          case Some(doorId) => d.copy(
-            doorCounters = modify(
-              d.doorCounters,
-              doorId,
-              DoorState(TreeMap.empty),
-              (ds: DoorState) => DoorState(
-                modify(
-                  ds.counters,
-                  id,
-                  1,
-                  (c:Int) => c + 1
-                )
-              )
-            )
-          )
+          case Some(doorId) => updateDoorCounter(d, doorId, id, 1, (c:Int) => c + 1)
           case _ => d
         }
       }
       case Decremented => println ("dec") ; {
         d.nextDoor match {
-          case Some(doorId) => d.copy(
-            doorCounters = modify(
-              d.doorCounters,
-              doorId,
-              DoorState(TreeMap.empty),
-              (ds: DoorState) => DoorState(
-                modify(
-                  ds.counters,
-                  id,
-                  -1,
-                  (c:Int) => c - 1
-                )
-              )
-            )
-          )
+          case Some(doorId) => updateDoorCounter(d, doorId, id, -1, (c:Int) => c - 1)
           case _ => d
         }
       }
