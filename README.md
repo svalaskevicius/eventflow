@@ -1,6 +1,6 @@
 # Eventflow: CQRS/ES in scala
 
-[![Chat](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/svalaskevicius/eventflow)
+[![Join the chat at https://gitter.im/svalaskevicius/eventflow](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/svalaskevicius/eventflow?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 ## Vision
 
