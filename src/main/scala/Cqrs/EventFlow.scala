@@ -4,21 +4,11 @@ import cats._
 import cats.data.Xor
 import cats.free.Free
 import cats.free.Free.liftF
-import shapeless.Generic
+import lib.CaseClassTransformer
 
 import scala.reflect.ClassTag
 
-trait PromotionHandler[C, E] {
-  def create(cmd: C): E
-}
 
-object PromotionHandler {
-  implicit def transform[C, E, CRepr, ERepr](implicit genericC: Generic.Aux[C, CRepr],
-                                                      genericE: Generic.Aux[E, ERepr],
-                                                      proof: CRepr =:= ERepr): PromotionHandler[C, E] = new PromotionHandler[C, E] {
-    def create(cmd: C): E = genericE.from(genericC.to(cmd))
-  }
-}
 
 class EventFlow[Cmd, Evt] {
   type CommandH = PartialFunction[Cmd, Aggregate.Error Xor List[Evt]]
@@ -37,16 +27,19 @@ class EventFlow[Cmd, Evt] {
 
   type Flow[A] = Free[FlowF, A]
 
-  def safeCast[I, O : ClassTag](in: I) = in match {
-    case x: O => Some(x)
-    case _ => None
-  }
-
-  def handler[C <: Cmd : ClassTag, E <: Evt](implicit promotionHandler: PromotionHandler[C, E], proofE: E <:< Evt): PartialFunction[Cmd, Aggregate.Error Xor List[Evt]] =
-    Function.unlift[Cmd, Aggregate.Error Xor List[Evt]] {(c: Cmd) =>
-      for {
-        cmd <- safeCast[Cmd, C](c)
-      } yield Xor.right(promotionHandler.create(cmd)).map(e => List(proofE(e)))
+  /**
+    * Promotes a command to a event. The input types need to be isomoprhic. In other words
+    * have the same fields + types
+    * @tparam C The command type, should be isomorphic to the event type
+    * @tparam E The event type, should be isomorphic to the command type
+    * @return A CommandH, which takes a Cmd and either returns a error or a list of events (just one in this case)
+    */
+  def promote[C <: Cmd : ClassTag, E <: Evt](implicit cct: CaseClassTransformer[C, E]): PartialFunction[Cmd, Aggregate.Error Xor List[Evt]] =
+    Function.unlift[Cmd, Aggregate.Error Xor List[Evt]] {
+      //this raises: isInstanceOf is disabled by wartremover, but it has false positives:
+      //https://github.com/puffnfresh/wartremover/issues/152
+      case c: C => Some(Xor.right(cct.transform(c)).map(List(_)))
+      case _ => None
     }
 
   def handler(ch: CommandH): Flow[Unit] = liftF(SetCommandHandler(ch, ()))
