@@ -1,5 +1,5 @@
 
-import Cqrs.InMemoryDb._
+import Cqrs.DbAdapters.InMemoryDb._
 import Cqrs.BatchRunner
 
 object Eventflow {
