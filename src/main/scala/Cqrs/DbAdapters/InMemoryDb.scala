@@ -26,7 +26,7 @@ object InMemoryDb {
   type DbBackend = TreeMap[AggregateId, TreeMap[Int, List[upickle.Js.Value]]]
   type Db[A] = State[DbBackend, A]
 
-  def newDb[E]: DbBackend = new TreeMap()
+  def newDb: DbBackend = new TreeMap()
 
   def readFromDb[E](database: DbBackend, id: AggregateId, fromVersion: Int)(implicit eventSerialiser: EventSerialisation[E]): Error Xor List[VersionedEvents[E]] = {
     database.get(id).fold[Error Xor List[VersionedEvents[E]]](

@@ -61,9 +61,7 @@ object Eventflow {
     import CounterProjection.CounterHandler
     import DoorProjection.DoorHandler
 
-    val runner = BatchRunner.empty.
-      addDb(newDb[Counter.Event]).
-      addDb(newDb[Door.Event]).
+    val runner = BatchRunner.forDb(newDb).
       addProjection(CounterProjection.emptyCounterProjection).
       addProjection(DoorProjection.emptyDoorProjection).
       addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)

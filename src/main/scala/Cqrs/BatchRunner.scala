@@ -9,7 +9,7 @@ import lib.{ HList, HNil }
 import lib.HList._
 
 object BatchRunner {
-  def empty = BatchRunner[HNil, HNil.type](HNil, HNil)
+  def forDb(db: DbBackend) = BatchRunner[HNil.type](db, HNil)
 
   sealed trait ProjectionHandlers[E, PROJS <: HList] {
     def apply(db: DbBackend, pr: PROJS): PROJS
@@ -36,40 +36,32 @@ object BatchRunner {
 
 }
 
-final case class BatchRunner[DBS <: HList, PROJS <: HList](dbs: DBS, projections: PROJS) {
+final case class BatchRunner[PROJS <: HList](db: DbBackend, projections: PROJS) {
 
-  type Self = BatchRunner[DBS, PROJS]
+  type Self = BatchRunner[PROJS]
 
   import BatchRunner.ProjectionHandlers
 
   type DbActions[A] = StateT[(Self, Error) Xor ?, Self, A]
 
-  def addDb[E](db: DbBackend): BatchRunner[DbBackend :: DBS, PROJS] = copy(dbs = db :: dbs)
+  def addProjection[D](proj: Projection[D]): BatchRunner[Projection[D] :: PROJS] = copy(projections = proj :: projections)
 
-  def addProjection[D](proj: Projection[D]): BatchRunner[DBS, Projection[D] :: PROJS] = copy(projections = proj :: projections)
-
-  def applyInDb[E, A](actions: EventDatabaseWithFailure[E, A], eventSerialiser: EventSerialisation[E])(db: DbBackend): (DbBackend, Error Xor A) = {
-    val r = runInMemoryDb(db, actions)(eventSerialiser)
-    r.fold(e => (db, Xor.left(e)), res => (res._1, Xor.right(res._2)))
-  }
-
-  def db[E, A](actions: EventDatabaseWithFailure[E, A])(implicit eventSerialiser: EventSerialisation[E], ev: ApplyUpdate1[DbBackend, DBS, Error Xor A], _extr: Extractor[DbBackend, DBS], _projHandlers: ProjectionHandlers[E, PROJS]): DbActions[A] =
+  def db[E, A](actions: EventDatabaseWithFailure[E, A])(implicit eventSerialiser: EventSerialisation[E], _projHandlers: ProjectionHandlers[E, PROJS]): DbActions[A] =
     new DbActions[A](
-      Xor.right((runner: BatchRunner[DBS, PROJS]) => {
-        val r = applyUpdate1(runner.dbs, applyInDb(actions, eventSerialiser))
-        r._2.fold(e => Xor.left((runner, e)), a => Xor.right((runner.copy(dbs = r._1).runProjections, a)))
+      Xor.right((runner: BatchRunner[PROJS]) => {
+        println("XX> " + db)
+        val failureOrRes = runInMemoryDb(runner.db, actions)
+        val dbAndFailureOrRes = failureOrRes.fold(e => (db, Xor.left(e)), res => (res._1, Xor.right(res._2)))
+        dbAndFailureOrRes._2.fold(e => Xor.left((runner, e)), a => Xor.right((runner.copy(db = dbAndFailureOrRes._1).runProjections, a)))
       })
     )
 
-  def db[E, A, S, AA](prev: (AggregateState[S], AA), aggregate: AggregateDef[E, S, A])(implicit eventSerialiser: EventSerialisation[E], ev: ApplyUpdate1[DbBackend, DBS, Error Xor (AggregateState[S], A)], _extr: Extractor[DbBackend, DBS], _projHandlers: ProjectionHandlers[E, PROJS]): DbActions[(AggregateState[S], A)] = {
+  def db[E, A, S, AA](prev: (AggregateState[S], AA), aggregate: AggregateDef[E, S, A])(implicit eventSerialiser: EventSerialisation[E], _projHandlers: ProjectionHandlers[E, PROJS]): DbActions[(AggregateState[S], A)] = {
     val actions = aggregate.run(prev._1)
     db(actions)
   }
 
-  def runProjections[E](implicit _extr: Extractor[DbBackend, DBS], _projHandlers: ProjectionHandlers[E, PROJS]) =
-    runProjectionsOnDb(extract[DbBackend, DBS](dbs))
-
-  def runProjectionsOnDb[E](db: DbBackend)(implicit _projHandlers: ProjectionHandlers[E, PROJS]) =
+  def runProjections[E](implicit _projHandlers: ProjectionHandlers[E, PROJS]) =
     copy(projections = _projHandlers(db, projections))
 
   def run[A](actions: DbActions[A]): (Self, Error) Xor (Self, A) = actions.run(this)
