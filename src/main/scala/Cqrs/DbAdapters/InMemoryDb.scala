@@ -23,39 +23,47 @@ object InMemoryDb {
 
   import Aggregate._
 
-  type DbBackend = TreeMap[AggregateId, TreeMap[Int, List[upickle.Js.Value]]]
+  type DbBackend = TreeMap[String, TreeMap[AggregateId, TreeMap[Int, List[upickle.Js.Value]]]]
   type Db[A] = State[DbBackend, A]
 
   def newDb: DbBackend = new TreeMap()
 
-  def readFromDb[E](database: DbBackend, id: AggregateId, fromVersion: Int)(implicit eventSerialiser: EventSerialisation[E]): Error Xor List[VersionedEvents[E]] = {
-    database.get(id).fold[Error Xor List[VersionedEvents[E]]](
+
+  def readFromDb[E](database: DbBackend, tag: String, id: AggregateId, fromVersion: Int)(implicit eventSerialiser: EventSerialisation[E]): Error Xor List[VersionedEvents[E]] = {
+
+    def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, List[upickle.Js.Value]]]) = t.get(id)
+
+    (database.get(tag) flatMap getById(id)).fold[Error Xor List[VersionedEvents[E]]](
       Xor.left(ErrorDoesNotExist(id))
     )(
-        (evs: TreeMap[Int, List[upickle.Js.Value]]) => Xor.right(
-          evs.from(fromVersion + 1).toList.map(v => VersionedEvents[E](v._1, v._2 map eventSerialiser.reader.read))
-        )
+      (evs: TreeMap[Int, List[upickle.Js.Value]]) => Xor.right(
+        evs.from(fromVersion + 1).toList.map(v => VersionedEvents[E](v._1, v._2 map eventSerialiser.reader.read))
       )
+    )
   }
 
-  def readExistenceFromDb[E](database: DbBackend, id: AggregateId)(implicit eventSerialiser: EventSerialisation[E]): Error Xor Boolean = {
-    val doesNotExist = readFromDb[E](database, id, 0).
+  def readExistenceFromDb[E](database: DbBackend, tag: String, id: AggregateId)(implicit eventSerialiser: EventSerialisation[E]): Error Xor Boolean = {
+    val doesNotExist = readFromDb[E](database, tag, id, 0).
       map { _ => false }.
       recover({ case ErrorDoesNotExist(_) => true })
     doesNotExist.map[Boolean](!_)
   }
 
-  def addToDb[E](database: DbBackend, id: AggregateId, events: VersionedEvents[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
-    val currentEvents = database.get(id)
+  def addToDb[E](database: DbBackend, tag: String, id: AggregateId, events: VersionedEvents[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
+    val currentTaggedEvents = database.get(tag)
+    val currentEvents = currentTaggedEvents flatMap (_.get(id))
     val currentVersion = currentEvents.fold(0)(e => if (e.isEmpty) 0 else e.lastKey)
     if (currentVersion != events.version - 1) {
       Xor.left(ErrorUnexpectedVersion(id, currentVersion, events.version))
     } else {
       Xor.right(
         database.updated(
-          id,
-          currentEvents.fold(new TreeMap[Int, List[upickle.Js.Value]])(
-            _.updated(events.version, events.events map eventSerialiser.writer.write)
+          tag,
+          currentTaggedEvents.getOrElse(TreeMap.empty).updated(
+            id,
+            currentEvents.fold(new TreeMap[Int, List[upickle.Js.Value]])(
+              _.updated(events.version, events.events map eventSerialiser.writer.write)
+            )
           )
         )
       )
@@ -65,21 +73,21 @@ object InMemoryDb {
   def transformDbOpToDbState[E](implicit eventSerialiser: EventSerialisation[E]): EventDatabaseOp[E, ?] ~> Db =
     new (EventDatabaseOp[E, ?] ~> Db) {
       def apply[A](fa: EventDatabaseOp[E, A]): Db[A] = fa match {
-        case ReadAggregateExistence(id) => State(database => {
+        case ReadAggregateExistence(tag, id) => State(database => {
           println("reading existence from DB: '" + fa + "'... " + database)
-          val exists = readExistenceFromDb(database, id)
+          val exists = readExistenceFromDb(database, tag, id)
           println("result: " + exists)
           (database, exists)
         })
-        case ReadAggregate(id, version) => State(database => {
+        case ReadAggregate(tag, id, version) => State(database => {
           println("reading from DB: '" + fa + "'... " + database)
-          val d = readFromDb[E](database, id, version)
+          val d = readFromDb[E](database, tag, id, version)
           println("result: " + d)
           (database, d)
         })
-        case AppendAggregateEvents(id, events) => State((database: DbBackend) => {
+        case AppendAggregateEvents(tag, id, events) => State((database: DbBackend) => {
           println("writing to DB: '" + fa + "'... " + database)
-          val d = addToDb[E](database, id, events)
+          val d = addToDb[E](database, tag, id, events)
           println("result: " + d)
           d.fold[(DbBackend, Error Xor Unit)](
           err => (database, Xor.left[Error, Unit](err)),

@@ -68,7 +68,7 @@ class EventFlow[Cmd, Evt] {
 
   case object ErrorCannotFindHandler extends Aggregate.Error
 
-  val flowAggregate: FlowAggregate =
+  def flowAggregate(tag: String): FlowAggregate =
     Aggregate(
       on = e => d => (d map (consumer => consumer.evh(e))).flatMap(Option.option2Iterable),
       handle = c => d => d.foldLeft(None: Option[Aggregate.Error Xor List[Evt]])(
@@ -78,7 +78,8 @@ class EventFlow[Cmd, Evt] {
         }
       ).getOrElse {
         Xor.Left(ErrorCannotFindHandler)
-      }
+      },
+      tag = tag
     )
 
   import Aggregate._

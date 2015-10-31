@@ -6,6 +6,9 @@ import cats.data.{ Xor, XorT }
 import cats.syntax.flatMap._
 
 object Door {
+
+  val tag = "Door"
+
   sealed trait Event
   final case class Registered(id: String) extends Event
   case object Opened extends Event
@@ -23,7 +26,7 @@ object Door {
   val flow = new EventFlow[Command, Event]
   import flow._
   type DoorAggregate = FlowAggregate
-  val doorAggregate = flowAggregate
+  val doorAggregate = flowAggregate(tag)
 
   def openDoorsLogic: Flow[Unit] =
     handler {

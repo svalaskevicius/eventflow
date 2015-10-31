@@ -6,6 +6,9 @@ import cats.data.{ Xor, XorT }
 import cats.syntax.flatMap._
 
 object Counter {
+
+  val tag = "Counter"
+
   sealed trait Event
   final case class Created(id: String) extends Event
   case object Incremented extends Event
@@ -19,7 +22,7 @@ object Counter {
   val flow = new EventFlow[Command, Event]
   import flow._
   type CounterAggregate = FlowAggregate
-  val counterAggregate = flowAggregate
+  val counterAggregate = flowAggregate(tag)
 
   def countingLogic(c: Int): Flow[Unit] =
     handler {
