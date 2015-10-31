@@ -1,10 +1,14 @@
 package Cqrs
 
-import cats.data.Xor
-import cats.Monad
 import cats._
+import cats.data.Xor
 import cats.free.Free
 import cats.free.Free.liftF
+import lib.CaseClassTransformer
+
+import scala.reflect.ClassTag
+
+
 
 class EventFlow[Cmd, Evt] {
   type CommandH = PartialFunction[Cmd, Aggregate.Error Xor List[Evt]]
@@ -22,6 +26,21 @@ class EventFlow[Cmd, Evt] {
   }
 
   type Flow[A] = Free[FlowF, A]
+
+  /**
+    * Promotes a command to a event. The input types need to be isomoprhic. In other words
+    * have the same fields + types
+    * @tparam C The command type, should be isomorphic to the event type
+    * @tparam E The event type, should be isomorphic to the command type
+    * @return A CommandH, which takes a Cmd and either returns a error or a list of events (just one in this case)
+    */
+  def promote[C <: Cmd : ClassTag, E <: Evt](implicit cct: CaseClassTransformer[C, E]): PartialFunction[Cmd, Aggregate.Error Xor List[Evt]] =
+    Function.unlift[Cmd, Aggregate.Error Xor List[Evt]] {
+      //this raises: isInstanceOf is disabled by wartremover, but it has false positives:
+      //https://github.com/puffnfresh/wartremover/issues/152
+      case c: C => Some(Xor.right(cct.transform(c)).map(List(_)))
+      case _ => None
+    }
 
   def handler(ch: CommandH): Flow[Unit] = liftF(SetCommandHandler(ch, ()))
   def waitFor[A](eh: EventH[A]): Flow[A] = liftF(EventHandler[A, A](eh, identity))

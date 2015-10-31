@@ -27,8 +27,8 @@ object Door {
 
   def openDoorsLogic: Flow[Unit] =
     handler {
-      case Close => emitEvent(Closed)
-      case _ => failCommand("Open door can only be closed.")
+      promote[Close.type, Closed.type] orElse
+        { case _ => failCommand("Open door can only be closed.") }
     } >>
       waitForAndSwitch {
         case Closed => closedDoorsLogic
@@ -36,9 +36,9 @@ object Door {
 
   def closedDoorsLogic: Flow[Unit] =
     handler {
-      case Lock(key) => emitEvent(Locked(key))
-      case Open => emitEvent(Opened)
-      case _ => failCommand("Closed door can only be opened or locked.")
+      promote[Lock, Locked] orElse
+      promote[Open.type, Opened.type] orElse
+        { case _ => failCommand("Closed door can only be opened or locked.") }
     } >>
       waitForAndSwitch {
         case Opened => openDoorsLogic
@@ -56,7 +56,7 @@ object Door {
       }
 
   val aggregateLogic: List[Flow[Unit]] = List(
-    handler { case Register(id) => emitEvent(Registered(id)) } >> waitFor { case Registered(_) => () },
+    handler { promote[Register, Registered] } >> waitFor { case Registered(_) => () },
     waitFor { case Registered(_) => () } >> openDoorsLogic
   )
 
