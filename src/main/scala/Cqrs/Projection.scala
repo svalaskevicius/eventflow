@@ -3,39 +3,14 @@ package Cqrs
 import Cqrs.Aggregate._
 import DbAdapters.InMemoryDb._
 
-import scala.collection.immutable.TreeMap
-
 object Projection {
-  trait Handler[E, D] {
-    def hashPrefix: String
-    def handle(id: AggregateId, e: E, data: D): D
-  }
-
-  def empty[D](d: D): Projection[D] = Projection(TreeMap.empty, d)
-
-  def applyNewEventsFromDbToProjection[E, D](db: DbBackend, initialProjection: Projection[D])(implicit handler: Handler[E, D]): Projection[D] = {
-    def applyNewEventsToData(data: D, aggregateId: AggregateId, events: TreeMap[Int, List[E]]) = {
-      events.foldLeft(data)((d, el) => el._2.foldLeft(d)((d_, event) => handler.handle(aggregateId, event, d_)))
-    }
-
-    def applyNewAggregateEvents(proj: Projection[D], aggregateId: AggregateId, events: TreeMap[Int, List[E]]) = {
-      val aggregateHash = handler.hashPrefix + "_" + aggregateId
-      val fromVersion = proj.readEvents.get(aggregateHash).fold(0)(_ + 1)
-      val newEvents = events.from(fromVersion)
-      val newData = applyNewEventsToData(proj.data, aggregateId, newEvents)
-      val newReadEvents = proj.readEvents.updated(aggregateHash, newEvents.lastKey)
-      Projection[D](newReadEvents, newData)
-    }
-
- //   db.foldLeft(initialProjection)((proj, farg) => applyNewAggregateEvents(proj, farg._1, farg._2))
-    initialProjection
-  }
+  def empty[D](d: D, h: List[(Tag, EventDataConsumer[D])]): Projection[D] = Projection(0, d, h)
 }
 
-final case class Projection[D](readEvents: TreeMap[String, Int], data: D) {
+final case class Projection[D](lastReadOperation: Int, data: D, dbConsumers: List[(Tag, EventDataConsumer[D])]) {
 
-  import Projection._
-
-  def applyNewEventsFromDb[E](db: DbBackend)(implicit handler: Handler[E, D]): Projection[D] =
-    applyNewEventsFromDbToProjection(db, this)
+  def applyNewEventsFromDb(db: DbBackend): Projection[D] = {
+    val updatedProjectionData = consumeEvents(db, lastReadOperation, data, dbConsumers)
+    this.copy(lastReadOperation = updatedProjectionData._1, data = updatedProjectionData._2)
+  }
 }

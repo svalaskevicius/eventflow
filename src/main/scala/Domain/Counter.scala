@@ -4,6 +4,7 @@ import Cqrs._
 import Cqrs.Aggregate._
 import cats.data.{ Xor, XorT }
 import cats.syntax.flatMap._
+import Cqrs.DbAdapters.InMemoryDb.createEventDataConsumer
 
 object Counter {
 
@@ -55,21 +56,17 @@ object CounterProjection {
 
   type Data = TreeMap[AggregateId, Int]
 
-  def emptyCounterProjection = Projection.empty[Data](TreeMap.empty)
-
-  implicit object CounterHandler extends Projection.Handler[Counter.Event, Data] {
-
-    import Counter._
-
-    def hashPrefix = "Counter"
-
-    def handle(id: AggregateId, e: Event, d: Data) = e match {
-      case Created(id) =>
-        println("created " + id); d
-      case Incremented =>
-        println("+1"); d.updated(id, d.get(id).fold(1)(_ + 1))
-      case Decremented => println("-1"); d.updated(id, d.get(id).fold(-1)(_ - 1))
-    }
-  }
+  def emptyCounterProjection = Projection.empty[Data](TreeMap.empty, List(
+    (Counter.tag, createEventDataConsumer( (d: Data, t: Tag, id: AggregateId, v: Int, e: Counter.Event) => {
+      import Counter._
+      e match {
+        case Created(id) =>
+          println("created " + id); d
+        case Incremented =>
+          println("+1"); d.updated(id, d.get(id).fold(1)(_ + 1))
+        case Decremented => println("-1"); d.updated(id, d.get(id).fold(-1)(_ - 1))
+      }}
+    ))
+  ))
 }
 

@@ -1,6 +1,7 @@
 package Domain
 
 import Cqrs._
+import DbAdapters.InMemoryDb.createEventDataConsumer
 import Cqrs.Aggregate._
 import cats.data.{ Xor, XorT }
 import cats.syntax.flatMap._
@@ -82,21 +83,17 @@ object DoorProjection {
 
   type Data = TreeMap[AggregateId, State]
 
-  def emptyDoorProjection = Projection.empty[Data](new TreeMap())
-
-  implicit object DoorHandler extends Projection.Handler[Door.Event, Data] {
-
-    import Door._
-
-    def hashPrefix = "Door"
-
-    def handle(id: AggregateId, e: Event, d: Data) = e match {
-      case Registered(id) => println ("created "+id) ; d.updated(id, DoorProjection.Open)
-      case Door.Closed => println ("closed") ; d.updated(id, DoorProjection.Closed)
-      case Door.Opened => println ("opened") ; d.updated(id, DoorProjection.Open)
-      case Door.Locked(key) => println ("locked") ; d.updated(id, DoorProjection.Locked(key))
-      case Door.Unlocked(_) => println ("unlocked") ; d.updated(id, DoorProjection.Closed)
-    }
-  }
+  def emptyDoorProjection = Projection.empty[Data](new TreeMap(), List(
+    (Door.tag, createEventDataConsumer( (d: Data, t: Tag, id: AggregateId, v: Int, e: Door.Event) => {
+      import Door._
+      e match {
+        case Registered(id) => println ("created "+id) ; d.updated(id, DoorProjection.Open)
+        case Door.Closed => println ("closed") ; d.updated(id, DoorProjection.Closed)
+        case Door.Opened => println ("opened") ; d.updated(id, DoorProjection.Open)
+        case Door.Locked(key) => println ("locked") ; d.updated(id, DoorProjection.Locked(key))
+        case Door.Unlocked(_) => println ("unlocked") ; d.updated(id, DoorProjection.Closed)
+      }}
+    ))
+  ))
 }
 

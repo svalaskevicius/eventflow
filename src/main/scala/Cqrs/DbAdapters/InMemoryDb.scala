@@ -23,22 +23,26 @@ object InMemoryDb {
 
   import Aggregate._
 
-  // tag -> aggregate id -> version -> data
-  type DbBackend = TreeMap[String, TreeMap[String, TreeMap[Int, List[upickle.Js.Value]]]]
+  final case class DbBackend(
+          data: TreeMap[String, TreeMap[String, TreeMap[Int, List[String]]]], // tag -> aggregate id -> version -> event data
+          log: TreeMap[Int, (String, String, Int)],                           // operation nr -> tag, aggregate id, aggregate version
+          lastOperationNr: Int
+        )
   type Db[A] = State[DbBackend, A]
 
-  def newDb: DbBackend = new TreeMap()
+  def newDb: DbBackend = DbBackend(TreeMap.empty, TreeMap.empty, 0)
 
 
   def readFromDb[E](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int)(implicit eventSerialiser: EventSerialisation[E]): Error Xor List[VersionedEvents[E]] = {
 
-    def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, List[upickle.Js.Value]]]) = t.get(id.v)
+    def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, List[String]]]) = t.get(id.v)
+    def unserialise(d: String): E = eventSerialiser.reader.read(upickle.json.read(d))
 
-    (database.get(tag.v) flatMap getById(id)).fold[Error Xor List[VersionedEvents[E]]](
+    (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor List[VersionedEvents[E]]](
       Xor.left(ErrorDoesNotExist(id))
     )(
-      (evs: TreeMap[Int, List[upickle.Js.Value]]) => Xor.right(
-        evs.from(fromVersion + 1).toList.map(v => VersionedEvents[E](v._1, v._2 map eventSerialiser.reader.read))
+      (evs: TreeMap[Int, List[String]]) => Xor.right(
+        evs.from(fromVersion + 1).toList.map(v => VersionedEvents[E](v._1, v._2 map unserialise))
       )
     )
   }
@@ -51,21 +55,27 @@ object InMemoryDb {
   }
 
   def addToDb[E](database: DbBackend, tag: Tag, id: AggregateId, events: VersionedEvents[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
-    val currentTaggedEvents = database.get(tag.v)
+    val currentTaggedEvents = database.data.get(tag.v)
     val currentEvents = currentTaggedEvents flatMap (_.get(id.v))
-    val currentVersion = currentEvents.fold(0)(e => if (e.isEmpty) 0 else e.lastKey)
-    if (currentVersion != events.version - 1) {
-      Xor.left(ErrorUnexpectedVersion(id, currentVersion, events.version))
+    val previousVersion = currentEvents.fold(0)(e => if (e.isEmpty) 0 else e.lastKey)
+    if (previousVersion != events.version - 1) {
+      Xor.left(ErrorUnexpectedVersion(id, previousVersion, events.version))
     } else {
+      val operationNumber = database.lastOperationNr + 1
+      def serialise(d: E): String = upickle.json.write(eventSerialiser.writer.write(d))
       Xor.right(
-        database.updated(
-          tag.v,
-          currentTaggedEvents.getOrElse(TreeMap.empty[String, TreeMap[Int, List[upickle.Js.Value]]]).updated(
-            id.v,
-            currentEvents.fold(new TreeMap[Int, List[upickle.Js.Value]])(
-              _.updated(events.version, events.events map eventSerialiser.writer.write)
+        DbBackend(
+          database.data.updated(
+            tag.v,
+            currentTaggedEvents.getOrElse(TreeMap.empty[String, TreeMap[Int, List[String]]]).updated(
+              id.v,
+              currentEvents.fold(new TreeMap[Int, List[String]])(
+                _.updated(events.version, events.events map serialise)
+              )
             )
-          )
+          ),
+          database.log + ((operationNumber, (tag.v, id.v, events.version))),
+          operationNumber
         )
       )
     }
@@ -98,10 +108,38 @@ object InMemoryDb {
       }
     }
 
-  // rename to runDb, move to generic
   def runInMemoryDb[E, A](database: DbBackend, actions: EventDatabaseWithFailure[E, A])(implicit eventSerialiser: EventSerialisation[E]): Error Xor (DbBackend, A) = {
     val (db, r) = actions.value.foldMap[Db](transformDbOpToDbState).run(database).run
     r map ((db, _))
+  }
+
+  trait EventDataConsumer[D] {
+    def apply(d: D, tag: Tag, id: AggregateId, version: Int, data: String): D
+  }
+  def createEventDataConsumer[E, D](handler: (D, Tag, AggregateId, Int, E) => D)(implicit eventSerialiser: EventSerialisation[E]) =
+    new EventDataConsumer[D] {
+      def apply(d: D, tag: Tag, id: AggregateId, version: Int, data: String): D = handler(d, tag, id, version, eventSerialiser.reader.read(upickle.json.read(data)))
+    }
+
+  type EventDataConsumerQuery[D] = List[(Tag, EventDataConsumer[D])]
+
+  def consumeEvents[D](database: DbBackend, fromOperation: Int, initData: D, query: EventDataConsumerQuery[D]): (Int, D) = {
+
+    def findData(tag: String, id: String, version: Int): Option[List[String]] = database.data.get(tag) flatMap (_.get(id)) flatMap (_.get(version))
+
+    def applyLogEntryData(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: List[String]): D =
+      data.foldLeft(d)((d_, v) => consumer(d_, Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, v))
+
+    def applyQueryToLogEntry(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Option[D] =
+      findData(logEntry._1, logEntry._2, logEntry._3) map applyLogEntryData(logEntry, d, consumer)
+
+    def checkAndApplyDataLogEntry(initDataForLogEntries: D, logEntry: (String, String, Int)): D =
+      query.foldLeft(initDataForLogEntries)((d, q) => if (q._1.v == logEntry._1) applyQueryToLogEntry(logEntry, d, q._2).getOrElse(d) else d) // TODO: how to fail on data not found? its not a likely situation and not a domain failure
+
+    val newData = database.log.from(fromOperation + 1).foldLeft(initData)((d, el) => checkAndApplyDataLogEntry(d, el._2))
+
+    println ("XXXX> running proj from " + database.lastOperationNr + " ret " + newData)
+    (database.lastOperationNr, newData)
   }
 }
 
