@@ -11,8 +11,13 @@ import cats.syntax.flatMap._
 
 object Aggregate {
 
-  type AggregateId = String
-  val emptyAggregateId = ""
+  final case class Tag(v: String)
+  final case class AggregateId(v: String)
+  val emptyAggregateId = AggregateId("")
+
+  implicit def aggOrdering(implicit ev: Ordering[String]): Ordering[AggregateId] = new Ordering[AggregateId] {
+    def compare(a: AggregateId, b: AggregateId) = ev.compare(a.v, b.v)
+  }
 
   trait Error
   final case class ErrorExistsAlready(id: AggregateId) extends Error
@@ -23,9 +28,9 @@ object Aggregate {
   final case class VersionedEvents[E](version: Int, events: List[E])
 
   sealed trait EventDatabaseOp[E, A]
-  final case class ReadAggregateExistence[E](tag: String, id: AggregateId) extends EventDatabaseOp[E, Error Xor Boolean]
-  final case class ReadAggregate[E](tag: String, id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor List[VersionedEvents[E]]]
-  final case class AppendAggregateEvents[E](tag: String, id: AggregateId, events: VersionedEvents[E]) extends EventDatabaseOp[E, Error Xor Unit]
+  final case class ReadAggregateExistence[E](tag: Tag, id: AggregateId) extends EventDatabaseOp[E, Error Xor Boolean]
+  final case class ReadAggregate[E](tag: Tag, id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor List[VersionedEvents[E]]]
+  final case class AppendAggregateEvents[E](tag: Tag, id: AggregateId, events: VersionedEvents[E]) extends EventDatabaseOp[E, Error Xor Unit]
 
   type EventDatabase[E, A] = Free[EventDatabaseOp[E, ?], A]
   type EventDatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabase[E, ?], Err, A]
@@ -38,12 +43,12 @@ object Aggregate {
   def lift[E, A](a: EventDatabaseOp[E, Error Xor A]): EventDatabaseWithFailure[E, A] =
     XorT[EventDatabase[E, ?], Error, A](liftF[EventDatabaseOp[E, ?], Error Xor A](a))
 
-  def doesAggregateExist[E](tag: String, id: AggregateId): EventDatabaseWithFailure[E, Boolean] = lift(ReadAggregateExistence[E](tag, id))
+  def doesAggregateExist[E](tag: Tag, id: AggregateId): EventDatabaseWithFailure[E, Boolean] = lift(ReadAggregateExistence[E](tag, id))
 
-  def readNewEvents[E](tag: String, id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[E, List[VersionedEvents[E]]] =
+  def readNewEvents[E](tag: Tag, id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[E, List[VersionedEvents[E]]] =
     lift(ReadAggregate[E](tag, id, fromVersion))
 
-  def appendEvents[E](tag: String, id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[E, Unit] =
+  def appendEvents[E](tag: Tag, id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[E, Unit] =
     lift(AppendAggregateEvents(tag, id, events))
 
   implicit def eventDatabaseMonad[E]: Monad[EventDatabase[E, ?]] = Free.freeMonad[EventDatabaseOp[E, ?]]
@@ -70,7 +75,7 @@ object Aggregate {
 final case class Aggregate[E, C, D](
   on: Aggregate[E, C, D]#EventHandler,
   handle: Aggregate[E, C, D]#CommandHandler,
-  tag: String
+  tag: Aggregate.Tag
 ) {
   import Aggregate._
 

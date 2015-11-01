@@ -68,7 +68,7 @@ class EventFlow[Cmd, Evt] {
 
   case object ErrorCannotFindHandler extends Aggregate.Error
 
-  def flowAggregate(tag: String): FlowAggregate =
+  def flowAggregate(tag: Aggregate.Tag): FlowAggregate =
     Aggregate(
       on = e => d => (d map (consumer => consumer.evh(e))).flatMap(Option.option2Iterable),
       handle = c => d => d.foldLeft(None: Option[Aggregate.Error Xor List[Evt]])(

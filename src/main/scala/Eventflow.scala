@@ -1,6 +1,7 @@
 
 import Cqrs.DbAdapters.InMemoryDb._
 import Cqrs.BatchRunner
+import Cqrs.Aggregate.AggregateId
 
 object Eventflow {
 
@@ -68,11 +69,11 @@ object Eventflow {
 
     {
       import runner._
-      val db_ = run(
+      val runner1 = run(
         for {
-          c1 <- db(Counter.startCounter("test counter"))
+          c1 <- db(Counter.startCounter(AggregateId("test counter")))
           c1 <- db(c1, actions1)
-          d1 <- db(Door.registerDoor("golden gate"))
+          d1 <- db(Door.registerDoor(AggregateId("golden gate")))
           d1 <- db(d1, doorActions1)
           c1 <- db(c1, actions2)
           d1 <- db(d1, doorActions2)

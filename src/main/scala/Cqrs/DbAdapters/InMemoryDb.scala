@@ -23,17 +23,18 @@ object InMemoryDb {
 
   import Aggregate._
 
-  type DbBackend = TreeMap[String, TreeMap[AggregateId, TreeMap[Int, List[upickle.Js.Value]]]]
+  // tag -> aggregate id -> version -> data
+  type DbBackend = TreeMap[String, TreeMap[String, TreeMap[Int, List[upickle.Js.Value]]]]
   type Db[A] = State[DbBackend, A]
 
   def newDb: DbBackend = new TreeMap()
 
 
-  def readFromDb[E](database: DbBackend, tag: String, id: AggregateId, fromVersion: Int)(implicit eventSerialiser: EventSerialisation[E]): Error Xor List[VersionedEvents[E]] = {
+  def readFromDb[E](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int)(implicit eventSerialiser: EventSerialisation[E]): Error Xor List[VersionedEvents[E]] = {
 
-    def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, List[upickle.Js.Value]]]) = t.get(id)
+    def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, List[upickle.Js.Value]]]) = t.get(id.v)
 
-    (database.get(tag) flatMap getById(id)).fold[Error Xor List[VersionedEvents[E]]](
+    (database.get(tag.v) flatMap getById(id)).fold[Error Xor List[VersionedEvents[E]]](
       Xor.left(ErrorDoesNotExist(id))
     )(
       (evs: TreeMap[Int, List[upickle.Js.Value]]) => Xor.right(
@@ -42,25 +43,25 @@ object InMemoryDb {
     )
   }
 
-  def readExistenceFromDb[E](database: DbBackend, tag: String, id: AggregateId)(implicit eventSerialiser: EventSerialisation[E]): Error Xor Boolean = {
+  def readExistenceFromDb[E](database: DbBackend, tag: Tag, id: AggregateId)(implicit eventSerialiser: EventSerialisation[E]): Error Xor Boolean = {
     val doesNotExist = readFromDb[E](database, tag, id, 0).
       map { _ => false }.
       recover({ case ErrorDoesNotExist(_) => true })
     doesNotExist.map[Boolean](!_)
   }
 
-  def addToDb[E](database: DbBackend, tag: String, id: AggregateId, events: VersionedEvents[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
-    val currentTaggedEvents = database.get(tag)
-    val currentEvents = currentTaggedEvents flatMap (_.get(id))
+  def addToDb[E](database: DbBackend, tag: Tag, id: AggregateId, events: VersionedEvents[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
+    val currentTaggedEvents = database.get(tag.v)
+    val currentEvents = currentTaggedEvents flatMap (_.get(id.v))
     val currentVersion = currentEvents.fold(0)(e => if (e.isEmpty) 0 else e.lastKey)
     if (currentVersion != events.version - 1) {
       Xor.left(ErrorUnexpectedVersion(id, currentVersion, events.version))
     } else {
       Xor.right(
         database.updated(
-          tag,
-          currentTaggedEvents.getOrElse(TreeMap.empty).updated(
-            id,
+          tag.v,
+          currentTaggedEvents.getOrElse(TreeMap.empty[String, TreeMap[Int, List[upickle.Js.Value]]]).updated(
+            id.v,
             currentEvents.fold(new TreeMap[Int, List[upickle.Js.Value]])(
               _.updated(events.version, events.events map eventSerialiser.writer.write)
             )

@@ -7,17 +7,17 @@ import cats.syntax.flatMap._
 
 object Door {
 
-  val tag = "Door"
+  val tag = Tag("Door")
 
   sealed trait Event
-  final case class Registered(id: String) extends Event
+  final case class Registered(id: AggregateId) extends Event
   case object Opened extends Event
   case object Closed extends Event
   final case class Locked(key: String) extends Event
   final case class Unlocked(key: String) extends Event
 
   sealed trait Command
-  final case class Register(id: String) extends Command
+  final case class Register(id: AggregateId) extends Command
   case object Open extends Command
   case object Close extends Command
   final case class Lock(key: String) extends Command

@@ -7,15 +7,15 @@ import cats.syntax.flatMap._
 
 object Counter {
 
-  val tag = "Counter"
+  val tag = Tag("Counter")
 
   sealed trait Event
-  final case class Created(id: String) extends Event
+  final case class Created(id: AggregateId) extends Event
   case object Incremented extends Event
   case object Decremented extends Event
 
   sealed trait Command
-  final case class Create(id: String) extends Command
+  final case class Create(id: AggregateId) extends Command
   case object Increment extends Command
   case object Decrement extends Command
 
@@ -55,7 +55,7 @@ object CounterProjection {
 
   type Data = TreeMap[AggregateId, Int]
 
-  def emptyCounterProjection = Projection.empty[Data](new TreeMap())
+  def emptyCounterProjection = Projection.empty[Data](TreeMap.empty)
 
   implicit object CounterHandler extends Projection.Handler[Counter.Event, Data] {
 
