@@ -60,11 +60,9 @@ object CounterProjection {
     (Counter.tag, createEventDataConsumer( (d: Data, t: Tag, id: AggregateId, v: Int, e: Counter.Event) => {
       import Counter._
       e match {
-        case Created(id) =>
-          println("created " + id); d
-        case Incremented =>
-          println("+1"); d.updated(id, d.get(id).fold(1)(_ + 1))
-        case Decremented => println("-1"); d.updated(id, d.get(id).fold(-1)(_ - 1))
+        case Created(id) => d
+        case Incremented => d.updated(id, d.get(id).fold(1)(_ + 1))
+        case Decremented => d.updated(id, d.get(id).fold(-1)(_ - 1))
       }}
     ))
   ))

@@ -26,7 +26,6 @@ final case class BatchRunner[PROJS <: HList](db: DbBackend, projections: PROJS) 
   def db[E, A](actions: EventDatabaseWithFailure[E, A])(implicit eventSerialiser: EventSerialisation[E], m: KMapper[Projection, PROJS, Projection, PROJS]): DbActions[A] =
     new DbActions[A](
       Xor.right((runner: BatchRunner[PROJS]) => {
-        println("XX> " + db)
         val failureOrRes = runInMemoryDb(runner.db, actions)
         val dbAndFailureOrRes = failureOrRes.fold(e => (db, Xor.left(e)), res => (res._1, Xor.right(res._2)))
         dbAndFailureOrRes._2.fold(e => Xor.left((runner, e)), a => Xor.right((runner.copy(db = dbAndFailureOrRes._1).runProjections, a)))

@@ -20,18 +20,16 @@ object OpenDoorsCountersProjection {
   def emptyOpenDoorsCountersProjection = Projection.empty[Data](Data(None, new TreeMap()), List(
     (Door.tag, createEventDataConsumer( (d: Data, t: Tag, id: AggregateId, v: Int, e: Door.Event) => {
       import Door._
-      println("ZZ>1> "+e)
       e match {
-        case Registered(id) => Data(Some(id), d.doorCounters.updated(id, DoorState(TreeMap.empty)))
-        case Closed => println ("closed") ; d.copy(nextDoor = None)
-        case Opened => println ("opened") ; Data(Some(id), init(d.doorCounters, id, DoorState(TreeMap.empty)))
+        case Registered(aggId) => Data(Some(id), d.doorCounters.updated(id, DoorState(TreeMap.empty)))
+        case Closed => d.copy(nextDoor = None)
+        case Opened => Data(Some(id), init(d.doorCounters, id, DoorState(TreeMap.empty)))
         case _ => d
       }}
     )),
     (Counter.tag, createEventDataConsumer( (d: Data, t: Tag, id: AggregateId, v: Int, e: Counter.Event) => {
       import Counter._
 
-      println("ZZ>2> "+e)
       def updateDoorCounter(d: Data, doorId: AggregateId, counterId: AggregateId, init: => Int, update: Int => Int): Data =
         d.copy(
           doorCounters = modify(
@@ -50,13 +48,13 @@ object OpenDoorsCountersProjection {
         )
 
       e match {
-        case Incremented => println ("inc") ; {
+        case Incremented => {
           d.nextDoor match {
             case Some(doorId) => updateDoorCounter(d, doorId, id, 1, (c:Int) => c + 1)
             case _ => d
           }
         }
-        case Decremented => println ("dec") ; {
+        case Decremented => {
           d.nextDoor match {
             case Some(doorId) => updateDoorCounter(d, doorId, id, -1, (c:Int) => c - 1)
             case _ => d

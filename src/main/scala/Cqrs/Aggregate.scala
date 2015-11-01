@@ -120,7 +120,6 @@ final case class Aggregate[E, C, D](
 
   private def applyEvents(evs: List[VersionedEvents[E]]): AD[Unit] =
     AD(vs => {
-      println("Applying events on aggregate: " + evs)
       val vs_ = evs.foldLeft(vs)((vs_, ve) => {
         if (vs_.version < ve.version) {
           vs_.copy(state = ve.events.foldLeft(vs_.state)((d, e) => on(e)(d)), version = ve.version)

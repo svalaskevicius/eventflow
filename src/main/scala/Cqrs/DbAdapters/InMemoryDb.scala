@@ -136,7 +136,6 @@ object InMemoryDb {
 
     val newData = database.log.from(fromOperation + 1).foldLeft(initData)((d, el) => checkAndApplyDataLogEntry(d, el._2))
 
-    println ("XXXX> running proj from " + database.lastOperationNr + " ret " + newData)
     (database.lastOperationNr, newData)
   }
 }

@@ -87,11 +87,11 @@ object DoorProjection {
     (Door.tag, createEventDataConsumer( (d: Data, t: Tag, id: AggregateId, v: Int, e: Door.Event) => {
       import Door._
       e match {
-        case Registered(id) => println ("created "+id) ; d.updated(id, DoorProjection.Open)
-        case Door.Closed => println ("closed") ; d.updated(id, DoorProjection.Closed)
-        case Door.Opened => println ("opened") ; d.updated(id, DoorProjection.Open)
-        case Door.Locked(key) => println ("locked") ; d.updated(id, DoorProjection.Locked(key))
-        case Door.Unlocked(_) => println ("unlocked") ; d.updated(id, DoorProjection.Closed)
+        case Registered(id) => d.updated(id, DoorProjection.Open)
+        case Door.Closed => d.updated(id, DoorProjection.Closed)
+        case Door.Opened => d.updated(id, DoorProjection.Open)
+        case Door.Locked(key) => d.updated(id, DoorProjection.Locked(key))
+        case Door.Unlocked(_) => d.updated(id, DoorProjection.Closed)
       }}
     ))
   ))
