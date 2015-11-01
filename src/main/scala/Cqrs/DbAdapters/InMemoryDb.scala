@@ -69,9 +69,7 @@ object InMemoryDb {
             tag.v,
             currentTaggedEvents.getOrElse(TreeMap.empty[String, TreeMap[Int, List[String]]]).updated(
               id.v,
-              currentEvents.fold(new TreeMap[Int, List[String]])(
-                _.updated(events.version, events.events map serialise)
-              )
+              currentEvents.getOrElse(TreeMap.empty[Int, List[String]]).updated(events.version, events.events map serialise)
             )
           ),
           database.log + ((operationNumber, (tag.v, id.v, events.version))),
