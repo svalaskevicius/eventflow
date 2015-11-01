@@ -17,9 +17,15 @@ import scala.collection.immutable.TreeMap
 
 object InMemoryDb {
 
-  final case class EventSerialisation[E](writer: upickle.default.Writer[E], reader: upickle.default.Reader[E])
+  trait EventSerialisation[E] {
+    def serialise(d: E): String
+    def unserialise(s: String): E
+  }
 
-  implicit def defaultEventSerialisation[E](implicit w: upickle.default.Writer[E], r: upickle.default.Reader[E]): EventSerialisation[E] = EventSerialisation(w, r)
+  implicit def defaultEventSerialisation[E](implicit w: upickle.default.Writer[E], r: upickle.default.Reader[E]): EventSerialisation[E] = new EventSerialisation[E] {
+    def serialise(d: E): String = upickle.json.write(w.write(d))
+    def unserialise(s: String): E = r.read(upickle.json.read(s))
+  }
 
   import Aggregate._
 
@@ -36,7 +42,7 @@ object InMemoryDb {
   def readFromDb[E](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int)(implicit eventSerialiser: EventSerialisation[E]): Error Xor List[VersionedEvents[E]] = {
 
     def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, List[String]]]) = t.get(id.v)
-    def unserialise(d: String): E = eventSerialiser.reader.read(upickle.json.read(d))
+    def unserialise(d: String): E = eventSerialiser.unserialise(d)
 
     (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor List[VersionedEvents[E]]](
       Xor.left(ErrorDoesNotExist(id))
@@ -62,14 +68,13 @@ object InMemoryDb {
       Xor.left(ErrorUnexpectedVersion(id, previousVersion, events.version))
     } else {
       val operationNumber = database.lastOperationNr + 1
-      def serialise(d: E): String = upickle.json.write(eventSerialiser.writer.write(d))
       Xor.right(
         DbBackend(
           database.data.updated(
             tag.v,
             currentTaggedEvents.getOrElse(TreeMap.empty[String, TreeMap[Int, List[String]]]).updated(
               id.v,
-              currentEvents.getOrElse(TreeMap.empty[Int, List[String]]).updated(events.version, events.events map serialise)
+              currentEvents.getOrElse(TreeMap.empty[Int, List[String]]).updated(events.version, events.events map eventSerialiser.serialise)
             )
           ),
           database.log + ((operationNumber, (tag.v, id.v, events.version))),
@@ -84,7 +89,7 @@ object InMemoryDb {
       def apply[A](fa: EventDatabaseOp[E, A]): Db[A] = fa match {
         case ReadAggregateExistence(tag, id) => State(database => {
           println("reading existence from DB: '" + fa + "'... " + database)
-          val exists = readExistenceFromDb(database, tag, id)
+          val exists = readExistenceFromDb(database, tag, id)(eventSerialiser)
           println("result: " + exists)
           (database, exists)
         })
@@ -116,7 +121,7 @@ object InMemoryDb {
   }
   def createEventDataConsumer[E, D](handler: (D, Tag, AggregateId, Int, E) => D)(implicit eventSerialiser: EventSerialisation[E]) =
     new EventDataConsumer[D] {
-      def apply(d: D, tag: Tag, id: AggregateId, version: Int, data: String): D = handler(d, tag, id, version, eventSerialiser.reader.read(upickle.json.read(data)))
+      def apply(d: D, tag: Tag, id: AggregateId, version: Int, data: String): D = handler(d, tag, id, version, eventSerialiser.unserialise(data))
     }
 
   type EventDataConsumerQuery[D] = List[(Tag, EventDataConsumer[D])]
