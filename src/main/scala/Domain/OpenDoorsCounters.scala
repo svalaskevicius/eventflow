@@ -1,6 +1,5 @@
 package Domain
 
-import Cqrs.DbAdapters.InMemoryDb._
 import Cqrs._
 import Cqrs.Aggregate._
 import cats.data.{ Xor, XorT }
@@ -18,7 +17,7 @@ object OpenDoorsCountersProjection {
   def init[K, V](kv: TreeMap[K, V], k: K, init: => V): TreeMap[K, V] = modify(kv, k, init, identity[V])
 
   def emptyOpenDoorsCountersProjection = Projection.empty[Data](Data(None, new TreeMap()), List(
-    (Door.tag, createEventDataConsumer( (d: Data, t: Tag, id: AggregateId, v: Int, e: Door.Event) => {
+    (Door.tag, Database.createEventDataConsumer( (d: Data, t: Tag, id: AggregateId, v: Int, e: Door.Event) => {
       import Door._
       e match {
         case Registered(aggId) => Data(Some(id), d.doorCounters.updated(id, DoorState(TreeMap.empty)))
@@ -27,7 +26,7 @@ object OpenDoorsCountersProjection {
         case _ => d
       }}
     )),
-    (Counter.tag, createEventDataConsumer( (d: Data, t: Tag, id: AggregateId, v: Int, e: Counter.Event) => {
+    (Counter.tag, Database.createEventDataConsumer( (d: Data, t: Tag, id: AggregateId, v: Int, e: Counter.Event) => {
       import Counter._
 
       def updateDoorCounter(d: Data, doorId: AggregateId, counterId: AggregateId, init: => Int, update: Int => Int): Data =

@@ -1,6 +1,7 @@
 package Cqrs.DbAdapters
 
 import Cqrs.Aggregate
+import Cqrs.Database.{Backend, EventDataConsumer, EventDataConsumerQuery, EventSerialisation}
 
 import cats.data.Xor
 import cats.Monad
@@ -17,16 +18,6 @@ import scala.collection.immutable.TreeMap
 
 object InMemoryDb {
 
-  trait EventSerialisation[E] {
-    def serialise(d: E): String
-    def unserialise(s: String): E
-  }
-
-  implicit def defaultEventSerialisation[E](implicit w: upickle.default.Writer[E], r: upickle.default.Reader[E]): EventSerialisation[E] = new EventSerialisation[E] {
-    def serialise(d: E): String = upickle.json.write(w.write(d))
-    def unserialise(s: String): E = r.read(upickle.json.read(s))
-  }
-
   import Aggregate._
 
   final case class DbBackend(
@@ -36,7 +27,7 @@ object InMemoryDb {
         )
   type Db[A] = State[DbBackend, A]
 
-  def newDb: DbBackend = DbBackend(TreeMap.empty, TreeMap.empty, 0)
+  def newInMemoryDb: DbBackend = DbBackend(TreeMap.empty, TreeMap.empty, 0)
 
 
   def readFromDb[E](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int)(implicit eventSerialiser: EventSerialisation[E]): Error Xor List[VersionedEvents[E]] = {
@@ -111,37 +102,29 @@ object InMemoryDb {
       }
     }
 
-  def runInMemoryDb[E, A](database: DbBackend, actions: EventDatabaseWithFailure[E, A])(implicit eventSerialiser: EventSerialisation[E]): Error Xor (DbBackend, A) = {
-    val (db, r) = actions.value.foldMap[Db](transformDbOpToDbState).run(database).run
-    r map ((db, _))
-  }
-
-  trait EventDataConsumer[D] {
-    def apply(d: D, tag: Tag, id: AggregateId, version: Int, data: String): D
-  }
-  def createEventDataConsumer[E, D](handler: (D, Tag, AggregateId, Int, E) => D)(implicit eventSerialiser: EventSerialisation[E]) =
-    new EventDataConsumer[D] {
-      def apply(d: D, tag: Tag, id: AggregateId, version: Int, data: String): D = handler(d, tag, id, version, eventSerialiser.unserialise(data))
+  implicit def dbBackend: Backend[DbBackend] = new Backend[DbBackend] {
+    def runDb[E: EventSerialisation, A](database: DbBackend, actions: EventDatabaseWithFailure[E, A]): Error Xor (DbBackend, A) = {
+      val (db, r) = actions.value.foldMap[Db](transformDbOpToDbState).run(database).run
+      r map ((db, _))
     }
 
-  type EventDataConsumerQuery[D] = List[(Tag, EventDataConsumer[D])]
+    def consumeDbEvents[D](database: DbBackend, fromOperation: Int, initData: D, query: EventDataConsumerQuery[D]): (Int, D) = {
 
-  def consumeEvents[D](database: DbBackend, fromOperation: Int, initData: D, query: EventDataConsumerQuery[D]): (Int, D) = {
+      def findData(tag: String, id: String, version: Int): Option[List[String]] = database.data.get(tag) flatMap (_.get(id)) flatMap (_.get(version))
 
-    def findData(tag: String, id: String, version: Int): Option[List[String]] = database.data.get(tag) flatMap (_.get(id)) flatMap (_.get(version))
+      def applyLogEntryData(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: List[String]): D =
+        data.foldLeft(d)((d_, v) => consumer(d_, Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, v))
 
-    def applyLogEntryData(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: List[String]): D =
-      data.foldLeft(d)((d_, v) => consumer(d_, Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, v))
+      def applyQueryToLogEntry(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Option[D] =
+        findData(logEntry._1, logEntry._2, logEntry._3) map applyLogEntryData(logEntry, d, consumer)
 
-    def applyQueryToLogEntry(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Option[D] =
-      findData(logEntry._1, logEntry._2, logEntry._3) map applyLogEntryData(logEntry, d, consumer)
+      def checkAndApplyDataLogEntry(initDataForLogEntries: D, logEntry: (String, String, Int)): D =
+        query.foldLeft(initDataForLogEntries)((d, q) => if (q._1.v == logEntry._1) applyQueryToLogEntry(logEntry, d, q._2).getOrElse(d) else d) // TODO: how to fail on data not found? its not a likely situation and not a domain failure
 
-    def checkAndApplyDataLogEntry(initDataForLogEntries: D, logEntry: (String, String, Int)): D =
-      query.foldLeft(initDataForLogEntries)((d, q) => if (q._1.v == logEntry._1) applyQueryToLogEntry(logEntry, d, q._2).getOrElse(d) else d) // TODO: how to fail on data not found? its not a likely situation and not a domain failure
+      val newData = database.log.from(fromOperation + 1).foldLeft(initData)((d, el) => checkAndApplyDataLogEntry(d, el._2))
 
-    val newData = database.log.from(fromOperation + 1).foldLeft(initData)((d, el) => checkAndApplyDataLogEntry(d, el._2))
-
-    (database.lastOperationNr, newData)
+      (database.lastOperationNr, newData)
+    }
   }
 }
 

@@ -1,7 +1,6 @@
 package Domain
 
 import Cqrs._
-import DbAdapters.InMemoryDb.createEventDataConsumer
 import Cqrs.Aggregate._
 import cats.data.{ Xor, XorT }
 import cats.syntax.flatMap._
@@ -84,7 +83,7 @@ object DoorProjection {
   type Data = TreeMap[AggregateId, State]
 
   def emptyDoorProjection = Projection.empty[Data](new TreeMap(), List(
-    (Door.tag, createEventDataConsumer( (d: Data, t: Tag, id: AggregateId, v: Int, e: Door.Event) => {
+    (Door.tag, Database.createEventDataConsumer( (d: Data, t: Tag, id: AggregateId, v: Int, e: Door.Event) => {
       import Door._
       e match {
         case Registered(id) => d.updated(id, DoorProjection.Open)

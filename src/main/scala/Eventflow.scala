@@ -60,7 +60,7 @@ object Eventflow {
   def main(args: Array[String]) {
     import Domain._
 
-    val runner = BatchRunner.forDb(newDb).
+    val runner = BatchRunner.forDb(newInMemoryDb).
       addProjection(CounterProjection.emptyCounterProjection).
       addProjection(DoorProjection.emptyDoorProjection).
       addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
