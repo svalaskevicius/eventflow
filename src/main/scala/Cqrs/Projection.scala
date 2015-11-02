@@ -11,6 +11,9 @@ final case class Projection[D](lastReadOperation: Int, data: D, dbConsumers: Lis
 
   def applyNewEventsFromDb[Db: Backend](db: Db): Projection[D] = {
     val updatedProjectionData = Database.consumeDbEvents(db, lastReadOperation, data, dbConsumers)
-    this.copy(lastReadOperation = updatedProjectionData._1, data = updatedProjectionData._2)
+    updatedProjectionData.fold({
+      println("failure to update projection")
+      this
+    })(d => this.copy(lastReadOperation = d._1, data = d._2))
   }
 }

@@ -1,7 +1,7 @@
 package Cqrs.DbAdapters
 
 import Cqrs.Aggregate
-import Cqrs.Database.{Backend, EventDataConsumer, EventDataConsumerQuery, EventSerialisation}
+import Cqrs.Database._
 
 import cats.data.Xor
 import cats.Monad
@@ -30,17 +30,21 @@ object InMemoryDb {
   def newInMemoryDb: DbBackend = DbBackend(TreeMap.empty, TreeMap.empty, 0)
 
 
-  def readFromDb[E](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int)(implicit eventSerialiser: EventSerialisation[E]): Error Xor List[VersionedEvents[E]] = {
+  def readFromDb[E: EventSerialisation](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int): Error Xor List[VersionedEvents[E]] = {
 
     def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, List[String]]]) = t.get(id.v)
-    def unserialise(d: String): E = eventSerialiser.unserialise(d)
+    def unserialise(d: String): Option[E] = implicitly[EventSerialisation[E]].decode(d)
+    def unserialiseEvents(d: List[String])(implicit t: Traverse[List]): Option[List[E]] = t.sequence(d map unserialise)
+    def dbRecordToMaybeVersionedEvent(dbrec: (Int, List[String])) = {
+      val evs = unserialiseEvents(dbrec._2)
+      evs.map(v => VersionedEvents[E](dbrec._1, v))
+    }
 
     (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor List[VersionedEvents[E]]](
       Xor.left(ErrorDoesNotExist(id))
     )(
-      (evs: TreeMap[Int, List[String]]) => Xor.right(
-        evs.from(fromVersion + 1).toList.map(v => VersionedEvents[E](v._1, v._2 map unserialise))
-      )
+      (evs: TreeMap[Int, List[String]]) =>
+        implicitly[Traverse[List]].sequence(evs.from(fromVersion + 1).toList.map(dbRecordToMaybeVersionedEvent)).map(Xor.right).getOrElse(Xor.left(ErrorDbFailure("Decoding of stored events failed")))
     )
   }
 
@@ -65,7 +69,7 @@ object InMemoryDb {
             tag.v,
             currentTaggedEvents.getOrElse(TreeMap.empty[String, TreeMap[Int, List[String]]]).updated(
               id.v,
-              currentEvents.getOrElse(TreeMap.empty[Int, List[String]]).updated(events.version, events.events map eventSerialiser.serialise)
+              currentEvents.getOrElse(TreeMap.empty[Int, List[String]]).updated(events.version, events.events map eventSerialiser.encode)
             )
           ),
           database.log + ((operationNumber, (tag.v, id.v, events.version))),
@@ -108,22 +112,22 @@ object InMemoryDb {
       r map ((db, _))
     }
 
-    def consumeDbEvents[D](database: DbBackend, fromOperation: Int, initData: D, query: EventDataConsumerQuery[D]): (Int, D) = {
+    def consumeDbEvents[D](database: DbBackend, fromOperation: Int, initData: D, query: EventDataConsumerQuery[D]): Option[(Int, D)] = {
 
       def findData(tag: String, id: String, version: Int): Option[List[String]] = database.data.get(tag) flatMap (_.get(id)) flatMap (_.get(version))
 
-      def applyLogEntryData(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: List[String]): D =
-        data.foldLeft(d)((d_, v) => consumer(d_, Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, v))
+      def applyLogEntryData(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: List[String]): Option[D] =
+        data.foldLeft[Option[D]](Some(d))((d_, v) => d_.flatMap(d__ => consumer(d__, Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, v)))
 
       def applyQueryToLogEntry(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Option[D] =
-        findData(logEntry._1, logEntry._2, logEntry._3) map applyLogEntryData(logEntry, d, consumer)
+        findData(logEntry._1, logEntry._2, logEntry._3) flatMap applyLogEntryData(logEntry, d, consumer)
 
-      def checkAndApplyDataLogEntry(initDataForLogEntries: D, logEntry: (String, String, Int)): D =
-        query.foldLeft(initDataForLogEntries)((d, q) => if (q._1.v == logEntry._1) applyQueryToLogEntry(logEntry, d, q._2).getOrElse(d) else d) // TODO: how to fail on data not found? its not a likely situation and not a domain failure
+      def checkAndApplyDataLogEntry(initDataForLogEntries: D, logEntry: (String, String, Int)): Option[D] =
+        query.foldLeft[Option[D]](Some(initDataForLogEntries))((d, q) => d.flatMap(d_ => if (q._1.v == logEntry._1) applyQueryToLogEntry(logEntry, d_, q._2) else Some(d_)))
 
-      val newData = database.log.from(fromOperation + 1).foldLeft(initData)((d, el) => checkAndApplyDataLogEntry(d, el._2))
+      val newData = database.log.from(fromOperation + 1).foldLeft[Option[D]](Some(initData))((d, el) => d.flatMap(d_ => checkAndApplyDataLogEntry(d_, el._2)))
 
-      (database.lastOperationNr, newData)
+      newData.map((database.lastOperationNr, _))
     }
   }
 }
