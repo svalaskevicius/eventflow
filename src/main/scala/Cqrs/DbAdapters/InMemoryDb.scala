@@ -12,6 +12,7 @@ import cats.state._
 import cats.free.Free.{ pure, liftF }
 
 import cats.std.all._
+import lib.foldM
 
 import scala.collection.immutable.TreeMap
 
@@ -117,15 +118,21 @@ object InMemoryDb {
       def findData(tag: String, id: String, version: Int): Option[List[String]] = database.data.get(tag) flatMap (_.get(id)) flatMap (_.get(version))
 
       def applyLogEntryData(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: List[String]): Option[D] =
-        data.foldLeft[Option[D]](Some(d))((d_, v) => d_.flatMap(d__ => consumer(d__, Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, v)))
+        foldM[D, String, Option](d => v => consumer(d, Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, v))(d)(data)
 
       def applyQueryToLogEntry(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Option[D] =
         findData(logEntry._1, logEntry._2, logEntry._3) flatMap applyLogEntryData(logEntry, d, consumer)
 
       def checkAndApplyDataLogEntry(initDataForLogEntries: D, logEntry: (String, String, Int)): Option[D] =
-        query.foldLeft[Option[D]](Some(initDataForLogEntries))((d, q) => d.flatMap(d_ => if (q._1.v == logEntry._1) applyQueryToLogEntry(logEntry, d_, q._2) else Some(d_)))
+        foldM[D, (Tag, EventDataConsumer[D]), Option](
+          d => q => if (q._1.v == logEntry._1) applyQueryToLogEntry(logEntry, d, q._2) else Some(d)
+        )(initDataForLogEntries)(query)
 
-      val newData = database.log.from(fromOperation + 1).foldLeft[Option[D]](Some(initData))((d, el) => d.flatMap(d_ => checkAndApplyDataLogEntry(d_, el._2)))
+      val newData = foldM[D, (Int, (String, String, Int)), Option](
+        d => el => checkAndApplyDataLogEntry(d, el._2) )(
+        initData )(
+        database.log.from(fromOperation + 1)
+      )
 
       newData.map((database.lastOperationNr, _))
     }
