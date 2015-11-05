@@ -60,6 +60,16 @@ object Eventflow {
   def main(args: Array[String]) {
     import Domain._
 
+    def printRunner[DB: pprint.PPrint, PROJS <: shapeless.HList: pprint.PPrint](runner: BatchRunner[DB, PROJS]) = {
+      import pprint._
+      println("============================")
+      println("DB:")
+      pprintln(runner.db, colors = pprint.Colors.Colored)
+      println("Projections:")
+      pprintln(runner.projections, colors = pprint.Colors.Colored)
+      println("============================")
+    }
+
     val runner = BatchRunner.forDb(newInMemoryDb).
       addProjection(CounterProjection.emptyCounterProjection).
       addProjection(DoorProjection.emptyDoorProjection).
@@ -79,13 +89,11 @@ object Eventflow {
       ).
         fold(err => { println("Error occurred: " + err._2); err._1 }, r => { println("OK"); r._1 })
 
-      @SuppressWarnings(Array("org.brianmckenna.wartremover.warts.OptionPartial", "org.brianmckenna.wartremover.warts.ExplicitImplicitTypes"))
-      val _ignore1 = pprint.pprintln(runner1, colors = pprint.Colors.Colored)
+      printRunner(runner1)
 
       val runner2 = runner1.addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
 
-      @SuppressWarnings(Array("org.brianmckenna.wartremover.warts.OptionPartial", "org.brianmckenna.wartremover.warts.ExplicitImplicitTypes"))
-      val _ignore2 = pprint.pprintln(runner2, colors = pprint.Colors.Colored)
+      printRunner(runner2)
     }
   }
 }
