@@ -38,7 +38,10 @@ final case class BatchRunner[Db: Backend, PROJS <: HList](db: Db, projections: P
   }
 
   object runProjection extends (Projection ~> Projection) {
-    def apply[D](a : Projection[D]): Projection[D] = a.applyNewEventsFromDb(db)
+    def apply[D](a : Projection[D]): Projection[D] = {
+      val ret = a.applyNewEventsFromDb(db)
+      ret.fold(e => {println("Error while running projection: "+e); a}, identity)
+    }
   }
 
   def runProjections(implicit m: KMapper[Projection, PROJS, Projection, PROJS]) = copy(projections = kMap(projections, runProjection))

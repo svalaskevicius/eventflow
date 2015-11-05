@@ -34,8 +34,8 @@ object InMemoryDb {
   def readFromDb[E: EventSerialisation](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int): Error Xor List[VersionedEvents[E]] = {
 
     def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, List[String]]]) = t.get(id.v)
-    def unserialise(d: String): Option[E] = implicitly[EventSerialisation[E]].decode(d)
-    def unserialiseEvents(d: List[String])(implicit t: Traverse[List]): Option[List[E]] = t.sequence(d map unserialise)
+    def unserialise(d: String) = implicitly[EventSerialisation[E]].decode(d)
+    def unserialiseEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map unserialise)
     def dbRecordToMaybeVersionedEvent(dbrec: (Int, List[String])) = {
       val evs = unserialiseEvents(dbrec._2)
       evs.map(v => VersionedEvents[E](dbrec._1, v))
@@ -45,7 +45,7 @@ object InMemoryDb {
       Xor.left(ErrorDoesNotExist(id))
     )(
       (evs: TreeMap[Int, List[String]]) =>
-        implicitly[Traverse[List]].sequence(evs.from(fromVersion + 1).toList.map(dbRecordToMaybeVersionedEvent)).map(Xor.right).getOrElse(Xor.left(ErrorDbFailure("Decoding of stored events failed")))
+        implicitly[Traverse[List]].sequence[Xor[Error, ?], VersionedEvents[E]](evs.from(fromVersion + 1).toList.map(dbRecordToMaybeVersionedEvent))
     )
   }
 
@@ -113,22 +113,25 @@ object InMemoryDb {
       r map ((db, _))
     }
 
-    def consumeDbEvents[D](database: DbBackend, fromOperation: Int, initData: D, query: EventDataConsumerQuery[D]): Option[(Int, D)] = {
+    def consumeDbEvents[D](database: DbBackend, fromOperation: Int, initData: D, query: EventDataConsumerQuery[D]): Error Xor (Int, D) = {
 
-      def findData(tag: String, id: String, version: Int): Option[List[String]] = database.data.get(tag) flatMap (_.get(id)) flatMap (_.get(version))
+      def findData(tag: String, id: String, version: Int): Error Xor List[String] = {
+        val optionalRet = database.data.get(tag) flatMap (_.get(id)) flatMap (_.get(version))
+        optionalRet.map(Xor.right).getOrElse(Xor.left(ErrorDbFailure("Cannot find requested data: "+tag+" "+id+" "+version)))
+      }
 
-      def applyLogEntryData(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: List[String]): Option[D] =
-        foldM[D, String, Option](d => v => consumer(d, Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, v))(d)(data)
+      def applyLogEntryData(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: List[String]): Error Xor D =
+        foldM[D, String, Xor[Error, ?]](d => v => consumer(d, Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, v))(d)(data)
 
-      def applyQueryToLogEntry(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Option[D] =
+      def applyQueryToLogEntry(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Error Xor D =
         findData(logEntry._1, logEntry._2, logEntry._3) flatMap applyLogEntryData(logEntry, d, consumer)
 
-      def checkAndApplyDataLogEntry(initDataForLogEntries: D, logEntry: (String, String, Int)): Option[D] =
-        foldM[D, (Tag, EventDataConsumer[D]), Option](
-          d => q => if (q._1.v == logEntry._1) applyQueryToLogEntry(logEntry, d, q._2) else Some(d)
+      def checkAndApplyDataLogEntry(initDataForLogEntries: D, logEntry: (String, String, Int)): Error Xor D =
+        foldM[D, (Tag, EventDataConsumer[D]), Xor[Error, ?]](
+          d => q => if (q._1.v == logEntry._1) applyQueryToLogEntry(logEntry, d, q._2) else Xor.right(d)
         )(initDataForLogEntries)(query)
 
-      val newData = foldM[D, (Int, (String, String, Int)), Option](
+      val newData = foldM[D, (Int, (String, String, Int)), Xor[Error, ?]](
         d => el => checkAndApplyDataLogEntry(d, el._2) )(
         initData )(
         database.log.from(fromOperation + 1)
