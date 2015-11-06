@@ -1,6 +1,6 @@
 package Cqrs
 
-import Cqrs.Database.{Backend, EventSerialisation}
+import Cqrs.Database.{ Backend, EventSerialisation }
 import cats.data.Xor
 import cats.state.StateT
 
@@ -8,7 +8,7 @@ import Cqrs.Aggregate.{ AggregateDef, AggregateState, EventDatabaseWithFailure, 
 import cats.~>
 
 import shapeless._
-import lib.HList.{KMapper, kMap}
+import lib.HList.{ KMapper, kMap }
 
 object BatchRunner {
   def forDb[Db: Backend](db: Db) = BatchRunner[Db, HNil.type](db, HNil)
@@ -38,9 +38,9 @@ final case class BatchRunner[Db: Backend, PROJS <: HList](db: Db, projections: P
   }
 
   object runProjection extends (Projection ~> Projection) {
-    def apply[D](a : Projection[D]): Projection[D] = {
+    def apply[D](a: Projection[D]): Projection[D] = {
       val ret = a.applyNewEventsFromDb(db)
-      ret.fold(e => {println("Error while running projection: "+e); a}, identity)
+      ret.fold(e => { println("Error while running projection: " + e); a }, identity)
     }
   }
 

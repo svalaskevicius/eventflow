@@ -16,20 +16,18 @@ import lib.foldM
 
 import scala.collection.immutable.TreeMap
 
-
 object InMemoryDb {
 
   import Aggregate._
 
   final case class DbBackend(
-          data: TreeMap[String, TreeMap[String, TreeMap[Int, List[String]]]], // tag -> aggregate id -> version -> event data
-          log: TreeMap[Int, (String, String, Int)],                           // operation nr -> tag, aggregate id, aggregate version
-          lastOperationNr: Int
-        )
+    data: TreeMap[String, TreeMap[String, TreeMap[Int, List[String]]]], // tag -> aggregate id -> version -> event data
+    log: TreeMap[Int, (String, String, Int)],                           // operation nr -> tag, aggregate id, aggregate version
+    lastOperationNr: Int
+  )
   type Db[A] = State[DbBackend, A]
 
   def newInMemoryDb: DbBackend = DbBackend(TreeMap.empty, TreeMap.empty, 0)
-
 
   def readFromDb[E: EventSerialisation](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int): Error Xor List[VersionedEvents[E]] = {
 
@@ -44,9 +42,9 @@ object InMemoryDb {
     (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor List[VersionedEvents[E]]](
       Xor.left(ErrorDoesNotExist(id))
     )(
-      (evs: TreeMap[Int, List[String]]) =>
-        implicitly[Traverse[List]].sequence[Xor[Error, ?], VersionedEvents[E]](evs.from(fromVersion + 1).toList.map(dbRecordToMaybeVersionedEvent))
-    )
+        (evs: TreeMap[Int, List[String]]) =>
+          implicitly[Traverse[List]].sequence[Xor[Error, ?], VersionedEvents[E]](evs.from(fromVersion + 1).toList.map(dbRecordToMaybeVersionedEvent))
+      )
   }
 
   def readExistenceFromDb[E](database: DbBackend, tag: Tag, id: AggregateId)(implicit eventSerialiser: EventSerialisation[E]): Error Xor Boolean = {
@@ -100,9 +98,9 @@ object InMemoryDb {
           val d = addToDb[E](database, tag, id, events)
           println("result: " + d)
           d.fold[(DbBackend, Error Xor Unit)](
-          err => (database, Xor.left[Error, Unit](err)),
-          db => (db, Xor.right[Error, Unit](()))
-        )
+            err => (database, Xor.left[Error, Unit](err)),
+            db => (db, Xor.right[Error, Unit](()))
+          )
         })
       }
     }
@@ -117,7 +115,7 @@ object InMemoryDb {
 
       def findData(tag: String, id: String, version: Int): Error Xor List[String] = {
         val optionalRet = database.data.get(tag) flatMap (_.get(id)) flatMap (_.get(version))
-        optionalRet.map(Xor.right).getOrElse(Xor.left(ErrorDbFailure("Cannot find requested data: "+tag+" "+id+" "+version)))
+        optionalRet.map(Xor.right).getOrElse(Xor.left(ErrorDbFailure("Cannot find requested data: " + tag + " " + id + " " + version)))
       }
 
       def applyLogEntryData(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: List[String]): Error Xor D =
@@ -132,10 +130,12 @@ object InMemoryDb {
         )(initDataForLogEntries)(query)
 
       val newData = foldM[D, (Int, (String, String, Int)), Xor[Error, ?]](
-        d => el => checkAndApplyDataLogEntry(d, el._2) )(
-        initData )(
-        database.log.from(fromOperation + 1)
-      )
+        d => el => checkAndApplyDataLogEntry(d, el._2)
+      )(
+          initData
+        )(
+          database.log.from(fromOperation + 1)
+        )
 
       newData.map((database.lastOperationNr, _))
     }

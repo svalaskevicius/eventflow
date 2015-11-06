@@ -1,6 +1,6 @@
 package Cqrs
 
-import Cqrs.Aggregate.{EventDatabaseWithFailure, AggregateId, Tag, Error}
+import Cqrs.Aggregate.{ EventDatabaseWithFailure, AggregateId, Tag, Error }
 import cats.data.Xor
 
 import scala.util.Try
@@ -37,7 +37,6 @@ object Database {
     }
 
   type EventDataConsumerQuery[D] = List[(Tag, EventDataConsumer[D])]
-
 
   def runDb[E: EventSerialisation, A, Db: Backend](database: Db, actions: EventDatabaseWithFailure[E, A]) =
     implicitly[Backend[Db]].runDb(database, actions)
