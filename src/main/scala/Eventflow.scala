@@ -1,6 +1,7 @@
 
-import Cqrs.InMemoryDb._
+import Cqrs.DbAdapters.InMemoryDb._
 import Cqrs.BatchRunner
+import Cqrs.Aggregate.AggregateId
 
 object Eventflow {
 
@@ -58,22 +59,29 @@ object Eventflow {
 
   def main(args: Array[String]) {
     import Domain._
-    import CounterProjection.CounterHandler
-    import DoorProjection.DoorHandler
 
-    val runner = BatchRunner.empty.
-      addDb(newDb[Counter.Event]).
-      addDb(newDb[Door.Event]).
+    def printRunner[DB: pprint.PPrint, PROJS <: shapeless.HList: pprint.PPrint](runner: BatchRunner[DB, PROJS]) = {
+      import pprint._
+      println("============================")
+      println("DB:")
+      pprintln(runner.db, colors = pprint.Colors.Colored)
+      println("Projections:")
+      pprintln(runner.projections, colors = pprint.Colors.Colored)
+      println("============================")
+    }
+
+    val runner = BatchRunner.forDb(newInMemoryDb).
       addProjection(CounterProjection.emptyCounterProjection).
-      addProjection(DoorProjection.emptyDoorProjection)
+      addProjection(DoorProjection.emptyDoorProjection).
+      addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
 
     {
       import runner._
-      val db_ = run(
+      val runner1 = run(
         for {
-          c1 <- db(Counter.startCounter("test counter"))
+          c1 <- db(Counter.startCounter(AggregateId("test counter")))
           c1 <- db(c1, actions1)
-          d1 <- db(Door.registerDoor("golden gate"))
+          d1 <- db(Door.registerDoor(AggregateId("golden gate")))
           d1 <- db(d1, doorActions1)
           c1 <- db(c1, actions2)
           d1 <- db(d1, doorActions2)
@@ -81,8 +89,11 @@ object Eventflow {
       ).
         fold(err => { println("Error occurred: " + err._2); err._1 }, r => { println("OK"); r._1 })
 
-      @SuppressWarnings(Array("org.brianmckenna.wartremover.warts.OptionPartial", "org.brianmckenna.wartremover.warts.ExplicitImplicitTypes"))
-      val _ = pprint.pprintln(db_, colors = pprint.Colors.Colored)
+      printRunner(runner1)
+
+      val runner2 = runner1.addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
+
+      printRunner(runner2)
     }
   }
 }

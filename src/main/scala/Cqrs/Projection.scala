@@ -1,40 +1,29 @@
 package Cqrs
 
 import Cqrs.Aggregate._
-import InMemoryDb._
-
-import scala.collection.immutable.TreeMap
+import Cqrs.Database.{ EventDataConsumerQuery, Backend }
+import Cqrs.Projection.Handler
+import cats.data.Xor
 
 object Projection {
-  trait Handler[E, D] {
-    def hashPrefix: String
-    def handle(id: AggregateId, e: E, data: D): D
-  }
+  type Handler[D, E] = (D, Database.EventData[E]) => D
 
-  def empty[D](d: D): Projection[D] = Projection(TreeMap.empty, d)
-
-  def applyNewEventsFromDbToProjection[E, D](db: DbBackend[E], initialProjection: Projection[D])(implicit handler: Handler[E, D]): Projection[D] = {
-    def applyNewEventsToData(data: D, aggregateId: AggregateId, events: TreeMap[Int, List[E]]) = {
-      events.foldLeft(data)((d, el) => el._2.foldLeft(d)((d_, event) => handler.handle(aggregateId, event, d_)))
-    }
-
-    def applyNewAggregateEvents(proj: Projection[D], aggregateId: AggregateId, events: TreeMap[Int, List[E]]) = {
-      val aggregateHash = handler.hashPrefix + "_" + aggregateId
-      val fromVersion = proj.readEvents.get(aggregateHash).fold(0)(_ + 1)
-      val newEvents = events.from(fromVersion)
-      val newData = applyNewEventsToData(proj.data, aggregateId, newEvents)
-      val newReadEvents = proj.readEvents.updated(aggregateHash, newEvents.lastKey)
-      Projection[D](newReadEvents, newData)
-    }
-
-    db.foldLeft(initialProjection)((proj, farg) => applyNewAggregateEvents(proj, farg._1, farg._2))
-  }
+  def build[D] = ProjectionBuilder[D](List())
 }
 
-final case class Projection[D](readEvents: TreeMap[String, Int], data: D) {
+final case class ProjectionBuilder[D](dbConsumers: List[EventDataConsumerQuery[D]]) {
+  def addHandler[E: Database.EventSerialisation](tag: Tag, handler: Handler[D, E]) = {
+    val n = List(EventDataConsumerQuery(tag, Database.createEventDataConsumer(handler)))
+    copy(dbConsumers = dbConsumers ++ n)
+  }
+  def empty(d: D) = Projection(0, d, dbConsumers)
+}
 
-  import Projection._
+final case class Projection[D](lastReadOperation: Int, data: D, dbConsumers: List[EventDataConsumerQuery[D]]) {
 
-  def applyNewEventsFromDb[E](db: DbBackend[E])(implicit handler: Handler[E, D]): Projection[D] =
-    applyNewEventsFromDbToProjection(db, this)
+  def applyNewEventsFromDb[Db: Backend](db: Db): Error Xor Projection[D] = {
+    val updatedProjectionData = Database.consumeDbEvents(db, lastReadOperation, data, dbConsumers)
+    updatedProjectionData.map(d => this.copy(lastReadOperation = d._1, data = d._2))
+  }
+
 }

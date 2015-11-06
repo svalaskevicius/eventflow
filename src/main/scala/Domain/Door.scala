@@ -6,15 +6,18 @@ import cats.data.{ Xor, XorT }
 import cats.syntax.flatMap._
 
 object Door {
+
+  val tag = Tag("Door")
+
   sealed trait Event
-  final case class Registered(id: String) extends Event
+  final case class Registered(id: AggregateId) extends Event
   case object Opened extends Event
   case object Closed extends Event
   final case class Locked(key: String) extends Event
   final case class Unlocked(key: String) extends Event
 
   sealed trait Command
-  final case class Register(id: String) extends Command
+  final case class Register(id: AggregateId) extends Command
   case object Open extends Command
   case object Close extends Command
   final case class Lock(key: String) extends Command
@@ -23,7 +26,7 @@ object Door {
   val flow = new EventFlow[Command, Event]
   import flow._
   type DoorAggregate = FlowAggregate
-  val doorAggregate = flowAggregate
+  val doorAggregate = flowAggregate(tag)
 
   def openDoorsLogic: Flow[Unit] =
     handler {
@@ -79,21 +82,16 @@ object DoorProjection {
 
   type Data = TreeMap[AggregateId, State]
 
-  def emptyDoorProjection = Projection.empty[Data](new TreeMap())
-
-  implicit object DoorHandler extends Projection.Handler[Door.Event, Data] {
-
-    import Door._
-
-    def hashPrefix = "Door"
-
-    def handle(id: AggregateId, e: Event, d: Data) = e match {
-      case Registered(id) => println ("created "+id) ; d.updated(id, DoorProjection.Open)
-      case Door.Closed => println ("closed") ; d.updated(id, DoorProjection.Closed)
-      case Door.Opened => println ("opened") ; d.updated(id, DoorProjection.Open)
-      case Door.Locked(key) => println ("locked") ; d.updated(id, DoorProjection.Locked(key))
-      case Door.Unlocked(_) => println ("unlocked") ; d.updated(id, DoorProjection.Closed)
-    }
-  }
+  def emptyDoorProjection = Projection.build.
+    addHandler(Door.tag, (d: Data, e: Database.EventData[Door.Event]) => {
+      import Door._
+      e.data match {
+        case Registered(id) => d.updated(e.id, DoorProjection.Open)
+        case Door.Closed => d.updated(e.id, DoorProjection.Closed)
+        case Door.Opened => d.updated(e.id, DoorProjection.Open)
+        case Door.Locked(key) => d.updated(e.id, DoorProjection.Locked(key))
+        case Door.Unlocked(_) => d.updated(e.id, DoorProjection.Closed)
+      }
+    }).empty(TreeMap.empty)
 }
 

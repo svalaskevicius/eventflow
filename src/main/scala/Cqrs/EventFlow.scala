@@ -8,8 +8,6 @@ import lib.CaseClassTransformer
 
 import scala.reflect.ClassTag
 
-
-
 class EventFlow[Cmd, Evt] {
   type CommandH = PartialFunction[Cmd, Aggregate.Error Xor List[Evt]]
   type EventH[A] = PartialFunction[Evt, A]
@@ -28,13 +26,13 @@ class EventFlow[Cmd, Evt] {
   type Flow[A] = Free[FlowF, A]
 
   /**
-    * Promotes a command to a event. The input types need to be isomoprhic. In other words
-    * have the same fields + types
-    * @tparam C The command type, should be isomorphic to the event type
-    * @tparam E The event type, should be isomorphic to the command type
-    * @return A CommandH, which takes a Cmd and either returns a error or a list of events (just one in this case)
-    */
-  def promote[C <: Cmd : ClassTag, E <: Evt](implicit cct: CaseClassTransformer[C, E]): PartialFunction[Cmd, Aggregate.Error Xor List[Evt]] =
+   * Promotes a command to a event. The input types need to be isomoprhic. In other words
+   * have the same fields + types
+   * @tparam C The command type, should be isomorphic to the event type
+   * @tparam E The event type, should be isomorphic to the command type
+   * @return A CommandH, which takes a Cmd and either returns a error or a list of events (just one in this case)
+   */
+  def promote[C <: Cmd: ClassTag, E <: Evt](implicit cct: CaseClassTransformer[C, E]): PartialFunction[Cmd, Aggregate.Error Xor List[Evt]] =
     Function.unlift[Cmd, Aggregate.Error Xor List[Evt]] {
       //this raises: isInstanceOf is disabled by wartremover, but it has false positives:
       //https://github.com/puffnfresh/wartremover/issues/152
@@ -68,17 +66,18 @@ class EventFlow[Cmd, Evt] {
 
   case object ErrorCannotFindHandler extends Aggregate.Error
 
-  val flowAggregate: FlowAggregate =
+  def flowAggregate(tag: Aggregate.Tag): FlowAggregate =
     Aggregate(
       on = e => d => (d map (consumer => consumer.evh(e))).flatMap(Option.option2Iterable),
       handle = c => d => d.foldLeft(None: Option[Aggregate.Error Xor List[Evt]])(
-        (prev:Option[Aggregate.Error Xor List[Evt]], consumer) => prev match {
-          case Some(_) => prev
-          case None => consumer.cmdh.lift(c)
-        }
-      ).getOrElse {
-        Xor.Left(ErrorCannotFindHandler)
+      (prev: Option[Aggregate.Error Xor List[Evt]], consumer) => prev match {
+        case Some(_) => prev
+        case None => consumer.cmdh.lift(c)
       }
+    ).getOrElse {
+        Xor.Left(ErrorCannotFindHandler)
+      },
+      tag = tag
     )
 
   import Aggregate._
