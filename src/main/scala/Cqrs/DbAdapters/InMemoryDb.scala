@@ -25,11 +25,11 @@ object InMemoryDb {
     log: TreeMap[Int, (String, String, Int)],                           // operation nr -> tag, aggregate id, aggregate version
     lastOperationNr: Int
   )
-  type Db[A] = State[DbBackend, A]
+  private type Db[A] = State[DbBackend, A]
 
   def newInMemoryDb: DbBackend = DbBackend(TreeMap.empty, TreeMap.empty, 0)
 
-  def readFromDb[E: EventSerialisation](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int): Error Xor List[VersionedEvents[E]] = {
+  private def readFromDb[E: EventSerialisation](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int): Error Xor List[VersionedEvents[E]] = {
 
     def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, List[String]]]) = t.get(id.v)
     def decode(d: String) = implicitly[EventSerialisation[E]].decode(d)
@@ -47,14 +47,14 @@ object InMemoryDb {
       )
   }
 
-  def readExistenceFromDb[E](database: DbBackend, tag: Tag, id: AggregateId)(implicit eventSerialiser: EventSerialisation[E]): Error Xor Boolean = {
+  private def readExistenceFromDb[E](database: DbBackend, tag: Tag, id: AggregateId)(implicit eventSerialiser: EventSerialisation[E]): Error Xor Boolean = {
     val doesNotExist = readFromDb[E](database, tag, id, 0).
       map { _ => false }.
       recover({ case ErrorDoesNotExist(_) => true })
     doesNotExist.map[Boolean](!_)
   }
 
-  def addToDb[E](database: DbBackend, tag: Tag, id: AggregateId, events: VersionedEvents[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
+  private def addToDb[E](database: DbBackend, tag: Tag, id: AggregateId, events: VersionedEvents[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
     val currentTaggedEvents = database.data.get(tag.v)
     val currentEvents = currentTaggedEvents flatMap (_.get(id.v))
     val previousVersion = currentEvents.fold(0)(e => if (e.isEmpty) 0 else e.lastKey)
@@ -78,7 +78,7 @@ object InMemoryDb {
     }
   }
 
-  def transformDbOpToDbState[E](implicit eventSerialiser: EventSerialisation[E]): EventDatabaseOp[E, ?] ~> Db =
+  private def transformDbOpToDbState[E](implicit eventSerialiser: EventSerialisation[E]): EventDatabaseOp[E, ?] ~> Db =
     new (EventDatabaseOp[E, ?] ~> Db) {
       def apply[A](fa: EventDatabaseOp[E, A]): Db[A] = fa match {
         case ReadAggregateExistence(tag, id) => State(database => {
@@ -111,7 +111,7 @@ object InMemoryDb {
       r map ((db, _))
     }
 
-    def consumeDbEvents[D](database: DbBackend, fromOperation: Int, initData: D, query: EventDataConsumerQuery[D]): Error Xor (Int, D) = {
+    def consumeDbEvents[D](database: DbBackend, fromOperation: Int, initData: D, queries: List[EventDataConsumerQuery[D]]): Error Xor (Int, D) = {
 
       def findData(tag: String, id: String, version: Int): Error Xor List[String] = {
         val optionalRet = database.data.get(tag) flatMap (_.get(id)) flatMap (_.get(version))
@@ -125,9 +125,9 @@ object InMemoryDb {
         findData(logEntry._1, logEntry._2, logEntry._3) flatMap applyLogEntryData(logEntry, d, consumer)
 
       def checkAndApplyDataLogEntry(initDataForLogEntries: D, logEntry: (String, String, Int)): Error Xor D =
-        foldM[D, (Tag, EventDataConsumer[D]), Xor[Error, ?]](
-          d => q => if (q._1.v == logEntry._1) applyQueryToLogEntry(logEntry, d, q._2) else Xor.right(d)
-        )(initDataForLogEntries)(query)
+        foldM[D, EventDataConsumerQuery[D], Xor[Error, ?]](
+          d => q => if (q.tag.v == logEntry._1) applyQueryToLogEntry(logEntry, d, q.consumer) else Xor.right(d)
+        )(initDataForLogEntries)(queries)
 
       val newData = foldM[D, (Int, (String, String, Int)), Xor[Error, ?]](
         d => el => checkAndApplyDataLogEntry(d, el._2)
