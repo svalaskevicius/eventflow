@@ -9,11 +9,11 @@ import org.scalacheck.commands.Commands
 
 object CounterSpecification extends Properties("Counter") {
 
-  property("does not fail if always more or equal than zero") = MoreEqZeroSpec.property()
+  property("fails when below zero") = CounterSpec.property()
 
-  object MoreEqZeroSpec extends Commands {
+  private object CounterSpec extends Commands {
 
-    final case class State(counter: Int)
+    type State = Int
 
     val (initialRunner, agg) = {
       val runner = BatchRunner.forDb(newInMemoryDb)
@@ -34,26 +34,24 @@ object CounterSpecification extends Properties("Counter") {
 
     def initialPreCondition(state: State) = true
 
-    val genInitialState = Gen.const(State(0))
+    val genInitialState = Gen.const(0)
 
     def genCommand(state: State): Gen[Command] =
-      if (state.counter > 0)
-        Gen.oneOf(
-          Gen.const(Increment),
-          Gen.const(Decrement)
-        )
-      else Gen.const(Increment)
+      Gen.oneOf(
+        Gen.const(Increment),
+        Gen.const(Decrement)
+      )
 
     case object Increment extends UnitCommand {
       def run(sut: Sut) = sut.synchronized {
         val action = sut.runner.db(agg, Counter.counterAggregate.handleCommand(Counter.Increment))
         sut.runner = sut.runner.run(action) match {
-          case Xor.Left(err) => throw new Exception("Failed to run aggregate command: " + err)
+          case Xor.Left(err) => throw new Exception("Failed to run aggregate command: " + err._2)
           case Xor.Right(r) => r._1
         }
       }
-      def nextState(state: State) = state.copy(counter = state.counter + 1)
-      def preCondition(state: State) = state.counter >= 0
+      def nextState(state: State) = state + 1
+      def preCondition(state: State) = true
       def postCondition(state: State, success: Boolean) = success
     }
 
@@ -61,13 +59,13 @@ object CounterSpecification extends Properties("Counter") {
       def run(sut: Sut) = sut.synchronized {
         val action = sut.runner.db(agg, Counter.counterAggregate.handleCommand(Counter.Decrement))
         sut.runner = sut.runner.run(action) match {
-          case Xor.Left(err) => throw new Exception("Failed to run aggregate command: " + err)
+          case Xor.Left(err) => throw new Exception("Failed to run aggregate command: " + err._2)
           case Xor.Right(r) => r._1
         }
       }
-      def nextState(state: State) = state.copy(counter = state.counter - 1)
-      def preCondition(state: State) = state.counter > 0
-      def postCondition(state: State, success: Boolean) = success
+      def nextState(state: State) = if (state > 0) state - 1 else state
+      def preCondition(state: State) = true
+      def postCondition(state: State, success: Boolean) = success == (state > 0)
     }
   }
 }
