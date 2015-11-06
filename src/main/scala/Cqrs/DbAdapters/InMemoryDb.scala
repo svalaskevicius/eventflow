@@ -32,10 +32,10 @@ object InMemoryDb {
   def readFromDb[E: EventSerialisation](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int): Error Xor List[VersionedEvents[E]] = {
 
     def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, List[String]]]) = t.get(id.v)
-    def unserialise(d: String) = implicitly[EventSerialisation[E]].decode(d)
-    def unserialiseEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map unserialise)
-    def dbRecordToMaybeVersionedEvent(dbrec: (Int, List[String])) = {
-      val evs = unserialiseEvents(dbrec._2)
+    def decode(d: String) = implicitly[EventSerialisation[E]].decode(d)
+    def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
+    def decodeToVersionedEvents(dbrec: (Int, List[String])): Error Xor VersionedEvents[E] = {
+      val evs = decodeEvents(dbrec._2)
       evs.map(v => VersionedEvents[E](dbrec._1, v))
     }
 
@@ -43,7 +43,7 @@ object InMemoryDb {
       Xor.left(ErrorDoesNotExist(id))
     )(
         (evs: TreeMap[Int, List[String]]) =>
-          implicitly[Traverse[List]].sequence[Xor[Error, ?], VersionedEvents[E]](evs.from(fromVersion + 1).toList.map(dbRecordToMaybeVersionedEvent))
+          implicitly[Traverse[List]].sequence[Xor[Error, ?], VersionedEvents[E]](evs.from(fromVersion + 1).toList.map(decodeToVersionedEvents))
       )
   }
 
