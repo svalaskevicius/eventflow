@@ -82,7 +82,7 @@ object DoorProjection {
 
   type Data = TreeMap[AggregateId, State]
 
-  def emptyDoorProjection = Projection.empty[Data](new TreeMap()) .
+  def emptyDoorProjection = Projection.build .
     addHandler(Door.tag, (d: Data, e: Database.EventData[Door.Event]) => {
       import Door._
       e.data match {
@@ -92,6 +92,6 @@ object DoorProjection {
         case Door.Locked(key) => d.updated(e.id, DoorProjection.Locked(key))
         case Door.Unlocked(_) => d.updated(e.id, DoorProjection.Closed)
       }}
-    )
+    ) . empty(TreeMap.empty)
 }
 

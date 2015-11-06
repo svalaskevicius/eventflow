@@ -2,23 +2,28 @@ package Cqrs
 
 import Cqrs.Aggregate._
 import Cqrs.Database.{Backend, EventDataConsumer}
+import Cqrs.Projection.Handler
 import cats.data.Xor
 
 object Projection {
-  def empty[D](d: D): Projection[D] = Projection(0, d, List())
+  type Handler[D, E] = (D, Database.EventData[E]) => D
+
+  def build[D] = ProjectionBuilder[D](List())
+}
+
+final case class ProjectionBuilder[D](dbConsumers: List[(Tag, EventDataConsumer[D])]) {
+  def addHandler[E: Database.EventSerialisation](tag: Tag, handler: Handler[D, E]) = {
+    val n = List((tag, Database.createEventDataConsumer(handler)))
+    copy(dbConsumers = dbConsumers ++ n)
+  }
+  def empty(d: D) = Projection(0, d, dbConsumers)
 }
 
 final case class Projection[D](lastReadOperation: Int, data: D, dbConsumers: List[(Tag, EventDataConsumer[D])]) {
-
-  type Handler[E] = (D, Database.EventData[E]) => D
 
   def applyNewEventsFromDb[Db: Backend](db: Db): Error Xor Projection[D] = {
     val updatedProjectionData = Database.consumeDbEvents(db, lastReadOperation, data, dbConsumers)
     updatedProjectionData.map(d => this.copy(lastReadOperation = d._1, data = d._2))
   }
 
-  def addHandler[E: Database.EventSerialisation](tag: Tag, handler: Handler[E]): Projection[D] = {
-    val n = List((tag, Database.createEventDataConsumer(handler)))
-    copy(dbConsumers = dbConsumers ++ n)
-  }
 }

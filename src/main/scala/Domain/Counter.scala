@@ -55,7 +55,7 @@ object CounterProjection {
 
   type Data = TreeMap[AggregateId, Int]
 
-  def emptyCounterProjection = Projection.empty[Data](TreeMap.empty) .
+  def emptyCounterProjection = Projection.build .
     addHandler(Counter.tag, (d: Data, e: Database.EventData[Counter.Event]) => {
       import Counter._
       e.data match {
@@ -63,6 +63,6 @@ object CounterProjection {
         case Incremented => d.updated(e.id, d.get(e.id).fold(1)(_ + 1))
         case Decremented => d.updated(e.id, d.get(e.id).fold(-1)(_ - 1))
       }}
-    )
+    ) . empty(TreeMap.empty)
 }
 
