@@ -82,21 +82,15 @@ object InMemoryDb {
     new (EventDatabaseOp[E, ?] ~> Db) {
       def apply[A](fa: EventDatabaseOp[E, A]): Db[A] = fa match {
         case ReadAggregateExistence(tag, id) => State(database => {
-          println("reading existence from DB: '" + fa + "'... " + database)
           val exists = readExistenceFromDb(database, tag, id)(eventSerialiser)
-          println("result: " + exists)
           (database, exists)
         })
         case ReadAggregate(tag, id, version) => State(database => {
-          println("reading from DB: '" + fa + "'... " + database)
           val d = readFromDb[E](database, tag, id, version)
-          println("result: " + d)
           (database, d)
         })
         case AppendAggregateEvents(tag, id, events) => State((database: DbBackend) => {
-          println("writing to DB: '" + fa + "'... " + database)
           val d = addToDb[E](database, tag, id, events)
-          println("result: " + d)
           d.fold[(DbBackend, Error Xor Unit)](
             err => (database, Xor.left[Error, Unit](err)),
             db => (db, Xor.right[Error, Unit](()))
