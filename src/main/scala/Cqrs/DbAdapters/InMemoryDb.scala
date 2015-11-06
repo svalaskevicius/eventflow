@@ -121,7 +121,7 @@ object InMemoryDb {
       }
 
       def applyLogEntryData(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: List[String]): Error Xor D =
-        foldM[D, String, Xor[Error, ?]](d => v => consumer(d, Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, v))(d)(data)
+        foldM[D, String, Xor[Error, ?]](d => v => consumer(d, RawEventData(Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, v)))(d)(data)
 
       def applyQueryToLogEntry(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Error Xor D =
         findData(logEntry._1, logEntry._2, logEntry._3) flatMap applyLogEntryData(logEntry, d, consumer)

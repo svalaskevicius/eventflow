@@ -55,15 +55,14 @@ object CounterProjection {
 
   type Data = TreeMap[AggregateId, Int]
 
-  def emptyCounterProjection = Projection.empty[Data](TreeMap.empty, List(
-    (Counter.tag, Database.createEventDataConsumer( (d: Data, t: Tag, id: AggregateId, v: Int, e: Counter.Event) => {
+  def emptyCounterProjection = Projection.empty[Data](TreeMap.empty) .
+    addHandler(Counter.tag, (d: Data, e: Database.EventData[Counter.Event]) => {
       import Counter._
-      e match {
+      e.data match {
         case Created(id) => d
-        case Incremented => d.updated(id, d.get(id).fold(1)(_ + 1))
-        case Decremented => d.updated(id, d.get(id).fold(-1)(_ - 1))
+        case Incremented => d.updated(e.id, d.get(e.id).fold(1)(_ + 1))
+        case Decremented => d.updated(e.id, d.get(e.id).fold(-1)(_ - 1))
       }}
-    ))
-  ))
+    )
 }
 

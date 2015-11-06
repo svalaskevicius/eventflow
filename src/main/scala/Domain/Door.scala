@@ -82,17 +82,16 @@ object DoorProjection {
 
   type Data = TreeMap[AggregateId, State]
 
-  def emptyDoorProjection = Projection.empty[Data](new TreeMap(), List(
-    (Door.tag, Database.createEventDataConsumer( (d: Data, t: Tag, id: AggregateId, v: Int, e: Door.Event) => {
+  def emptyDoorProjection = Projection.empty[Data](new TreeMap()) .
+    addHandler(Door.tag, (d: Data, e: Database.EventData[Door.Event]) => {
       import Door._
-      e match {
-        case Registered(id) => d.updated(id, DoorProjection.Open)
-        case Door.Closed => d.updated(id, DoorProjection.Closed)
-        case Door.Opened => d.updated(id, DoorProjection.Open)
-        case Door.Locked(key) => d.updated(id, DoorProjection.Locked(key))
-        case Door.Unlocked(_) => d.updated(id, DoorProjection.Closed)
+      e.data match {
+        case Registered(id) => d.updated(e.id, DoorProjection.Open)
+        case Door.Closed => d.updated(e.id, DoorProjection.Closed)
+        case Door.Opened => d.updated(e.id, DoorProjection.Open)
+        case Door.Locked(key) => d.updated(e.id, DoorProjection.Locked(key))
+        case Door.Unlocked(_) => d.updated(e.id, DoorProjection.Closed)
       }}
-    ))
-  ))
+    )
 }
 

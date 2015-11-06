@@ -25,12 +25,15 @@ object Database {
     def decode(s: String): Error Xor E = Try(Xor.right(r.read(upickle.json.read(s)))).getOrElse(Xor.left(UnpicklingFailure(s)))
   }
 
+  final case class RawEventData(tag: Tag, id: AggregateId, version: Int, data: String)
+  final case class EventData[E](tag: Tag, id: AggregateId, version: Int, data: E)
+
   trait EventDataConsumer[D] {
-    def apply(d: D, tag: Tag, id: AggregateId, version: Int, data: String): Error Xor D
+    def apply(d: D, event: RawEventData): Error Xor D
   }
-  def createEventDataConsumer[E, D](handler: (D, Tag, AggregateId, Int, E) => D)(implicit eventSerialiser: EventSerialisation[E]) =
+  def createEventDataConsumer[E, D](handler: (D, EventData[E]) => D)(implicit eventSerialiser: EventSerialisation[E]) =
     new EventDataConsumer[D] {
-      def apply(d: D, tag: Tag, id: AggregateId, version: Int, data: String): Error Xor D = eventSerialiser.decode(data).map(handler(d, tag, id, version, _))
+      def apply(d: D, event: RawEventData): Error Xor D = eventSerialiser.decode(event.data).map(e => handler(d, EventData(event.tag, event.id, event.version, e)))
     }
 
   type EventDataConsumerQuery[D] = List[(Tag, EventDataConsumer[D])]
