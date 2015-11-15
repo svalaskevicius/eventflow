@@ -80,11 +80,11 @@ object Eventflow {
       val runner1 = run(
         for {
           c1 <- db(Counter.startCounter(AggregateId("test counter")))
-          c1 <- db(c1, actions1)
+          c1 <- db(c1._1, actions1)
           d1 <- db(Door.registerDoor(AggregateId("golden gate")))
-          d1 <- db(d1, doorActions1)
-          c1 <- db(c1, actions2)
-          d1 <- db(d1, doorActions2)
+          d1 <- db(d1._1, doorActions1)
+          c1 <- db(c1._1, actions2)
+          d1 <- db(d1._1, doorActions2)
         } yield ()
       ).
         fold(err => { println("Error occurred: " + err._2); err._1 }, r => { println("OK"); r._1 })

@@ -32,9 +32,8 @@ final case class BatchRunner[Db: Backend, PROJS <: HList](db: Db, projections: P
       })
     )
 
-  def db[E, A, S, AA](prev: (AggregateState[S], AA), aggregate: AggregateDef[E, S, A])(implicit eventSerialiser: EventSerialisation[E], m: KMapper[Projection, PROJS, Projection, PROJS]): DbActions[(AggregateState[S], A)] = {
-    val actions = aggregate.run(prev._1)
-    db(actions)
+  def db[E, A, S](aggregateState: AggregateState[S], aggregateActions: AggregateDef[E, S, A])(implicit eventSerialiser: EventSerialisation[E], m: KMapper[Projection, PROJS, Projection, PROJS]): DbActions[(AggregateState[S], A)] = {
+    db(aggregateActions.run(aggregateState))
   }
 
   object runProjection extends (Projection ~> Projection) {
