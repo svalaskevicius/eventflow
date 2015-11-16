@@ -21,11 +21,19 @@ object DoorSpecification extends Properties("Door") {
     override val genInitialState = Gen.const(TestState.Open)
     override def initSutActions = Door.registerDoor(AggregateId("test door"))
 
-    def genCommand(state: State): Gen[Command] =
+    def genCommand(state: State): Gen[Command] = {
+      val randomUnlock = Gen.alphaStr.flatMap(randkey => Gen.const(Unlock(randkey)))
+      val unlockCmd = state match {
+        case TestState.Locked(key) => Gen.oneOf[Command](randomUnlock, Unlock(key))
+        case _ => randomUnlock
+      }
       Gen.oneOf(
         Gen.const(Open),
-        Gen.const(Close)
+        Gen.const(Close),
+        Gen.alphaStr.flatMap(key => Gen.const(Lock(key))),
+        unlockCmd
       )
+    }
 
     override def evtSerializer = implicitly[EventSerialisation[Door.Event]]
 
@@ -43,5 +51,18 @@ object DoorSpecification extends Properties("Door") {
       def postCondition(state: State, success: Boolean) = success == (state == TestState.Open)
     }
 
+    case class Lock(key: String) extends AggregateCommand {
+      def commandActions = Door.doorAggregate.handleCommand(Door.Lock(key))
+      def nextState(state: State) = if (state == TestState.Closed) TestState.Locked(key) else state
+      def preCondition(state: State) = true
+      def postCondition(state: State, success: Boolean) = success == (state == TestState.Closed)
+    }
+
+    case class Unlock(key: String) extends AggregateCommand {
+      def commandActions = Door.doorAggregate.handleCommand(Door.Unlock(key))
+      def nextState(state: State) = if (state == TestState.Locked(key)) TestState.Closed else state
+      def preCondition(state: State) = true
+      def postCondition(state: State, success: Boolean) = success == (state == TestState.Locked(key))
+    }
   }
 }
