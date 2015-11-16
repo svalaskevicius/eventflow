@@ -23,14 +23,12 @@ object CounterSpecification extends Properties("Counter") {
     case object Increment extends AggregateCommand {
       def commandActions = Counter.counterAggregate.handleCommand(Counter.Increment)
       def nextState(state: State) = state + 1
-      def preCondition(state: State) = true
       def postCondition(state: State, success: Boolean) = success
     }
 
     case object Decrement extends AggregateCommand {
       def commandActions = Counter.counterAggregate.handleCommand(Counter.Decrement)
       def nextState(state: State) = if (state > 0) state - 1 else state
-      def preCondition(state: State) = true
       def postCondition(state: State, success: Boolean) = success == (state > 0)
     }
 

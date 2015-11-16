@@ -35,6 +35,7 @@ trait AggregateCommands[E, AggStateData, S] extends Commands {
 
   trait AggregateCommand extends UnitCommand {
     def commandActions: AggregateDef[E, AggStateData, Unit]
+    def preCondition(state: State) = true
     def run(sut: Sut) = sut.synchronized {
       val action = sut.runner.db(sut.aggUnderTest, commandActions)(evtSerializer, implicitly[KMapper[Projection, HNil.type, Projection, HNil.type ]])
       sut.runner = sut.runner.run(action) match {
