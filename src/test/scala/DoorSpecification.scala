@@ -19,7 +19,7 @@ object DoorSpecification extends Properties("Door") {
   private object DoorSpec extends AggregateCommands[Door.Event, Door.flow.StateData, TestState] {
 
     override val genInitialState = Gen.const(TestState.Open)
-    override def initSutActions = Door.registerDoor(AggregateId("test door"))
+    override def initSutActions = Door.newDoor(AggregateId("test door"))
 
     def genCommand(state: State): Gen[Command] = {
       val randomUnlock = Gen.alphaStr.flatMap(randkey => Gen.const(Unlock(randkey)))

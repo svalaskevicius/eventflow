@@ -67,25 +67,18 @@ class EventFlow[Cmd, Evt] {
 
   case object ErrorCannotFindHandler extends Aggregate.Error
 
-  def flowAggregate(tag: Aggregate.Tag): FlowAggregate =
-    Aggregate(
-      on = e => d => (d map (consumer => consumer.evh(e))).flatMap(Option.option2Iterable),
-      handle = c => d => d.foldLeft(None: Option[Aggregate.Error Xor List[Evt]])(
-      (prev: Option[Aggregate.Error Xor List[Evt]], consumer) => prev match {
-        case Some(_) => prev
-        case None => consumer.cmdh.lift(c)
-      }
-    ).getOrElse {
+  def flowAggregate(aggregateTag: Aggregate.Tag, aggregateLogic: List[Flow[Unit]]): FlowAggregate = new FlowAggregate {
+      def on = e => d => (d map (consumer => consumer.evh(e))).flatMap(Option.option2Iterable)
+      def handle = c => d => d.foldLeft(None: Option[Aggregate.Error Xor List[Evt]])(
+        (prev: Option[Aggregate.Error Xor List[Evt]], consumer) => prev match {
+          case Some(_) => prev
+          case None => consumer.cmdh.lift(c)
+        }
+      ).getOrElse {
         Xor.Left(ErrorCannotFindHandler)
-      },
-      tag = tag
-    )
-
-  import Aggregate._
-
-  def startFlow[A](aggregateLogic: List[Flow[Unit]])(aggregate: EAD[A]): StatefulEventDatabaseWithFailure[Evt, StateData, A] = {
-    val initState = (aggregateLogic map esRunnerCompiler(PartialFunction.empty)).flatMap(Option.option2Iterable)
-    runAggregateFromStart(aggregate, initState)
-  }
+      }
+      def tag = aggregateTag
+      def initData = (aggregateLogic map esRunnerCompiler(PartialFunction.empty)).flatMap(Option.option2Iterable)
+    }
 }
 

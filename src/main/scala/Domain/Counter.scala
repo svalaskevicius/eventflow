@@ -21,10 +21,8 @@ object Counter {
 
   val flow = new EventFlow[Command, Event]
   import flow._
-  type CounterAggregate = FlowAggregate
-  val counterAggregate = flowAggregate(tag)
 
-  def countingLogic(c: Int): Flow[Unit] =
+  private def countingLogic(c: Int): Flow[Unit] =
     handler {
       case Increment => emitEvent(Incremented)
       case Decrement => if (c > 0) emitEvent(Decremented)
@@ -36,17 +34,16 @@ object Counter {
       } >>=
       countingLogic
 
-  val aggregateLogic: List[Flow[Unit]] = List(
+  private val aggregateLogic: List[Flow[Unit]] = List(
     handler { case Create(id) => emitEvent(Created(id)) } >> waitFor { case Created(_) => () },
     waitFor { case Created(_) => () } >> countingLogic(0)
   )
 
-  def newCounter(id: AggregateId): EAD[Unit] = {
-    import counterAggregate._
-    initAggregate(id) >> handleCommand(Create(id))
-  }
+  type CounterAggregate = FlowAggregate
+  val counterAggregate = flowAggregate(tag, aggregateLogic)
 
-  def startCounter = startFlow[Unit](aggregateLogic) _ compose newCounter
+  def newCounter(id: AggregateId) : EventDatabaseWithFailure[Event, CounterAggregate#State] =
+    counterAggregate.handleFirstCommand(id, Create(id))
 }
 
 import scala.collection.immutable.TreeMap

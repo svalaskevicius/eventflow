@@ -25,10 +25,8 @@ object Door {
 
   val flow = new EventFlow[Command, Event]
   import flow._
-  type DoorAggregate = FlowAggregate
-  val doorAggregate = flowAggregate(tag)
 
-  def openDoorsLogic: Flow[Unit] =
+  private def openDoorsLogic: Flow[Unit] =
     handler {
       promote[Close.type, Closed.type] orElse
         { case _ => failCommand("Open door can only be closed.") }
@@ -37,7 +35,7 @@ object Door {
         case Closed => closedDoorsLogic
       }
 
-  def closedDoorsLogic: Flow[Unit] =
+  private def closedDoorsLogic: Flow[Unit] =
     handler {
       promote[Lock, Locked] orElse
       promote[Open.type, Opened.type] orElse
@@ -48,7 +46,7 @@ object Door {
         case Locked(key) => lockedDoorsLogic(key)
       }
 
-  def lockedDoorsLogic(key: String): Flow[Unit] =
+  private def lockedDoorsLogic(key: String): Flow[Unit] =
     handler {
       case Unlock(attemptedKey) => if (key == attemptedKey) emitEvent(Unlocked(attemptedKey))
                                    else failCommand("Attempted unlock key is invalid")
@@ -58,17 +56,16 @@ object Door {
         case Unlocked(_) => closedDoorsLogic
       }
 
-  val aggregateLogic: List[Flow[Unit]] = List(
+  private val aggregateLogic: List[Flow[Unit]] = List(
     handler { promote[Register, Registered] } >> waitFor { case Registered(_) => () },
     waitFor { case Registered(_) => () } >> openDoorsLogic
   )
 
-  def newDoor(id: AggregateId): EAD[Unit] = {
-    import doorAggregate._
-    initAggregate(id) >> handleCommand(Register(id))
-  }
+  type DoorAggregate = FlowAggregate
+  val doorAggregate = flowAggregate(tag, aggregateLogic)
 
-  def registerDoor = startFlow[Unit](aggregateLogic) _ compose newDoor
+  def newDoor(id: AggregateId) : EventDatabaseWithFailure[Event, DoorAggregate#State] =
+    doorAggregate.handleFirstCommand(id, Register(id))
 }
 
 import scala.collection.immutable.TreeMap

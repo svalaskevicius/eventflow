@@ -61,22 +61,15 @@ object Aggregate {
   def emitEvents[E](evs: List[E]): Error Xor List[E] = Xor.right(evs)
 
   def failCommand[Events](err: String): Error Xor Events = Xor.left(ErrorCommandFailure(err))
-
-  type StatefulEventDatabaseWithFailure[E, D, A] = EventDatabaseWithFailure[E, (AggregateState[D], A)]
-
-  def runAggregateFromStart[E, D, A](a: AggregateDef[E, D, A], initState: D): StatefulEventDatabaseWithFailure[E, D, A] =
-    a.run(AggregateState(emptyAggregateId, initState, 0))
-
-  def continueAggregate[E, D, A](a: AggregateDef[E, D, A], state: AggregateState[D]): StatefulEventDatabaseWithFailure[E, D, A] =
-    a.run(state)
-
 }
 
-final case class Aggregate[E, C, D](
-  on: Aggregate[E, C, D]#EventHandler,
-  handle: Aggregate[E, C, D]#CommandHandler,
-  tag: Aggregate.Tag
-) {
+trait Aggregate[E, C, D] {
+
+  def on: EventHandler
+  def handle: CommandHandler
+  def tag: Aggregate.Tag
+  def initData: D
+
   import Aggregate._
 
   type State = AggregateState[D]
@@ -90,14 +83,18 @@ final case class Aggregate[E, C, D](
 
   def liftToAggregateDef[A](f: EventDatabaseWithFailure[E, A]): AD[A] = AD(s => f.map((s, _)))
 
-  def initAggregate(id: AggregateId): AD[Unit] =
-    liftToAggregateDef(doesAggregateExist(tag, id)) >>=
-      ((e: Boolean) => AD(
-        vs => {
-          if (e) XorT.left[EventDatabase[E, ?], Error, (AggregateState[D], Unit)](eventDatabaseMonad[E].pure(ErrorExistsAlready(id)))
-          else appendEvents(tag, id, VersionedEvents[E](1, List())).map(_ => (vs.copy(id = id), ()))
-        }
-      ))
+  def initAggregate(id: AggregateId): EventDatabaseWithFailure[E, State] =
+    doesAggregateExist(tag, id).flatMap((e: Boolean) =>
+      if (e) XorT.left[EventDatabase[E, ?], Error, AggregateState[D]](eventDatabaseMonad[E].pure(ErrorExistsAlready(id)))
+      else appendEvents(tag, id, VersionedEvents[E](1, List())).map(_ => new State(id, initData, 0))
+    )
+
+  def handleFirstCommand(id: AggregateId, cmd: C): EventDatabaseWithFailure[E, State] = {
+    val unflattenedDbActions = for {
+      initState <- initAggregate(id)
+    } yield handleCommand(cmd).run(initState).map(_._1)
+    implicitly[Monad[EventDatabaseWithFailure[E, ?]]].flatten(unflattenedDbActions)
+  }
 
   def handleCommand(cmd: C): AD[Unit] = {
     for {

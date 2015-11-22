@@ -4,7 +4,7 @@ import Cqrs.Database.{ Backend, EventSerialisation }
 import cats.data.Xor
 import cats.state.StateT
 
-import Cqrs.Aggregate.{ AggregateDef, AggregateState, EventDatabaseWithFailure, Error }
+import Cqrs.Aggregate._
 import cats.~>
 
 import shapeless._

@@ -10,7 +10,7 @@ object CounterSpecification extends Properties("Counter") {
   private object CounterSpec extends AggregateCommands[Counter.Event, Counter.flow.StateData, Int] {
 
     override val genInitialState = Gen.const(0)
-    override def initSutActions = Counter.startCounter(AggregateId("test counter"))
+    override def initSutActions = Counter.newCounter(AggregateId("test counter"))
 
     def genCommand(state: State): Gen[Command] =
       Gen.oneOf(

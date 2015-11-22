@@ -15,7 +15,7 @@ trait AggregateCommands[E, AggStateData, S] extends Commands {
 
   def canCreateNewSut(newState: State, initSuts: Traversable[State], runningSuts: Traversable[Sut]) = true
 
-  def initSutActions: EventDatabaseWithFailure[E, (AggregateState[AggStateData], Unit)]
+  def initSutActions: EventDatabaseWithFailure[E, AggregateState[AggStateData]]
 
   def evtSerializer: EventSerialisation[E]
 
@@ -26,7 +26,7 @@ trait AggregateCommands[E, AggStateData, S] extends Commands {
       case Xor.Left(err) => throw new Exception("Failed to initialise aggregate: " + err)
       case Xor.Right(r) => r
     }
-    Sut(runner1, aggState._1)
+    Sut(runner1, aggState)
   }
 
   def destroySut(sut: Sut) = ()
