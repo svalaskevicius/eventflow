@@ -17,7 +17,7 @@ object OpenDoorsCountersProjection {
   def init[K, V](kv: TreeMap[K, V], k: K, init: => V): TreeMap[K, V] = modify(kv, k, init, identity[V])
 
   def emptyOpenDoorsCountersProjection = Projection.build.
-    addHandler(Door.tag, (d: Data, e: Database.EventData[Door.Event]) => {
+    addHandler(Door.DoorAggregate.tag, (d: Data, e: Database.EventData[Door.Event]) => {
       import Door._
       e.data match {
         case Registered(aggId) => Data(Some(e.id), d.doorCounters.updated(e.id, DoorState(TreeMap.empty)))
@@ -26,7 +26,7 @@ object OpenDoorsCountersProjection {
         case _ => d
       }
     }).
-    addHandler(Counter.tag, (d: Data, e: Database.EventData[Counter.Event]) => {
+    addHandler(Counter.CounterAggregate.tag, (d: Data, e: Database.EventData[Counter.Event]) => {
       import Counter._
 
       def updateDoorCounter(d: Data, doorId: AggregateId, counterId: AggregateId, init: => Int, update: Int => Int): Data =

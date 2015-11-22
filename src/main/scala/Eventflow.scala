@@ -7,7 +7,7 @@ object Eventflow {
 
   def actions1 = {
     import Domain.Counter._
-    import counterAggregate._
+    import CounterAggregate._
     for {
       _ <- handleCommand(Increment)
       _ <- handleCommand(Increment)
@@ -26,7 +26,7 @@ object Eventflow {
 
   def actions2 = {
     import Domain.Counter._
-    import counterAggregate._
+    import CounterAggregate._
     for {
       _ <- handleCommand(Decrement)
       _ <- handleCommand(Decrement)
@@ -38,7 +38,7 @@ object Eventflow {
 
   def doorActions1 = {
     import Domain.Door._
-    import doorAggregate._
+    import DoorAggregate._
     for {
       _ <- handleCommand(Close)
       _ <- handleCommand(Lock("my secret"))
@@ -48,7 +48,7 @@ object Eventflow {
   }
   def doorActions2 = {
     import Domain.Door._
-    import doorAggregate._
+    import DoorAggregate._
     for {
       _ <- handleCommand(Close)
       _ <- handleCommand(Lock("my secret"))
@@ -79,9 +79,9 @@ object Eventflow {
       import runner._
       val runner1 = run(
         for {
-          c1 <- db(Counter.newCounter(AggregateId("test counter")))
+          c1 <- db(Counter.CounterAggregate.initAggregate(AggregateId("test counter")))
           c1 <- db(c1, actions1)
-          d1 <- db(Door.newDoor(AggregateId("golden gate")))
+          d1 <- db(Door.DoorAggregate.initAggregate(AggregateId("golden gate")))
           d1 <- db(d1, doorActions1)
           c1 <- db(c1._1, actions2)
           d1 <- db(d1._1, doorActions2)

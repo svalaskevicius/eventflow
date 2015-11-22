@@ -19,7 +19,7 @@ object DoorSpecification extends Properties("Door") {
   private object DoorSpec extends AggregateCommands[Door.Event, Door.flow.StateData, TestState] {
 
     override val genInitialState = Gen.const(TestState.Open)
-    override def initSutActions = Door.newDoor(AggregateId("test door"))
+    override def initSutActions = Door.DoorAggregate.initAggregate(AggregateId("test door"))
 
     def genCommand(state: State): Gen[Command] = {
       val randomUnlock = Gen.alphaStr.flatMap(randkey => Gen.const(Unlock(randkey)))
@@ -38,25 +38,25 @@ object DoorSpecification extends Properties("Door") {
     override def evtSerializer = implicitly[EventSerialisation[Door.Event]]
 
     case object Open extends AggregateCommand {
-      def commandActions = Door.doorAggregate.handleCommand(Door.Open)
+      def commandActions = Door.DoorAggregate.handleCommand(Door.Open)
       def nextState(state: State) = if (state == TestState.Closed) TestState.Open else state
       def postCondition(state: State, success: Boolean) = success == (state == TestState.Closed)
     }
 
     case object Close extends AggregateCommand {
-      def commandActions = Door.doorAggregate.handleCommand(Door.Close)
+      def commandActions = Door.DoorAggregate.handleCommand(Door.Close)
       def nextState(state: State) = if (state == TestState.Open) TestState.Closed else state
       def postCondition(state: State, success: Boolean) = success == (state == TestState.Open)
     }
 
     case class Lock(key: String) extends AggregateCommand {
-      def commandActions = Door.doorAggregate.handleCommand(Door.Lock(key))
+      def commandActions = Door.DoorAggregate.handleCommand(Door.Lock(key))
       def nextState(state: State) = if (state == TestState.Closed) TestState.Locked(key) else state
       def postCondition(state: State, success: Boolean) = success == (state == TestState.Closed)
     }
 
     case class Unlock(key: String) extends AggregateCommand {
-      def commandActions = Door.doorAggregate.handleCommand(Door.Unlock(key))
+      def commandActions = Door.DoorAggregate.handleCommand(Door.Unlock(key))
       def nextState(state: State) = if (state == TestState.Locked(key)) TestState.Closed else state
       def postCondition(state: State, success: Boolean) = success == (state == TestState.Locked(key))
     }

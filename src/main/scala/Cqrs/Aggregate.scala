@@ -65,12 +65,13 @@ object Aggregate {
 
 trait Aggregate[E, C, D] {
 
+  import Aggregate._
+
   def on: EventHandler
   def handle: CommandHandler
   def tag: Aggregate.Tag
   def initData: D
-
-  import Aggregate._
+  def initCmd: AggregateId => C
 
   type State = AggregateState[D]
   type ADStateRun[A] = AggregateState[D] => EventDatabaseWithFailure[E, (AggregateState[D], A)]
@@ -83,17 +84,12 @@ trait Aggregate[E, C, D] {
 
   def liftToAggregateDef[A](f: EventDatabaseWithFailure[E, A]): AD[A] = AD(s => f.map((s, _)))
 
-  def initAggregate(id: AggregateId): EventDatabaseWithFailure[E, State] =
-    doesAggregateExist(tag, id).flatMap((e: Boolean) =>
+  def initAggregate(id: AggregateId): EventDatabaseWithFailure[E, State] = {
+    val initState = doesAggregateExist(tag, id).flatMap((e: Boolean) =>
       if (e) XorT.left[EventDatabase[E, ?], Error, AggregateState[D]](eventDatabaseMonad[E].pure(ErrorExistsAlready(id)))
       else appendEvents(tag, id, VersionedEvents[E](1, List())).map(_ => new State(id, initData, 0))
     )
-
-  def handleFirstCommand(id: AggregateId, cmd: C): EventDatabaseWithFailure[E, State] = {
-    val unflattenedDbActions = for {
-      initState <- initAggregate(id)
-    } yield handleCommand(cmd).run(initState).map(_._1)
-    implicitly[Monad[EventDatabaseWithFailure[E, ?]]].flatten(unflattenedDbActions)
+    initState.flatMap(handleCommand(initCmd(id)).runS)
   }
 
   def handleCommand(cmd: C): AD[Unit] = {

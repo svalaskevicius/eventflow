@@ -2,12 +2,11 @@ package Domain
 
 import Cqrs._
 import Cqrs.Aggregate._
+import cats.Monad
 import cats.data.{ Xor, XorT }
 import cats.syntax.flatMap._
 
 object Counter {
-
-  val tag = Tag("Counter")
 
   sealed trait Event
   final case class Created(id: AggregateId) extends Event
@@ -34,16 +33,16 @@ object Counter {
       } >>=
       countingLogic
 
-  private val aggregateLogic: List[Flow[Unit]] = List(
+  private val fullAggregateLogic: List[Flow[Unit]] = List(
     handler { case Create(id) => emitEvent(Created(id)) } >> waitFor { case Created(_) => () },
     waitFor { case Created(_) => () } >> countingLogic(0)
   )
 
-  type CounterAggregate = FlowAggregate
-  val counterAggregate = flowAggregate(tag, aggregateLogic)
-
-  def newCounter(id: AggregateId) : EventDatabaseWithFailure[Event, CounterAggregate#State] =
-    counterAggregate.handleFirstCommand(id, Create(id))
+  object CounterAggregate extends FlowAggregate {
+    def tag = Tag("Counter")
+    def aggregateLogic = fullAggregateLogic
+    def initCmd = Create
+  }
 }
 
 import scala.collection.immutable.TreeMap
@@ -53,7 +52,7 @@ object CounterProjection {
   type Data = TreeMap[AggregateId, Int]
 
   def emptyCounterProjection = Projection.build.
-    addHandler(Counter.tag, (d: Data, e: Database.EventData[Counter.Event]) => {
+    addHandler(Counter.CounterAggregate.tag, (d: Data, e: Database.EventData[Counter.Event]) => {
       import Counter._
       e.data match {
         case Created(id) => d

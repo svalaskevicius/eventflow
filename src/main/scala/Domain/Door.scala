@@ -7,8 +7,6 @@ import cats.syntax.flatMap._
 
 object Door {
 
-  val tag = Tag("Door")
-
   sealed trait Event
   final case class Registered(id: AggregateId) extends Event
   case object Opened extends Event
@@ -56,16 +54,16 @@ object Door {
         case Unlocked(_) => closedDoorsLogic
       }
 
-  private val aggregateLogic: List[Flow[Unit]] = List(
+  private val fullAggregateLogic: List[Flow[Unit]] = List(
     handler { promote[Register, Registered] } >> waitFor { case Registered(_) => () },
     waitFor { case Registered(_) => () } >> openDoorsLogic
   )
 
-  type DoorAggregate = FlowAggregate
-  val doorAggregate = flowAggregate(tag, aggregateLogic)
-
-  def newDoor(id: AggregateId) : EventDatabaseWithFailure[Event, DoorAggregate#State] =
-    doorAggregate.handleFirstCommand(id, Register(id))
+  object DoorAggregate extends FlowAggregate {
+    def tag = Tag("Door")
+    def aggregateLogic = fullAggregateLogic
+    def initCmd = Register
+  }
 }
 
 import scala.collection.immutable.TreeMap
@@ -80,7 +78,7 @@ object DoorProjection {
   type Data = TreeMap[AggregateId, State]
 
   def emptyDoorProjection = Projection.build.
-    addHandler(Door.tag, (d: Data, e: Database.EventData[Door.Event]) => {
+    addHandler(Door.DoorAggregate.tag, (d: Data, e: Database.EventData[Door.Event]) => {
       import Door._
       e.data match {
         case Registered(id) => d.updated(e.id, DoorProjection.Open)
