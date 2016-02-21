@@ -23,6 +23,11 @@ final case class BatchRunner[Db: Backend, PROJS <: HList](db: Db, projections: P
 
   def addProjection[D](proj: Projection[D])(implicit m: KMapper[Projection, PROJS, Projection, PROJS]): BatchRunner[Db, Projection[D] :: PROJS] = copy(projections = proj :: projections).runProjections
 
+  def handleCommand[C, S](aggregateId: AggregateId, command: C): Error Xor (Self, AggregateState[S]) = {
+    ???
+  }
+  // def handleCommand[C, S](aggregateState: AggregateState[S], command: C): Error Xor (Self, AggregateState[S]) = ???
+
   def db[E, A](actions: EventDatabaseWithFailure[E, A])(implicit eventSerialiser: EventSerialisation[E], m: KMapper[Projection, PROJS, Projection, PROJS]): DbActions[A] =
     new DbActions[A](
       Xor.right((runner: BatchRunner[Db, PROJS]) => {

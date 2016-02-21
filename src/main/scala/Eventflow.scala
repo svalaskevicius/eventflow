@@ -2,6 +2,7 @@
 import Cqrs.DbAdapters.InMemoryDb._
 import Cqrs.BatchRunner
 import Cqrs.Aggregate.AggregateId
+import Domain.Counter
 
 object Eventflow {
 
@@ -70,30 +71,43 @@ object Eventflow {
       println("============================")
     }
 
-    val runner = BatchRunner.forDb(newInMemoryDb).
-      addProjection(CounterProjection.emptyCounterProjection).
-      addProjection(DoorProjection.emptyDoorProjection).
-      addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
+//    val runner = BatchRunner.forDb(newInMemoryDb).
+//      addProjection(CounterProjection.emptyCounterProjection).
+//      addProjection(DoorProjection.emptyDoorProjection).
+//      addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
+//
+//    {
+//      import runner._
+//      val runner1 = run(
+//        for {
+//          c1 <- db(Counter.CounterAggregate.initAggregate(AggregateId("test counter")))
+//          c1 <- db(c1, actions1)
+//          d1 <- db(Door.DoorAggregate.initAggregate(AggregateId("golden gate")))
+//          d1 <- db(d1, doorActions1)
+//          c1 <- db(c1._1, actions2)
+//          d1 <- db(d1._1, doorActions2)
+//        } yield ()
+//      ).
+//        fold(err => { println("Error occurred: " + err._2); err._1 }, r => { println("OK"); r._1 })
 
-    {
-      import runner._
-      val runner1 = run(
-        for {
-          c1 <- db(Counter.CounterAggregate.initAggregate(AggregateId("test counter")))
-          c1 <- db(c1, actions1)
-          d1 <- db(Door.DoorAggregate.initAggregate(AggregateId("golden gate")))
-          d1 <- db(d1, doorActions1)
-          c1 <- db(c1._1, actions2)
-          d1 <- db(d1._1, doorActions2)
-        } yield ()
-      ).
-        fold(err => { println("Error occurred: " + err._2); err._1 }, r => { println("OK"); r._1 })
+        val runner = BatchRunner.forDb(newInMemoryDb)
+
+        {
+          import runner._
+          import Book.BookAggregate._
+          val runner1 = run(
+            for {
+              c1 <- db(initAggregate(AggregateId("aa1")))
+              c1 <- db(c1, Book.BookAggregate.handleCommand(Book.LendToReader("reader", System.currentTimeMillis() + 3600l)))
+            } yield ()
+          ).
+          fold(err => { println("Error occurred: " + err._2); err._1 }, r => { println("OK"); r._1 })
 
       printRunner(runner1)
 
-      val runner2 = runner1.addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
-
-      printRunner(runner2)
+//      val runner2 = runner1.addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
+//
+//      printRunner(runner2)
     }
   }
 }
