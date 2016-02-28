@@ -4,7 +4,7 @@ import Cqrs.Database._
 import cats.data.Xor
 import Cqrs.DbAdapters.InMemoryDb._
 import Cqrs.Aggregate.AggregateId
-import shapeless.HList
+import shapeless.{Typeable, HList}
 
 trait AggregateSpec {
 
@@ -55,7 +55,7 @@ trait AggregateSpec {
         runner.run(runner.db(aggregate.newState(id), aggregate.handleCommand(cmd)))
           .fold(_._2, _ => failStop("Command did not fail, although was expected to"))
 
-    def projections = runner.projections
+    def projectionData[D: Typeable](name: String) = runner.getProjectionData[D](name)
   }
 
   def newDbRunner = BatchRunner.forDb(newInMemoryDb)

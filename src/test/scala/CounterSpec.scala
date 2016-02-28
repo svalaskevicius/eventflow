@@ -3,6 +3,7 @@ import Domain.CounterProjection.emptyCounterProjection
 import org.scalatest._
 import Domain.Counter.CounterAggregate.tag
 import Domain.Counter._
+import Domain.CounterProjection.{Data => CounterProjectionData}
 
 import scala.collection.immutable.TreeMap
 
@@ -61,7 +62,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
         .command(CounterAggregate, "counterid", Increment)
         .command(CounterAggregate, "counterid", Decrement)
     } thenCheck {
-      _.projections.head.data should be(TreeMap(AggregateId("counterid") -> 1))
+      _.projectionData[CounterProjectionData]("counters") should be(Some(TreeMap(AggregateId("counterid") -> 1)))
     }
   }
 }

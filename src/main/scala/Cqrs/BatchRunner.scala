@@ -10,6 +10,8 @@ import cats.~>
 import shapeless._
 import lib.HList.{ KMapper, kMap }
 
+import syntax.typeable._
+
 object BatchRunner {
   def forDb[Db: Backend](db: Db) = BatchRunner[Db, HNil.type](db, HNil)
 
@@ -45,6 +47,15 @@ final case class BatchRunner[Db: Backend, PROJS <: HList](db: Db, projections: P
   }
 
   def runProjections = copy(projections = kMap(projections, runProjection))
+
+  def getProjectionData[D: Typeable](name: String): Option[D] = {
+    def findProjection[P <: HList](current: P): Option[D] = current match {
+      case (x: Projection[_]) :: _ if x.name == name => x.data.cast[D]
+      case _ :: xs => findProjection(xs)
+      case HNil => None
+    }
+    findProjection(projections)
+  }
 
   def run[A](actions: DbActions[A]): (Self, Error) Xor (Self, A) = actions.run(this)
 

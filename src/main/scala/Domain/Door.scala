@@ -77,7 +77,7 @@ object DoorProjection {
 
   type Data = TreeMap[AggregateId, State]
 
-  def emptyDoorProjection = Projection.build.
+  def emptyDoorProjection = Projection.build("doors").
     addHandler(Door.DoorAggregate.tag, (d: Data, e: Database.EventData[Door.Event]) => {
       import Door._
       e.data match {
