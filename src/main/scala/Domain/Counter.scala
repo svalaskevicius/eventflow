@@ -9,12 +9,12 @@ import cats.syntax.flatMap._
 object Counter {
 
   sealed trait Event
-  final case class Created(id: AggregateId) extends Event
+  final case class Created(id: AggregateId, start: Int) extends Event
   case object Incremented extends Event
   case object Decremented extends Event
 
   sealed trait Command
-  final case class Create(id: AggregateId) extends Command
+  final case class Create(id: AggregateId, start: Int) extends Command with InitialAggregateCommand
   case object Increment extends Command
   case object Decrement extends Command
 
@@ -34,7 +34,7 @@ object Counter {
       countingLogic
 
   private val fullAggregateLogic: Flow[Unit] =
-    handler { case Create(id) => emitEvent(Created(id)) } >> waitFor { case Created(_) => () } >> countingLogic(0)
+    handler { case Create(id, start) => emitEvent(Created(id, start)) } >> waitFor { case Created(_, _) => () } >> countingLogic(0)
 
 
   object CounterAggregate extends FlowAggregate {
@@ -54,7 +54,7 @@ object CounterProjection {
     addHandler(Counter.CounterAggregate.tag, (d: Data, e: Database.EventData[Counter.Event]) => {
       import Counter._
       e.data match {
-        case Created(id) => d
+        case Created(id, start) => d.updated(e.id, start)
         case Incremented => d.updated(e.id, d.get(e.id).fold(1)(_ + 1))
         case Decremented => d.updated(e.id, d.get(e.id).fold(-1)(_ - 1))
       }

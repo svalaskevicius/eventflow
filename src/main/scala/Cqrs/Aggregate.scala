@@ -1,5 +1,6 @@
 package Cqrs
 
+import Cqrs.Aggregate.AggregateId
 import cats.data.{ Xor, XorT }
 import cats.Monad
 import cats._
@@ -67,6 +68,10 @@ object Aggregate {
   def failCommand[Events](err: String): Error Xor Events = Xor.left(ErrorCommandFailure(err))
 }
 
+trait InitialAggregateCommand {
+  def id: AggregateId
+}
+
 trait Aggregate[E, C, D] {
 
   import Aggregate._
@@ -75,7 +80,6 @@ trait Aggregate[E, C, D] {
   def handle: CommandHandler
   def tag: Aggregate.Tag
   def initData: D
-  def initCmd: AggregateId => C
 
   type State = AggregateState[D]
   type ADStateRun[A] = AggregateState[D] => EventDatabaseWithFailure[E, (AggregateState[D], A)]
@@ -88,12 +92,13 @@ trait Aggregate[E, C, D] {
 
   def liftToAggregateDef[A](f: EventDatabaseWithFailure[E, A]): AD[A] = AD(s => f.map((s, _)))
 
-  def initAggregate(id: AggregateId): EventDatabaseWithFailure[E, State] = {
+  def initAggregate[Cmd <: InitialAggregateCommand with C](initCmd: Cmd): EventDatabaseWithFailure[E, State] = {
+    val id = initCmd.id
     val initState = doesAggregateExist(tag, id).flatMap((e: Boolean) =>
       if (e) XorT.left[EventDatabase[E, ?], Error, AggregateState[D]](eventDatabaseMonad[E].pure(ErrorExistsAlready(id)))
       else appendEvents(tag, id, VersionedEvents[E](1, List())).map(_ => newState(id))
     )
-    initState.flatMap(handleCommand(initCmd(id)).runS)
+    initState.flatMap(handleCommand(initCmd).runS)
   }
 
   def newState(id: AggregateId) = new State(id, initData, 0)

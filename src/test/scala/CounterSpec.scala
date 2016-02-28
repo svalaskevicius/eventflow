@@ -12,7 +12,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
   "Incrementing a counter" should "succeed" in {
     given {
       newDbRunner
-        .withEvent(tag, "counterid", Created("counterid"))
+        .withEvent(tag, "counterid", Created("counterid", 0))
     } when {
       _.command(CounterAggregate, "counterid", Increment)
     } thenCheck {
@@ -29,7 +29,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
   "Decrementing a counter" should "succeed after its incremented" in {
     given {
       newDbRunner
-        .withEvents[Event](tag, "counterid", Created("counterid"), Incremented)
+        .withEvents[Event](tag, "counterid", Created("counterid", 0), Incremented)
     } when {
       _.command(CounterAggregate, "counterid", Decrement)
     } thenCheck {
@@ -46,7 +46,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
   it should "fail if its at zero balance" in {
     given {
       newDbRunner
-        .withEvents[Event](tag, "counterid", Created("counterid"), Incremented, Decremented)
+        .withEvents[Event](tag, "counterid", Created("counterid", 0), Incremented, Decremented)
     } check {
       _.failedCommandError(CounterAggregate, "counterid", Decrement) should be(ErrorCommandFailure("Counter cannot be decremented"))
     }
@@ -55,14 +55,14 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
   "Counter projection" should "return the current count" in {
     given {
       newDbRunner
-        .withEvent(tag, "counterid", Created("counterid"))
+        .withEvent(tag, "counterid", Created("counterid", 10))
         .withProjection(emptyCounterProjection)
     } when {
       _.command(CounterAggregate, "counterid", Increment)
         .command(CounterAggregate, "counterid", Increment)
         .command(CounterAggregate, "counterid", Decrement)
     } thenCheck {
-      _.projectionData[CounterProjectionData]("counters") should be(Some(TreeMap(AggregateId("counterid") -> 1)))
+      _.projectionData[CounterProjectionData]("counters") should be(Some(TreeMap(AggregateId("counterid") -> 11)))
     }
   }
 }
