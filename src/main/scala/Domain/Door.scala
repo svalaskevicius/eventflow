@@ -15,7 +15,7 @@ object Door {
   final case class Unlocked(key: String) extends Event
 
   sealed trait Command
-  final case class Register(id: AggregateId) extends Command
+  final case class Register(id: AggregateId) extends Command with InitialAggregateCommand
   case object Open extends Command
   case object Close extends Command
   final case class Lock(key: String) extends Command
@@ -54,10 +54,8 @@ object Door {
         case Unlocked(_) => closedDoorsLogic
       }
 
-  private val fullAggregateLogic: List[Flow[Unit]] = List(
-    handler { promote[Register, Registered] } >> waitFor { case Registered(_) => () },
-    waitFor { case Registered(_) => () } >> openDoorsLogic
-  )
+  private val fullAggregateLogic: Flow[Unit] =
+    handler { promote[Register, Registered] } >> waitFor { case Registered(_) => () } >> openDoorsLogic
 
   object DoorAggregate extends FlowAggregate {
     def tag = Tag("Door")
@@ -77,7 +75,7 @@ object DoorProjection {
 
   type Data = TreeMap[AggregateId, State]
 
-  def emptyDoorProjection = Projection.build.
+  def emptyDoorProjection = Projection.build("doors").
     addHandler(Door.DoorAggregate.tag, (d: Data, e: Database.EventData[Door.Event]) => {
       import Door._
       e.data match {

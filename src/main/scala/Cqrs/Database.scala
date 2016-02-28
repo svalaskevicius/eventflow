@@ -13,6 +13,7 @@ object Database {
    * @tparam Db specific database connection handle
    */
   trait Backend[Db] {
+
     /**
      * Run aggregate interpreter
      *

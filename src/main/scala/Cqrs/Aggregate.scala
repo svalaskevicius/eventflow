@@ -1,5 +1,6 @@
 package Cqrs
 
+import Cqrs.Aggregate.AggregateId
 import cats.data.{ Xor, XorT }
 import cats.Monad
 import cats._
@@ -9,11 +10,14 @@ import cats.state._
 
 import cats.syntax.flatMap._
 
+import scala.language.implicitConversions
+
 object Aggregate {
 
   final case class Tag(v: String)
   final case class AggregateId(v: String)
   val emptyAggregateId = AggregateId("")
+  implicit def toAggregateId(v: String): AggregateId = AggregateId(v)
 
   implicit def aggOrdering(implicit ev: Ordering[String]): Ordering[AggregateId] = new Ordering[AggregateId] {
     def compare(a: AggregateId, b: AggregateId) = ev.compare(a.v, b.v)
@@ -27,6 +31,7 @@ object Aggregate {
 
   final case class VersionedEvents[E](version: Int, events: List[E])
 
+  //TODO: move to db, these are not aggregate rules, but db ops
   sealed trait EventDatabaseOp[E, A]
   final case class ReadAggregateExistence[E](tag: Tag, id: AggregateId) extends EventDatabaseOp[E, Error Xor Boolean]
   final case class ReadAggregate[E](tag: Tag, id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor List[VersionedEvents[E]]]
@@ -63,6 +68,10 @@ object Aggregate {
   def failCommand[Events](err: String): Error Xor Events = Xor.left(ErrorCommandFailure(err))
 }
 
+trait InitialAggregateCommand {
+  def id: AggregateId
+}
+
 trait Aggregate[E, C, D] {
 
   import Aggregate._
@@ -71,7 +80,6 @@ trait Aggregate[E, C, D] {
   def handle: CommandHandler
   def tag: Aggregate.Tag
   def initData: D
-  def initCmd: AggregateId => C
 
   type State = AggregateState[D]
   type ADStateRun[A] = AggregateState[D] => EventDatabaseWithFailure[E, (AggregateState[D], A)]
@@ -84,13 +92,16 @@ trait Aggregate[E, C, D] {
 
   def liftToAggregateDef[A](f: EventDatabaseWithFailure[E, A]): AD[A] = AD(s => f.map((s, _)))
 
-  def initAggregate(id: AggregateId): EventDatabaseWithFailure[E, State] = {
+  def initAggregate[Cmd <: InitialAggregateCommand with C](initCmd: Cmd): EventDatabaseWithFailure[E, State] = {
+    val id = initCmd.id
     val initState = doesAggregateExist(tag, id).flatMap((e: Boolean) =>
       if (e) XorT.left[EventDatabase[E, ?], Error, AggregateState[D]](eventDatabaseMonad[E].pure(ErrorExistsAlready(id)))
-      else appendEvents(tag, id, VersionedEvents[E](1, List())).map(_ => new State(id, initData, 0))
+      else appendEvents(tag, id, VersionedEvents[E](1, List())).map(_ => newState(id))
     )
-    initState.flatMap(handleCommand(initCmd(id)).runS)
+    initState.flatMap(handleCommand(initCmd).runS)
   }
+
+  def newState(id: AggregateId) = new State(id, initData, 0)
 
   def handleCommand(cmd: C): AD[Unit] = {
     for {
