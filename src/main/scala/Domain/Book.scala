@@ -43,11 +43,12 @@ object Book {
       case Extended(readerIdThatExtended, dueDateToExtend) => bookLentLogic(readerIdThatExtended, dueDateToExtend)
     }
 
-  private val fullAggregateLogic: List[Flow[Unit]] = List(
-    handler { case AddToLibrary(id) => emitEvent(AddedToLibrary(id)) }
-      >> waitFor { case AddedToLibrary(_) => () }
-      >> bookAvailableLogic
-  )
+  private val fullAggregateLogic: Flow[Unit] = for {
+    _ <- handler { case AddToLibrary(id) => emitEvent(AddedToLibrary(id)) }
+    _ <- waitFor { case AddedToLibrary(_) => () }
+    _ <- bookAvailableLogic
+  } yield ()
+
 
   object BookAggregate extends FlowAggregate {
     def tag = Tag("Book")

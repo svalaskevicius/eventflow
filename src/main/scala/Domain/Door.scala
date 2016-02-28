@@ -54,10 +54,8 @@ object Door {
         case Unlocked(_) => closedDoorsLogic
       }
 
-  private val fullAggregateLogic: List[Flow[Unit]] = List(
-    handler { promote[Register, Registered] } >> waitFor { case Registered(_) => () },
-    waitFor { case Registered(_) => () } >> openDoorsLogic
-  )
+  private val fullAggregateLogic: Flow[Unit] =
+    handler { promote[Register, Registered] } >> waitFor { case Registered(_) => () } >> openDoorsLogic
 
   object DoorAggregate extends FlowAggregate {
     def tag = Tag("Door")

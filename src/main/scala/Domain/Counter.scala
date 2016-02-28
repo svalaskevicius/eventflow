@@ -33,10 +33,9 @@ object Counter {
       } >>=
       countingLogic
 
-  private val fullAggregateLogic: List[Flow[Unit]] = List(
-    handler { case Create(id) => emitEvent(Created(id)) } >> waitFor { case Created(_) => () },
-    waitFor { case Created(_) => () } >> countingLogic(0)
-  )
+  private val fullAggregateLogic: Flow[Unit] =
+    handler { case Create(id) => emitEvent(Created(id)) } >> waitFor { case Created(_) => () } >> countingLogic(0)
+
 
   object CounterAggregate extends FlowAggregate {
     def tag = Tag("Counter")
