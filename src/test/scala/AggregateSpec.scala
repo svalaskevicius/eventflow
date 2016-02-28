@@ -8,13 +8,23 @@ import shapeless.HList
 
 trait AggregateSpec {
 
+  def fail(message: String)
+
   implicit class GivenSteps[Db: Backend, PROJS <: HList](val runner: BatchRunner[Db, PROJS]) {
     type Self = GivenSteps[Db, PROJS]
 
     def event[E: EventSerialisation](tag: Aggregate.Tag, id: AggregateId, e: E): Self =
       GivenSteps( runner.withDb { db =>
         addEvents(runner.db, tag, id, List(e)).fold(
-          err => throw new scala.Error(err.toString),
+          err => failStop(err.toString),
+          identity
+        )
+      })
+
+    def withEvents[E: EventSerialisation](tag: Aggregate.Tag, id: AggregateId, evs: List[E]): Self =
+      GivenSteps( runner.withDb { db =>
+        addEvents(runner.db, tag, id, evs).fold(
+          err => failStop(err.toString),
           identity
         )
       })
@@ -25,7 +35,7 @@ trait AggregateSpec {
     def command[E: EventSerialisation, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C) = {
       WhenSteps(
         runner.run(runner.db(aggregate.newState(id), aggregate.handleCommand(cmd)))
-          .fold(err => throw new scala.Error(err.toString), _._1),
+          .fold(err => failStop(err.toString), _._1),
         startingDbOpNr
       )
     }
@@ -37,7 +47,12 @@ trait AggregateSpec {
 
     def newEvents[E: EventSerialisation](tag: Aggregate.Tag, aggregateId: AggregateId): List[E] =
       readEvents(runner.db, startingDbOpNr, tag, aggregateId)
-        .fold(err => throw new scala.Error(err.toString), _._2)
+        .fold(err => failStop(err.toString), _._2)
+
+    def failedCommandError[E: EventSerialisation, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C) = {
+        runner.run(runner.db(aggregate.newState(id), aggregate.handleCommand(cmd)))
+          .fold(_._2, _ => failStop("Command did not fail, although was expected to"))
+    }
   }
 
   def newDbRunner = BatchRunner.forDb(newInMemoryDb)
@@ -48,9 +63,11 @@ trait AggregateSpec {
 
   class WhenStepFlow[Db: Backend, PROJS <: HList](runner: BatchRunner[Db, PROJS]) {
     def when(steps: WhenSteps[Db, PROJS] => WhenSteps[Db, PROJS] ) = {
-      val v = readDbVersion(runner.db).fold(err => throw new scala.Error(err.toString), identity)
+      val v = readDbVersion(runner.db).fold(err => failStop(err.toString), identity)
       new ThenStepFlow(steps(WhenSteps(runner, v)))
     }
+
+    def check[R](steps: ThenSteps[Db, PROJS] => R ): R = when(identity).thenCheck(steps)
   }
 
   class ThenStepFlow[Db: Backend, PROJS <: HList](whenSteps: WhenSteps[Db, PROJS]) {
@@ -94,4 +111,10 @@ trait AggregateSpec {
     } yield ()
     implicitly[Backend[Db]].runDb(database, commands).map(_._1)
   }
+
+  private def failStop(message: String) = {
+    fail(message)
+    throw new scala.Error("Failed with: "+message)
+  }
+
 }
