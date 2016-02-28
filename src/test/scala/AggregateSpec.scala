@@ -1,5 +1,5 @@
 import Cqrs.Aggregate._
-import Cqrs.{Aggregate, BatchRunner}
+import Cqrs.{Projection, Aggregate, BatchRunner}
 import Cqrs.Database._
 import cats.data.Xor
 import Cqrs.DbAdapters.InMemoryDb._
@@ -13,7 +13,9 @@ trait AggregateSpec {
   implicit class GivenSteps[Db: Backend, PROJS <: HList](val runner: BatchRunner[Db, PROJS]) {
     type Self = GivenSteps[Db, PROJS]
 
-    def event[E: EventSerialisation](tag: Aggregate.Tag, id: AggregateId, e: E): Self =
+    def withProjection[D](proj: Projection[D]) = GivenSteps(runner.addProjection(proj))
+
+    def withEvent[E: EventSerialisation](tag: Aggregate.Tag, id: AggregateId, e: E): Self =
       GivenSteps( runner.withDb { db =>
         addEvents(runner.db, tag, id, List(e)).fold(
           err => failStop(err.toString),
@@ -49,10 +51,11 @@ trait AggregateSpec {
       readEvents(runner.db, startingDbOpNr, tag, aggregateId)
         .fold(err => failStop(err.toString), _._2)
 
-    def failedCommandError[E: EventSerialisation, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C) = {
+    def failedCommandError[E: EventSerialisation, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C) =
         runner.run(runner.db(aggregate.newState(id), aggregate.handleCommand(cmd)))
           .fold(_._2, _ => failStop("Command did not fail, although was expected to"))
-    }
+
+    def projections = runner.projections
   }
 
   def newDbRunner = BatchRunner.forDb(newInMemoryDb)
@@ -72,7 +75,7 @@ trait AggregateSpec {
 
   class ThenStepFlow[Db: Backend, PROJS <: HList](whenSteps: WhenSteps[Db, PROJS]) {
     def thenCheck[R](steps: ThenSteps[Db, PROJS] => R ): R =
-      steps(ThenSteps(whenSteps.runner, whenSteps.startingDbOpNr))
+      steps(ThenSteps(whenSteps.runner.runProjections, whenSteps.startingDbOpNr))
   }
 
   private def readEvents[E: EventSerialisation, Db](db: Db, fromOperation: Int, tag: Aggregate.Tag, aggregateId: AggregateId)(implicit backend: Backend[Db]) = {
