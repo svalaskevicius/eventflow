@@ -21,7 +21,7 @@ trait AggregateCommands[E, AggStateData, S] extends Commands {
 
   def newSut(state: State): Sut = {
     val runner = BatchRunner.forDb(newInMemoryDb)
-    val action = runner.db(initSutActions)(evtSerializer, implicitly[KMapper[Projection, HNil.type, Projection, HNil.type ]])
+    val action = runner.db(initSutActions)(evtSerializer)
     val (runner1, aggState) = runner.run(action) match {
       case Xor.Left(err) => throw new Exception("Failed to initialise aggregate: " + err)
       case Xor.Right(r) => r
@@ -37,7 +37,7 @@ trait AggregateCommands[E, AggStateData, S] extends Commands {
     def commandActions: AggregateDef[E, AggStateData, Unit]
     def preCondition(state: State) = true
     def run(sut: Sut) = sut.synchronized {
-      val action = sut.runner.db(sut.aggUnderTest, commandActions)(evtSerializer, implicitly[KMapper[Projection, HNil.type, Projection, HNil.type ]])
+      val action = sut.runner.db(sut.aggUnderTest, commandActions)(evtSerializer)
       sut.runner = sut.runner.run(action) match {
         case Xor.Left(err) => throw new Exception("Failed to run aggregate command: " + err._2)
         case Xor.Right(r) => r._1

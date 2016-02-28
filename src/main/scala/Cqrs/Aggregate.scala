@@ -9,11 +9,14 @@ import cats.state._
 
 import cats.syntax.flatMap._
 
+import scala.language.implicitConversions
+
 object Aggregate {
 
   final case class Tag(v: String)
   final case class AggregateId(v: String)
   val emptyAggregateId = AggregateId("")
+  implicit def toAggregateId(v: String): AggregateId = AggregateId(v)
 
   implicit def aggOrdering(implicit ev: Ordering[String]): Ordering[AggregateId] = new Ordering[AggregateId] {
     def compare(a: AggregateId, b: AggregateId) = ev.compare(a.v, b.v)
@@ -27,6 +30,7 @@ object Aggregate {
 
   final case class VersionedEvents[E](version: Int, events: List[E])
 
+  //TODO: move to db, these are not aggregate rules, but db ops
   sealed trait EventDatabaseOp[E, A]
   final case class ReadAggregateExistence[E](tag: Tag, id: AggregateId) extends EventDatabaseOp[E, Error Xor Boolean]
   final case class ReadAggregate[E](tag: Tag, id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor List[VersionedEvents[E]]]
@@ -87,10 +91,12 @@ trait Aggregate[E, C, D] {
   def initAggregate(id: AggregateId): EventDatabaseWithFailure[E, State] = {
     val initState = doesAggregateExist(tag, id).flatMap((e: Boolean) =>
       if (e) XorT.left[EventDatabase[E, ?], Error, AggregateState[D]](eventDatabaseMonad[E].pure(ErrorExistsAlready(id)))
-      else appendEvents(tag, id, VersionedEvents[E](1, List())).map(_ => new State(id, initData, 0))
+      else appendEvents(tag, id, VersionedEvents[E](1, List())).map(_ => newState(id))
     )
     initState.flatMap(handleCommand(initCmd(id)).runS)
   }
+
+  def newState(id: AggregateId) = new State(id, initData, 0)
 
   def handleCommand(cmd: C): AD[Unit] = {
     for {

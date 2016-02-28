@@ -15,20 +15,16 @@ object BatchRunner {
 
 }
 
-final case class BatchRunner[Db: Backend, PROJS <: HList](db: Db, projections: PROJS) {
+final case class BatchRunner[Db: Backend, PROJS <: HList](db: Db, projections: PROJS)(implicit m: KMapper[Projection, PROJS, Projection, PROJS]) {
 
   type Self = BatchRunner[Db, PROJS]
 
   type DbActions[A] = StateT[(Self, Error) Xor ?, Self, A]
 
-  def addProjection[D](proj: Projection[D])(implicit m: KMapper[Projection, PROJS, Projection, PROJS]): BatchRunner[Db, Projection[D] :: PROJS] = copy(projections = proj :: projections).runProjections
+  def addProjection[D](proj: Projection[D]): BatchRunner[Db, Projection[D] :: PROJS] = copy(projections = proj :: projections).runProjections
 
-  def handleCommand[C, S](aggregateId: AggregateId, command: C): Error Xor (Self, AggregateState[S]) = {
-    ???
-  }
-  // def handleCommand[C, S](aggregateState: AggregateState[S], command: C): Error Xor (Self, AggregateState[S]) = ???
-
-  def db[E, A](actions: EventDatabaseWithFailure[E, A])(implicit eventSerialiser: EventSerialisation[E], m: KMapper[Projection, PROJS, Projection, PROJS]): DbActions[A] =
+  //TODO: rename dbs
+  def db[E, A](actions: EventDatabaseWithFailure[E, A])(implicit eventSerialiser: EventSerialisation[E]): DbActions[A] =
     new DbActions[A](
       Xor.right((runner: BatchRunner[Db, PROJS]) => {
         val failureOrRes = Database.runDb(runner.db, actions)
@@ -37,7 +33,7 @@ final case class BatchRunner[Db: Backend, PROJS <: HList](db: Db, projections: P
       })
     )
 
-  def db[E, A, S](aggregateState: AggregateState[S], aggregateActions: AggregateDef[E, S, A])(implicit eventSerialiser: EventSerialisation[E], m: KMapper[Projection, PROJS, Projection, PROJS]): DbActions[(AggregateState[S], A)] = {
+  def db[E, A, S](aggregateState: AggregateState[S], aggregateActions: AggregateDef[E, S, A])(implicit eventSerialiser: EventSerialisation[E]): DbActions[(AggregateState[S], A)] = {
     db(aggregateActions.run(aggregateState))
   }
 
@@ -48,7 +44,9 @@ final case class BatchRunner[Db: Backend, PROJS <: HList](db: Db, projections: P
     }
   }
 
-  def runProjections(implicit m: KMapper[Projection, PROJS, Projection, PROJS]) = copy(projections = kMap(projections, runProjection))
+  def runProjections = copy(projections = kMap(projections, runProjection))
 
   def run[A](actions: DbActions[A]): (Self, Error) Xor (Self, A) = actions.run(this)
+
+  def withDb(f: Db => Db) = copy(db = f(db))
 }
