@@ -60,9 +60,8 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
       _.command(CounterAggregate, "counterid", Increment)
         .command(CounterAggregate, "counterid", Increment)
         .command(CounterAggregate, "counterid", Decrement)
-    } thenCheck { steps =>
-      val projection = steps.projections.head
-      projection.data should be(TreeMap(AggregateId("counterid") -> 1))
+    } thenCheck {
+      _.projections.head.data should be(TreeMap(AggregateId("counterid") -> 1))
     }
   }
 }
