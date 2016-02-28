@@ -23,9 +23,9 @@ trait AggregateSpec {
         )
       })
 
-    def withEvents[E: EventSerialisation](tag: Aggregate.Tag, id: AggregateId, evs: List[E]): Self =
+    def withEvents[E: EventSerialisation](tag: Aggregate.Tag, id: AggregateId, evs: E*): Self =
       GivenSteps( runner.withDb { db =>
-        addEvents(runner.db, tag, id, evs).fold(
+        addEvents(runner.db, tag, id, evs.toList).fold(
           err => failStop(err.toString),
           identity
         )

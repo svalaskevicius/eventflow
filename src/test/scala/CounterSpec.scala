@@ -29,7 +29,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
   "Decrementing a counter" should "succeed after its incremented" in {
     given {
       newDbRunner
-        .withEvents(tag, "counterid", List[Event](Created("counterid"), Incremented))
+        .withEvents[Event](tag, "counterid", Created("counterid"), Incremented)
     } when {
       _.command(CounterAggregate, "counterid", Decrement)
     } thenCheck {
@@ -46,7 +46,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
   it should "fail if its at zero balance" in {
     given {
       newDbRunner
-        .withEvents(tag, "counterid", List[Event](Created("counterid"), Incremented, Decremented))
+        .withEvents[Event](tag, "counterid", Created("counterid"), Incremented, Decremented)
     } check {
       _.failedCommandError(CounterAggregate, "counterid", Decrement) should be(ErrorCommandFailure("Counter cannot be decremented"))
     }
