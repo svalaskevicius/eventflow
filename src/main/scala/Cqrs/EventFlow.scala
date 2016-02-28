@@ -1,6 +1,6 @@
 package Cqrs
 
-import Cqrs.Aggregate.AggregateId
+import Cqrs.Aggregate.{ErrorCannotFindHandler, AggregateId}
 import cats._
 import cats.data.Xor
 import cats.free.Free
@@ -64,8 +64,6 @@ class EventFlow[Cmd, Evt] {
 
   type StateData = Option[EventStreamConsumer]
   type EAD[A] = Aggregate.AggregateDef[Evt, StateData, A]
-
-  case object ErrorCannotFindHandler extends Aggregate.Error
 
   //TODO: rm list from flows
 

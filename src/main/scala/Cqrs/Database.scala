@@ -1,6 +1,6 @@
 package Cqrs
 
-import Cqrs.Aggregate.{ EventDatabaseWithFailure, AggregateId, Tag, Error }
+import Cqrs.Aggregate.{ EventDatabaseWithFailure, AggregateId, Tag }
 import cats.data.Xor
 
 import scala.util.Try
@@ -23,7 +23,7 @@ object Database {
      * @tparam A       return type from the given `actions` program
      * @return         error on failure or the returned value from the aggregate execution program
      */
-    def runDb[E: EventSerialisation, A](database: Db, actions: EventDatabaseWithFailure[E, A]): Error Xor (Db, A)
+    def runDb[E: EventSerialisation, A](database: Db, actions: EventDatabaseWithFailure[E, A]): Aggregate.Error Xor (Db, A)
 
     /**
      * Read stored events from the given database handle. The execution folds over the events in the database by given
@@ -39,8 +39,11 @@ object Database {
     def consumeDbEvents[D](database: Db, fromOperation: Int, initData: D, query: List[EventDataConsumerQuery[D]]): Error Xor (Int, D)
   }
 
+  sealed trait Error
   final case class ErrorDbFailure(message: String) extends Error
   final case class EventDecodingFailure(rawData: String) extends Error
+  final case class ErrorDoesNotExist(id: AggregateId) extends Error
+  final case class ErrorUnexpectedVersion(id: AggregateId, currentVersion: Int, targetVersion: Int) extends Error
 
   trait EventSerialisation[E] {
     def encode(event: E): String

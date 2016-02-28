@@ -1,6 +1,8 @@
 package Cqrs.DbAdapters
 
-import Cqrs.Aggregate
+import Cqrs.Aggregate._
+import Cqrs.Database.Error
+import Cqrs.{Database, Aggregate}
 import Cqrs.Database._
 
 import cats.data.Xor
@@ -17,8 +19,6 @@ import lib.foldM
 import scala.collection.immutable.TreeMap
 
 object InMemoryDb {
-
-  import Aggregate._
 
   final case class DbBackend(
     data: TreeMap[String, TreeMap[String, TreeMap[Int, List[String]]]], // tag -> aggregate id -> version -> event data
@@ -83,24 +83,24 @@ object InMemoryDb {
       def apply[A](fa: EventDatabaseOp[E, A]): Db[A] = fa match {
         case ReadAggregateExistence(tag, id) => State(database => {
           val exists = readExistenceFromDb(database, tag, id)(eventSerialiser)
-          (database, exists)
+          (database, exists.leftMap(DatabaseError(_)))
         })
         case ReadAggregate(tag, id, version) => State(database => {
           val d = readFromDb[E](database, tag, id, version)
-          (database, d)
+          (database, d.leftMap(DatabaseError(_)))
         })
         case AppendAggregateEvents(tag, id, events) => State((database: DbBackend) => {
           val d = addToDb[E](database, tag, id, events)
-          d.fold[(DbBackend, Error Xor Unit)](
-            err => (database, Xor.left[Error, Unit](err)),
-            db => (db, Xor.right[Error, Unit](()))
+          d.fold[(DbBackend, Aggregate.Error Xor Unit)](
+            err => (database, Xor.left[Aggregate.Error, Unit](DatabaseError(err))),
+            db => (db, Xor.right[Aggregate.Error, Unit](()))
           )
         })
       }
     }
 
   implicit def dbBackend: Backend[DbBackend] = new Backend[DbBackend] {
-    def runDb[E: EventSerialisation, A](database: DbBackend, actions: EventDatabaseWithFailure[E, A]): Error Xor (DbBackend, A) = {
+    def runDb[E: EventSerialisation, A](database: DbBackend, actions: EventDatabaseWithFailure[E, A]): Aggregate.Error Xor (DbBackend, A) = {
       val (db, r) = actions.value.foldMap[Db](transformDbOpToDbState).run(database).run
       r map ((db, _))
     }

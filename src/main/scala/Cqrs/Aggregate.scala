@@ -23,15 +23,15 @@ object Aggregate {
     def compare(a: AggregateId, b: AggregateId) = ev.compare(a.v, b.v)
   }
 
-  trait Error
+  sealed trait Error
   final case class ErrorExistsAlready(id: AggregateId) extends Error
-  final case class ErrorDoesNotExist(id: AggregateId) extends Error
-  final case class ErrorUnexpectedVersion(id: AggregateId, currentVersion: Int, targetVersion: Int) extends Error
   final case class ErrorCommandFailure(message: String) extends Error
+  final case class DatabaseError(err: Database.Error) extends Error
+  case object ErrorCannotFindHandler extends Error
+
 
   final case class VersionedEvents[E](version: Int, events: List[E])
 
-  //TODO: move to db, these are not aggregate rules, but db ops
   sealed trait EventDatabaseOp[E, A]
   final case class ReadAggregateExistence[E](tag: Tag, id: AggregateId) extends EventDatabaseOp[E, Error Xor Boolean]
   final case class ReadAggregate[E](tag: Tag, id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor List[VersionedEvents[E]]]
@@ -76,10 +76,11 @@ trait Aggregate[E, C, D] {
 
   import Aggregate._
 
-  def on: EventHandler
-  def handle: CommandHandler
   def tag: Aggregate.Tag
-  def initData: D
+
+  protected def on: EventHandler
+  protected def handle: CommandHandler
+  protected def initData: D
 
   type State = AggregateState[D]
   type ADStateRun[A] = AggregateState[D] => EventDatabaseWithFailure[E, (AggregateState[D], A)]

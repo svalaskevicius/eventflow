@@ -1,5 +1,5 @@
 import Cqrs.Aggregate._
-import Cqrs.{Projection, Aggregate, BatchRunner}
+import Cqrs.{Database, Projection, Aggregate, BatchRunner}
 import Cqrs.Database._
 import cats.data.Xor
 import Cqrs.DbAdapters.InMemoryDb._
@@ -95,10 +95,10 @@ trait AggregateSpec {
   }
 
 
-  private def readDbVersion[Db](db: Db)(implicit backend: Backend[Db]): Error Xor Int =
+  private def readDbVersion[Db](db: Db)(implicit backend: Backend[Db]): Database.Error Xor Int =
     backend.consumeDbEvents(db, 0, (), List()).map(_._1)
 
-  private def addEvents[Db: Backend, E: EventSerialisation](database: Db, tag: Aggregate.Tag, aggregateId: AggregateId, events: List[E]): Error Xor Db = {
+  private def addEvents[Db: Backend, E: EventSerialisation](database: Db, tag: Aggregate.Tag, aggregateId: AggregateId, events: List[E]): Aggregate.Error Xor Db = {
     import Aggregate._
 
     def getVersion(exists: Boolean): EventDatabaseWithFailure[E, Int] =

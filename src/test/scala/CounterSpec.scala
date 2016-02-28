@@ -1,4 +1,5 @@
 import Cqrs.Aggregate._
+import Cqrs.Database.ErrorDoesNotExist
 import Domain.CounterProjection.emptyCounterProjection
 import org.scalatest._
 import Domain.Counter.CounterAggregate.tag
@@ -22,7 +23,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
 
   it should "fail for missing counter" in {
     given(newDbRunner) check {
-      _.failedCommandError(CounterAggregate, "counterid", Increment) should be(ErrorDoesNotExist("counterid"))
+      _.failedCommandError(CounterAggregate, "counterid", Increment) should be(DatabaseError(ErrorDoesNotExist("counterid")))
     }
   }
 
@@ -39,7 +40,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
 
   it should "fail for missing counter" in {
     given(newDbRunner) check {
-      _.failedCommandError(CounterAggregate, "counterid", Decrement) should be(ErrorDoesNotExist("counterid"))
+      _.failedCommandError(CounterAggregate, "counterid", Decrement) should be(DatabaseError(ErrorDoesNotExist("counterid")))
     }
   }
 

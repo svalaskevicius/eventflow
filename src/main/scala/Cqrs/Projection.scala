@@ -21,7 +21,7 @@ final case class ProjectionBuilder[D](name: String, dbConsumers: List[EventDataC
 
 final case class Projection[D](name: String, lastReadOperation: Int, data: D, dbConsumers: List[EventDataConsumerQuery[D]]) {
 
-  def applyNewEventsFromDb[Db: Backend](db: Db): Error Xor Projection[D] = {
+  def applyNewEventsFromDb[Db: Backend](db: Db): Database.Error Xor Projection[D] = {
     val updatedProjectionData = Database.consumeDbEvents(db, lastReadOperation, data, dbConsumers)
     updatedProjectionData.map(d => this.copy(lastReadOperation = d._1, data = d._2))
   }
