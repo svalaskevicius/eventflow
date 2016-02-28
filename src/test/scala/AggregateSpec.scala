@@ -100,18 +100,18 @@ trait AggregateSpec {
   private def addEvents[Db: Backend, E: EventSerialisation](database: Db, tag: Aggregate.Tag, aggregateId: AggregateId, events: List[E]): Aggregate.Error Xor Db = {
     import Aggregate._
 
-    def getVersion(exists: Boolean): EventDatabaseWithFailure[E, Int] =
+    def getVersion(exists: Boolean): DatabaseWithAggregateFailure[E, Int] =
       if (! exists) pure(0)
       else for {
-        pastEvents <- readNewEvents[E](tag, aggregateId, 0)
+        pastEvents <- dbAction(readNewEvents[E](tag, aggregateId, 0))
       } yield pastEvents.lastOption.map(_.version).getOrElse(0)
 
     val commands = for {
-      exists <- doesAggregateExist[E](tag, aggregateId)
+      exists <- dbAction(doesAggregateExist[E](tag, aggregateId))
       version <- getVersion(exists)
-      _ <- appendEvents[E](tag, aggregateId, VersionedEvents(version+1, events))
+      _ <- dbAction(appendEvents[E](tag, aggregateId, VersionedEvents(version+1, events)))
     } yield ()
-    implicitly[Backend[Db]].runDb(database, commands).map(_._1)
+    implicitly[Backend[Db]].runDb(database, commands.value).leftMap(DatabaseError).map(_._1)
   }
 
   private def failStop(message: String) = {

@@ -76,24 +76,24 @@ object InMemoryDb {
       def apply[A](fa: EventDatabaseOp[E, A]): Db[A] = fa match {
         case ReadAggregateExistence(tag, id) => State(database => {
           val exists = readExistenceFromDb(database, tag, id)(eventSerialiser)
-          (database, exists.leftMap(DatabaseError(_)))
+          (database, exists)
         })
         case ReadAggregate(tag, id, version) => State(database => {
           val d = readFromDb[E](database, tag, id, version)
-          (database, d.leftMap(DatabaseError(_)))
+          (database, d)
         })
         case AppendAggregateEvents(tag, id, events) => State((database: DbBackend) => {
           val d = addToDb[E](database, tag, id, events)
-          d.fold[(DbBackend, Aggregate.Error Xor Unit)](
-            err => (database, Xor.left[Aggregate.Error, Unit](DatabaseError(err))),
-            db => (db, Xor.right[Aggregate.Error, Unit](()))
+          d.fold[(DbBackend, Error Xor Unit)](
+            err => (database, Xor.left[Error, Unit](err)),
+            db => (db, Xor.right[Error, Unit](()))
           )
         })
       }
     }
 
   implicit def dbBackend: Backend[DbBackend] = new Backend[DbBackend] {
-    def runDb[E: EventSerialisation, A](database: DbBackend, actions: EventDatabaseWithFailure[E, A]): Aggregate.Error Xor (DbBackend, A) = {
+    def runDb[E: EventSerialisation, A](database: DbBackend, actions: EventDatabaseWithFailure[E, A]): Error Xor (DbBackend, A) = {
       val (db, r) = actions.value.foldMap[Db](transformDbOpToDbState).run(database).run
       r map ((db, _))
     }

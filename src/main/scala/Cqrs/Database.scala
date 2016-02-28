@@ -1,11 +1,45 @@
 package Cqrs
 
-import Cqrs.Aggregate.{AggregateId, EventDatabaseWithFailure, Tag}
-import cats.data.Xor
+import Cqrs.Aggregate.{AggregateId, Tag}
+import cats.{MonadError, Monad}
+import cats.data.{XorT, Xor}
+import cats.free.Free
+import cats.free.Free.liftF
 
 import scala.util.Try
 
 object Database {
+
+  sealed trait Error
+  final case class ErrorDbFailure(message: String) extends Error
+  final case class EventDecodingFailure(rawData: String) extends Error
+  final case class ErrorDoesNotExist(id: AggregateId) extends Error
+  final case class ErrorUnexpectedVersion(id: AggregateId, currentVersion: Int, targetVersion: Int) extends Error
+
+  final case class VersionedEvents[E](version: Int, events: List[E])
+
+  sealed trait EventDatabaseOp[E, A]
+  final case class ReadAggregateExistence[E](tag: Tag, id: AggregateId) extends EventDatabaseOp[E, Error Xor Boolean]
+  final case class ReadAggregate[E](tag: Tag, id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor List[VersionedEvents[E]]]
+  final case class AppendAggregateEvents[E](tag: Tag, id: AggregateId, events: VersionedEvents[E]) extends EventDatabaseOp[E, Error Xor Unit]
+
+  type EventDatabase[E, A] = Free[EventDatabaseOp[E, ?], A]
+  type EventDatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabase[E, ?], Err, A]
+  type EventDatabaseWithFailure[E, A] = EventDatabaseWithAnyFailure[E, Error, A]
+
+  def lift[E, A](a: EventDatabaseOp[E, Error Xor A]): EventDatabaseWithFailure[E, A] =
+    XorT[EventDatabase[E, ?], Error, A](liftF[EventDatabaseOp[E, ?], Error Xor A](a))
+
+  def doesAggregateExist[E](tag: Tag, id: AggregateId): EventDatabaseWithFailure[E, Boolean] = lift(ReadAggregateExistence[E](tag, id))
+
+  def readNewEvents[E](tag: Tag, id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[E, List[VersionedEvents[E]]] =
+    lift(ReadAggregate[E](tag, id, fromVersion))
+
+  def appendEvents[E](tag: Tag, id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[E, Unit] =
+    lift(AppendAggregateEvents(tag, id, events))
+
+  implicit def eventDatabaseMonad[E]: Monad[EventDatabase[E, ?]] = Free.freeMonad[EventDatabaseOp[E, ?]]
+  implicit def eventDatabaseWithFailureMonad[E]: MonadError[EventDatabaseWithAnyFailure[E, ?, ?], Error] = XorT.xorTMonadError[EventDatabase[E, ?], Error]
 
   /**
    * Database backend typeclass exposing the DB API.
@@ -23,7 +57,7 @@ object Database {
      * @tparam A       return type from the given `actions` program
      * @return         error on failure or the returned value from the aggregate execution program
      */
-    def runDb[E: EventSerialisation, A](database: Db, actions: EventDatabaseWithFailure[E, A]): Aggregate.Error Xor (Db, A)
+    def runDb[E: EventSerialisation, A](database: Db, actions: EventDatabaseWithFailure[E, A]): Error Xor (Db, A)
 
     /**
      * Read stored events from the given database handle. The execution folds over the events in the database by given
@@ -38,12 +72,6 @@ object Database {
      */
     def consumeDbEvents[D](database: Db, fromOperation: Int, initData: D, query: List[EventDataConsumerQuery[D]]): Error Xor (Int, D)
   }
-
-  sealed trait Error
-  final case class ErrorDbFailure(message: String) extends Error
-  final case class EventDecodingFailure(rawData: String) extends Error
-  final case class ErrorDoesNotExist(id: AggregateId) extends Error
-  final case class ErrorUnexpectedVersion(id: AggregateId, currentVersion: Int, targetVersion: Int) extends Error
 
   trait EventSerialisation[E] {
     def encode(event: E): String

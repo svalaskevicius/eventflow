@@ -1,10 +1,9 @@
 package Cqrs
 
 import Cqrs.Aggregate.AggregateId
+import Cqrs.Database.{EventDatabaseWithFailure, VersionedEvents}
 import cats.{Monad, _}
 import cats.data.{Xor, XorT}
-import cats.free.Free
-import cats.free.Free.liftF
 import cats.state._
 import cats.syntax.flatMap._
 
@@ -28,37 +27,21 @@ object Aggregate {
   case object ErrorCannotFindHandler extends Error
 
 
-  final case class VersionedEvents[E](version: Int, events: List[E])
+  type DatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabaseWithFailure[E, ?], Err, A]
+  type DatabaseWithAggregateFailure[E, A] = DatabaseWithAnyFailure[E, Error, A]
 
-  sealed trait EventDatabaseOp[E, A]
-  final case class ReadAggregateExistence[E](tag: Tag, id: AggregateId) extends EventDatabaseOp[E, Error Xor Boolean]
-  final case class ReadAggregate[E](tag: Tag, id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor List[VersionedEvents[E]]]
-  final case class AppendAggregateEvents[E](tag: Tag, id: AggregateId, events: VersionedEvents[E]) extends EventDatabaseOp[E, Error Xor Unit]
-
-  type EventDatabase[E, A] = Free[EventDatabaseOp[E, ?], A]
-  type EventDatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabase[E, ?], Err, A]
-  type EventDatabaseWithFailure[E, A] = EventDatabaseWithAnyFailure[E, Error, A]
+  def dbAction[E, A](dbActions: Database.EventDatabaseWithFailure[E, A]): DatabaseWithAggregateFailure[E, A] =
+    XorT[EventDatabaseWithFailure[E, ?], Error, A](dbActions.map(Xor.right))
 
   final case class AggregateState[D](id: AggregateId, state: D, version: Int)
-  type AggregateDefAnyD[E, D, A] = StateT[EventDatabaseWithFailure[E, ?], D, A]
+  type AggregateDefAnyD[E, D, A] = StateT[DatabaseWithAggregateFailure[E, ?], D, A]
   type AggregateDef[E, D, A] = AggregateDefAnyD[E, AggregateState[D], A]
 
-  def lift[E, A](a: EventDatabaseOp[E, Error Xor A]): EventDatabaseWithFailure[E, A] =
-    XorT[EventDatabase[E, ?], Error, A](liftF[EventDatabaseOp[E, ?], Error Xor A](a))
+  implicit def eventDatabaseWithFailureMonad[E]: MonadError[DatabaseWithAnyFailure[E, ?, ?], Error] = XorT.xorTMonadError[EventDatabaseWithFailure[E, ?], Error]
+  implicit def aggregateDefMonad[E, D]: MonadState[AggregateDefAnyD[E, ?, ?], AggregateState[D]] = StateT.stateTMonadState[DatabaseWithAggregateFailure[E, ?], AggregateState[D]]
 
-  def doesAggregateExist[E](tag: Tag, id: AggregateId): EventDatabaseWithFailure[E, Boolean] = lift(ReadAggregateExistence[E](tag, id))
-
-  def readNewEvents[E](tag: Tag, id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[E, List[VersionedEvents[E]]] =
-    lift(ReadAggregate[E](tag, id, fromVersion))
-
-  def appendEvents[E](tag: Tag, id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[E, Unit] =
-    lift(AppendAggregateEvents(tag, id, events))
-
-  implicit def eventDatabaseMonad[E]: Monad[EventDatabase[E, ?]] = Free.freeMonad[EventDatabaseOp[E, ?]]
-  implicit def eventDatabaseWithFailureMonad[E]: MonadError[EventDatabaseWithAnyFailure[E, ?, ?], Error] = XorT.xorTMonadError[EventDatabase[E, ?], Error]
-  implicit def aggregateDefMonad[E, D]: MonadState[AggregateDefAnyD[E, ?, ?], AggregateState[D]] = StateT.stateTMonadState[EventDatabaseWithFailure[E, ?], AggregateState[D]]
-
-  def pure[E, A](x: A): EventDatabaseWithFailure[E, A] = eventDatabaseWithFailureMonad[E].pure(x)
+  def pure[E, A](x: A): DatabaseWithAggregateFailure[E, A] = eventDatabaseWithFailureMonad[E].pure(x)
+  def fail[E, A](x: Error): DatabaseWithAggregateFailure[E, A] = eventDatabaseWithFailureMonad[E].raiseError[A](x)
 
   def emitEvent[E](ev: E): Error Xor List[E] = Xor.right(List(ev))
   def emitEvents[E](evs: List[E]): Error Xor List[E] = Xor.right(evs)
@@ -81,30 +64,33 @@ trait Aggregate[E, C, D] {
   protected def initData: D
 
   type State = AggregateState[D]
-  type ADStateRun[A] = AggregateState[D] => EventDatabaseWithFailure[E, (AggregateState[D], A)]
+  type ADStateRun[A] = AggregateState[D] => DatabaseWithAggregateFailure[E, (AggregateState[D], A)]
   type AD[A] = AggregateDef[E, D, A]
-  def AD[A](a: ADStateRun[A]): AD[A] = StateT[EventDatabaseWithFailure[E, ?], AggregateState[D], A](a)
+  def AD[A](a: ADStateRun[A]): AD[A] = StateT[DatabaseWithAggregateFailure[E, ?], AggregateState[D], A](a)
 
   type Events = List[E]
   type CommandHandler = C => D => Aggregate.Error Xor Events
   type EventHandler = E => D => D
 
-  def liftToAggregateDef[A](f: EventDatabaseWithFailure[E, A]): AD[A] = AD(s => f.map((s, _)))
+  def liftToAggregateDef[A](f: DatabaseWithAggregateFailure[E, A]): AD[A] = AD(s => f.map((s, _)))
 
-  def initAggregate[Cmd <: InitialAggregateCommand with C](initCmd: Cmd): EventDatabaseWithFailure[E, State] = {
+  def initAggregate[Cmd <: InitialAggregateCommand with C](initCmd: Cmd): DatabaseWithAggregateFailure[E, State] = {
+    import Database._
     val id = initCmd.id
-    val initState = doesAggregateExist(tag, id).flatMap((e: Boolean) =>
-      if (e) XorT.left[EventDatabase[E, ?], Error, AggregateState[D]](eventDatabaseMonad[E].pure(ErrorExistsAlready(id)))
-      else appendEvents(tag, id, VersionedEvents[E](1, List())).map(_ => newState(id))
-    )
+    val initState: DatabaseWithAggregateFailure[E, State] =
+      dbAction(doesAggregateExist[E](tag, id)).flatMap { e: Boolean =>
+        if (e) fail(ErrorExistsAlready(id))
+        else dbAction(appendEvents[E](tag, id, VersionedEvents[E](1, List())).map(_ => newState(id)))
+      }
     initState.flatMap(handleCommand(initCmd).runS)
   }
 
   def newState(id: AggregateId) = new State(id, initData, 0)
 
   def handleCommand(cmd: C): AD[Unit] = {
+    import Database._
     for {
-      events <- AD(vs => readNewEvents[E](tag, vs.id, vs.version).map((vs, _)))
+      events <- AD(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version).map((vs, _))))
       _ <- applyEvents(events)
       resultEvents <- handleCmd(cmd)
       _ <- onEvents(resultEvents)
@@ -112,12 +98,16 @@ trait Aggregate[E, C, D] {
   }
 
   private def handleCmd(cmd: C): AD[Events] = AD(vs =>
-    XorT.fromXor[EventDatabase[E, ?]][Error, Events](handle(cmd)(vs.state)).map((vs, _)))
+    XorT.fromXor[EventDatabaseWithFailure[E, ?]](
+      handle(cmd)(vs.state)
+    ).map((vs, _))
+  )
 
   private def onEvents(evs: Events): AD[Unit] =
     AD(vs => {
+      import Database._
       val vevs = VersionedEvents[E](vs.version + 1, evs)
-      appendEvents(tag, vs.id, vevs).map(_ => (vs, List(vevs)))
+      dbAction(appendEvents(tag, vs.id, vevs).map(_ => (vs, List(vevs))))
     }) >>=
       applyEvents _
 
@@ -130,7 +120,7 @@ trait Aggregate[E, C, D] {
           vs_
         }
       })
-      eventDatabaseWithFailureMonad[E].pure((vs_, ()))
+      pure((vs_, ()))
     })
 }
 
