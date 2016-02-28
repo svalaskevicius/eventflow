@@ -23,12 +23,14 @@ final case class BatchRunner[Db: Backend, PROJS <: HList](db: Db, projections: P
   def addProjection[D](proj: Projection[D]): BatchRunner[Db, Projection[D] :: PROJS] = copy(projections = proj :: projections).runProjections
 
   //TODO: rename dbs
-  def db[E, A](actions: EventDatabaseWithFailure[E, A])(implicit eventSerialiser: EventSerialisation[E]): DbActions[A] =
+  def db[E, A](actions: DatabaseWithAggregateFailure[E, A])(implicit eventSerialiser: EventSerialisation[E]): DbActions[A] =
     new DbActions[A](
       Xor.right((runner: BatchRunner[Db, PROJS]) => {
-        val failureOrRes = Database.runDb(runner.db, actions)
-        val dbAndFailureOrRes = failureOrRes.fold(e => (db, Xor.left(e)), res => (res._1, Xor.right(res._2)))
-        dbAndFailureOrRes._2.fold(e => Xor.left((runner, e)), a => Xor.right((runner.copy(db = dbAndFailureOrRes._1).runProjections, a)))
+        Database.runDb(runner.db, actions.value) match {
+          case Xor.Left(err) => Xor.left((runner, DatabaseError(err)))
+          case Xor.Right((_, Xor.Left(err))) => Xor.left((runner, err))
+          case Xor.Right((newDb, Xor.Right(ret))) => Xor.right((runner.copy(db = newDb).runProjections, ret))
+        }
       })
     )
 
