@@ -1,7 +1,7 @@
 package Cqrs
 
 import Cqrs.Aggregate._
-import Cqrs.Database.{ EventDataConsumerQuery, Backend }
+import Cqrs.Database.{Backend, EventDataConsumerQuery}
 import Cqrs.Projection.Handler
 import cats.data.Xor
 

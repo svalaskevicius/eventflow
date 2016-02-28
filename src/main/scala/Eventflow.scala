@@ -1,7 +1,6 @@
 
-import Cqrs.DbAdapters.InMemoryDb._
 import Cqrs.BatchRunner
-import Cqrs.Aggregate.AggregateId
+import Cqrs.DbAdapters.InMemoryDb._
 import Domain.Counter.{CounterAggregate, Create}
 import Domain.Door.{DoorAggregate, Register}
 

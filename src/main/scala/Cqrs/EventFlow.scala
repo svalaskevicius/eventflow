@@ -1,6 +1,6 @@
 package Cqrs
 
-import Cqrs.Aggregate.{ErrorCannotFindHandler, AggregateId}
+import Cqrs.Aggregate.ErrorCannotFindHandler
 import cats._
 import cats.data.Xor
 import cats.free.Free

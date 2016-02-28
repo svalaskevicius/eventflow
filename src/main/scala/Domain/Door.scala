@@ -1,9 +1,9 @@
 package Domain
 
-import Cqrs._
-import Cqrs.Aggregate._
-import cats.data.{ Xor, XorT }
 import cats.syntax.flatMap._
+
+import Cqrs.Aggregate._
+import Cqrs._
 
 object Door {
 

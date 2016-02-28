@@ -1,13 +1,11 @@
 package Cqrs
 
 import Cqrs.Aggregate.AggregateId
-import cats.data.{ Xor, XorT }
-import cats.Monad
-import cats._
+import cats.{Monad, _}
+import cats.data.{Xor, XorT}
 import cats.free.Free
-import cats.free.Free.{ pure, liftF }
+import cats.free.Free.liftF
 import cats.state._
-
 import cats.syntax.flatMap._
 
 import scala.language.implicitConversions

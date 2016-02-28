@@ -1,6 +1,6 @@
 package Cqrs
 
-import Cqrs.Aggregate.{ EventDatabaseWithFailure, AggregateId, Tag }
+import Cqrs.Aggregate.{AggregateId, EventDatabaseWithFailure, Tag}
 import cats.data.Xor
 
 import scala.util.Try

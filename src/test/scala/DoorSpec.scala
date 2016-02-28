@@ -1,8 +1,8 @@
 import Cqrs.Aggregate._
-import Domain.DoorProjection
-import org.scalatest._
 import Domain.Door.DoorAggregate.tag
 import Domain.Door._
+import Domain.DoorProjection
+import org.scalatest._
 
 import scala.collection.immutable.TreeMap
 
@@ -83,8 +83,8 @@ class DoorSpec extends FlatSpec with Matchers with AggregateSpec {
 
 
   "Door projection" should "return the current state" in {
-    import Domain.DoorProjection._
     import Domain.Door
+    import Domain.DoorProjection._
     given {
       newDbRunner
         .withEvent(tag, "door1", Registered("door1"))

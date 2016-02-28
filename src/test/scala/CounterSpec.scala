@@ -1,10 +1,9 @@
 import Cqrs.Aggregate._
 import Cqrs.Database.ErrorDoesNotExist
-import Domain.CounterProjection.emptyCounterProjection
-import org.scalatest._
 import Domain.Counter.CounterAggregate.tag
 import Domain.Counter._
-import Domain.CounterProjection.{Data => CounterProjectionData}
+import Domain.CounterProjection.{Data => CounterProjectionData, emptyCounterProjection}
+import org.scalatest._
 
 import scala.collection.immutable.TreeMap
 

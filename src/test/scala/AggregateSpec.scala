@@ -1,10 +1,9 @@
-import Cqrs.Aggregate._
-import Cqrs.{Database, Projection, Aggregate, BatchRunner}
-import Cqrs.Database._
-import cats.data.Xor
-import Cqrs.DbAdapters.InMemoryDb._
 import Cqrs.Aggregate.AggregateId
-import shapeless.{Typeable, HList}
+import Cqrs.Database._
+import Cqrs.DbAdapters.InMemoryDb._
+import Cqrs.{Aggregate, BatchRunner, Database, Projection}
+import cats.data.Xor
+import shapeless.{HList, Typeable}
 
 trait AggregateSpec {
 

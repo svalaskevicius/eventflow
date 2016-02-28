@@ -1,16 +1,13 @@
 package Cqrs
 
-import Cqrs.Database.{ Backend, EventSerialisation }
+import Cqrs.Aggregate._
+import Cqrs.Database.{Backend, EventSerialisation}
 import cats.data.Xor
 import cats.state.StateT
-
-import Cqrs.Aggregate._
 import cats.~>
-
+import lib.HList.{KMapper, kMap}
 import shapeless._
-import lib.HList.{ KMapper, kMap }
-
-import syntax.typeable._
+import shapeless.syntax.typeable._
 
 object BatchRunner {
   def forDb[Db: Backend](db: Db) = BatchRunner[Db, HNil.type](db, HNil)

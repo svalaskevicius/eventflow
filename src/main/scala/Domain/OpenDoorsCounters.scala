@@ -1,8 +1,7 @@
 package Domain
 
-import Cqrs._
 import Cqrs.Aggregate._
-import cats.data.{ Xor, XorT }
+import Cqrs._
 
 import scala.collection.immutable.TreeMap
 

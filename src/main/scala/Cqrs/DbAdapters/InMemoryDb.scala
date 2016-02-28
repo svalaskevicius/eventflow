@@ -1,18 +1,11 @@
 package Cqrs.DbAdapters
 
+import Cqrs.Aggregate
 import Cqrs.Aggregate._
-import Cqrs.Database.Error
-import Cqrs.{Database, Aggregate}
-import Cqrs.Database._
-
-import cats.data.Xor
-import cats.Monad
-import cats.arrow.NaturalTransformation
+import Cqrs.Database.{Error, _}
 import cats._
-import cats.free.Free
+import cats.data.Xor
 import cats.state._
-import cats.free.Free.{ pure, liftF }
-
 import cats.std.all._
 import lib.foldM
 
