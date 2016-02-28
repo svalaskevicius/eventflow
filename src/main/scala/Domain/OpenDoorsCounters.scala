@@ -1,8 +1,7 @@
 package Domain
 
-import Cqrs._
 import Cqrs.Aggregate._
-import cats.data.{ Xor, XorT }
+import Cqrs._
 
 import scala.collection.immutable.TreeMap
 
@@ -16,8 +15,8 @@ object OpenDoorsCountersProjection {
   def modify[K, V](kv: TreeMap[K, V], k: K, init: => V, f: V => V): TreeMap[K, V] = modify(kv, k, (x: Option[V]) => x match { case Some(v) => f(v); case None => init })
   def init[K, V](kv: TreeMap[K, V], k: K, init: => V): TreeMap[K, V] = modify(kv, k, init, identity[V])
 
-  def emptyOpenDoorsCountersProjection = Projection.build.
-    addHandler(Door.tag, (d: Data, e: Database.EventData[Door.Event]) => {
+  def emptyOpenDoorsCountersProjection = Projection.build("openDoorCounters").
+    addHandler(Door.DoorAggregate.tag, (d: Data, e: Database.EventData[Door.Event]) => {
       import Door._
       e.data match {
         case Registered(aggId) => Data(Some(e.id), d.doorCounters.updated(e.id, DoorState(TreeMap.empty)))
@@ -26,7 +25,7 @@ object OpenDoorsCountersProjection {
         case _ => d
       }
     }).
-    addHandler(Counter.tag, (d: Data, e: Database.EventData[Counter.Event]) => {
+    addHandler(Counter.CounterAggregate.tag, (d: Data, e: Database.EventData[Counter.Event]) => {
       import Counter._
 
       def updateDoorCounter(d: Data, doorId: AggregateId, counterId: AggregateId, init: => Int, update: Int => Int): Data =

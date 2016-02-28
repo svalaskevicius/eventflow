@@ -1,24 +1,17 @@
 package Cqrs.DbAdapters
 
 import Cqrs.Aggregate
-import Cqrs.Database._
-
-import cats.data.Xor
-import cats.Monad
-import cats.arrow.NaturalTransformation
+import Cqrs.Aggregate._
+import Cqrs.Database.{Error, _}
 import cats._
-import cats.free.Free
+import cats.data.Xor
 import cats.state._
-import cats.free.Free.{ pure, liftF }
-
 import cats.std.all._
 import lib.foldM
 
 import scala.collection.immutable.TreeMap
 
 object InMemoryDb {
-
-  import Aggregate._
 
   final case class DbBackend(
     data: TreeMap[String, TreeMap[String, TreeMap[Int, List[String]]]], // tag -> aggregate id -> version -> event data
@@ -82,21 +75,15 @@ object InMemoryDb {
     new (EventDatabaseOp[E, ?] ~> Db) {
       def apply[A](fa: EventDatabaseOp[E, A]): Db[A] = fa match {
         case ReadAggregateExistence(tag, id) => State(database => {
-          println("reading existence from DB: '" + fa + "'... " + database)
           val exists = readExistenceFromDb(database, tag, id)(eventSerialiser)
-          println("result: " + exists)
           (database, exists)
         })
         case ReadAggregate(tag, id, version) => State(database => {
-          println("reading from DB: '" + fa + "'... " + database)
           val d = readFromDb[E](database, tag, id, version)
-          println("result: " + d)
           (database, d)
         })
         case AppendAggregateEvents(tag, id, events) => State((database: DbBackend) => {
-          println("writing to DB: '" + fa + "'... " + database)
           val d = addToDb[E](database, tag, id, events)
-          println("result: " + d)
           d.fold[(DbBackend, Error Xor Unit)](
             err => (database, Xor.left[Error, Unit](err)),
             db => (db, Xor.right[Error, Unit](()))

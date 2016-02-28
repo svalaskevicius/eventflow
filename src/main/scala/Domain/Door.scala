@@ -1,13 +1,11 @@
 package Domain
 
-import Cqrs._
-import Cqrs.Aggregate._
-import cats.data.{ Xor, XorT }
 import cats.syntax.flatMap._
 
-object Door {
+import Cqrs.Aggregate._
+import Cqrs._
 
-  val tag = Tag("Door")
+object Door {
 
   sealed trait Event
   final case class Registered(id: AggregateId) extends Event
@@ -17,7 +15,7 @@ object Door {
   final case class Unlocked(key: String) extends Event
 
   sealed trait Command
-  final case class Register(id: AggregateId) extends Command
+  final case class Register(id: AggregateId) extends Command with InitialAggregateCommand
   case object Open extends Command
   case object Close extends Command
   final case class Lock(key: String) extends Command
@@ -25,10 +23,8 @@ object Door {
 
   val flow = new EventFlow[Command, Event]
   import flow._
-  type DoorAggregate = FlowAggregate
-  val doorAggregate = flowAggregate(tag)
 
-  def openDoorsLogic: Flow[Unit] =
+  private def openDoorsLogic: Flow[Unit] =
     handler {
       promote[Close.type, Closed.type] orElse
         { case _ => failCommand("Open door can only be closed.") }
@@ -37,7 +33,7 @@ object Door {
         case Closed => closedDoorsLogic
       }
 
-  def closedDoorsLogic: Flow[Unit] =
+  private def closedDoorsLogic: Flow[Unit] =
     handler {
       promote[Lock, Locked] orElse
       promote[Open.type, Opened.type] orElse
@@ -48,7 +44,7 @@ object Door {
         case Locked(key) => lockedDoorsLogic(key)
       }
 
-  def lockedDoorsLogic(key: String): Flow[Unit] =
+  private def lockedDoorsLogic(key: String): Flow[Unit] =
     handler {
       case Unlock(attemptedKey) => if (key == attemptedKey) emitEvent(Unlocked(attemptedKey))
                                    else failCommand("Attempted unlock key is invalid")
@@ -58,17 +54,14 @@ object Door {
         case Unlocked(_) => closedDoorsLogic
       }
 
-  val aggregateLogic: List[Flow[Unit]] = List(
-    handler { promote[Register, Registered] } >> waitFor { case Registered(_) => () },
-    waitFor { case Registered(_) => () } >> openDoorsLogic
-  )
+  private val fullAggregateLogic: Flow[Unit] =
+    handler { promote[Register, Registered] } >> waitFor { case Registered(_) => () } >> openDoorsLogic
 
-  def newDoor(id: AggregateId): EAD[Unit] = {
-    import doorAggregate._
-    initAggregate(id) >> handleCommand(Register(id))
+  object DoorAggregate extends FlowAggregate {
+    def tag = Tag("Door")
+    def aggregateLogic = fullAggregateLogic
+    def initCmd = Register
   }
-
-  def registerDoor = startFlow[Unit](aggregateLogic) _ compose newDoor
 }
 
 import scala.collection.immutable.TreeMap
@@ -82,8 +75,8 @@ object DoorProjection {
 
   type Data = TreeMap[AggregateId, State]
 
-  def emptyDoorProjection = Projection.build.
-    addHandler(Door.tag, (d: Data, e: Database.EventData[Door.Event]) => {
+  def emptyDoorProjection = Projection.build("doors").
+    addHandler(Door.DoorAggregate.tag, (d: Data, e: Database.EventData[Door.Event]) => {
       import Door._
       e.data match {
         case Registered(id) => d.updated(e.id, DoorProjection.Open)

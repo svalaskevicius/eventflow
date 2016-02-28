@@ -9,6 +9,11 @@ libraryDependencies += "com.lihaoyi" %% "pprint" % "0.3.6"
 libraryDependencies += "com.lihaoyi" %% "upickle" % "0.3.6"
 libraryDependencies += "com.chuusai" %% "shapeless" % "2.2.5"
 
+libraryDependencies += "org.scalacheck" %% "scalacheck" % "1.12.4" % "test"
+libraryDependencies += "org.scalactic" %% "scalactic" % "2.2.6"
+libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.6" % "test"
+
+
 resolvers += Resolver.sonatypeRepo("releases")
 
 addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.6.3")
