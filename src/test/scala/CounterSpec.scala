@@ -9,15 +9,15 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
     given {
       newDbRunner
         .event(tag, "counterid", Created("counterid"))
-    }.when {
+    } when {
       _.command(CounterAggregate, "counterid", Increment)
-    }.thenCheck {
+    } thenCheck {
       _.newEvents[Event](tag, "counterid") should be (List(Incremented))
     }
   }
 
   it should "fail for missing counter" in {
-    given(newDbRunner).check {
+    given(newDbRunner) check {
       _.failedCommandError(CounterAggregate, "counterid", Increment) should be (ErrorDoesNotExist("counterid"))
     }
   }
@@ -26,15 +26,15 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
     given {
       newDbRunner
         .withEvents(tag, "counterid", List[Event](Created("counterid"), Incremented))
-    }.when {
+    } when {
       _.command(CounterAggregate, "counterid", Decrement)
-    }.thenCheck {
+    } thenCheck {
       _.newEvents[Event](tag, "counterid") should be (List(Decremented))
     }
   }
 
   it should "fail for missing counter" in {
-    given(newDbRunner).check {
+    given(newDbRunner) check {
       _.failedCommandError(CounterAggregate, "counterid", Decrement) should be (ErrorDoesNotExist("counterid"))
     }
   }
@@ -43,7 +43,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
     given {
       newDbRunner
         .withEvents(tag, "counterid", List[Event](Created("counterid"), Incremented, Decremented))
-    }.check {
+    } check {
       _.failedCommandError(CounterAggregate, "counterid", Decrement) should be (ErrorCommandFailure("Counter cannot be decremented"))
     }
   }
