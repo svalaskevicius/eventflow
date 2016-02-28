@@ -2,10 +2,9 @@ package Cqrs
 
 import Cqrs.Aggregate.AggregateId
 import Cqrs.Database.{EventDatabaseWithFailure, VersionedEvents}
-import cats.{Monad, _}
+import cats.{MonadState, MonadError}
 import cats.data.{Xor, XorT}
 import cats.state._
-import cats.syntax.flatMap._
 
 import scala.language.implicitConversions
 
@@ -65,14 +64,15 @@ trait Aggregate[E, C, D] {
 
   type State = AggregateState[D]
   type ADStateRun[A] = AggregateState[D] => DatabaseWithAggregateFailure[E, (AggregateState[D], A)]
-  type AD[A] = AggregateDef[E, D, A]
-  def AD[A](a: ADStateRun[A]): AD[A] = StateT[DatabaseWithAggregateFailure[E, ?], AggregateState[D], A](a)
+
+  type AggregateDefinition[A] = AggregateDef[E, D, A]
+  def defineAggregate[A](a: ADStateRun[A]): AggregateDefinition[A] = StateT[DatabaseWithAggregateFailure[E, ?], AggregateState[D], A](a)
 
   type Events = List[E]
   type CommandHandler = C => D => Aggregate.Error Xor Events
   type EventHandler = E => D => D
 
-  def liftToAggregateDef[A](f: DatabaseWithAggregateFailure[E, A]): AD[A] = AD(s => f.map((s, _)))
+  def liftToAggregateDef[A](f: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate(s => f.map((s, _)))
 
   def initAggregate[Cmd <: InitialAggregateCommand with C](initCmd: Cmd): DatabaseWithAggregateFailure[E, State] = {
     import Database._
@@ -87,32 +87,31 @@ trait Aggregate[E, C, D] {
 
   def newState(id: AggregateId) = new State(id, initData, 0)
 
-  def handleCommand(cmd: C): AD[Unit] = {
+  def handleCommand(cmd: C): AggregateDefinition[Unit] = {
     import Database._
     for {
-      events <- AD(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version).map((vs, _))))
+      events <- defineAggregate(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version).map((vs, _))))
       _ <- applyEvents(events)
       resultEvents <- handleCmd(cmd)
       _ <- onEvents(resultEvents)
     } yield ()
   }
 
-  private def handleCmd(cmd: C): AD[Events] = AD(vs =>
+  private def handleCmd(cmd: C): AggregateDefinition[Events] = defineAggregate(vs =>
     XorT.fromXor[EventDatabaseWithFailure[E, ?]](
       handle(cmd)(vs.state)
     ).map((vs, _))
   )
 
-  private def onEvents(evs: Events): AD[Unit] =
-    AD(vs => {
+  private def onEvents(evs: Events): AggregateDefinition[Unit] =
+    defineAggregate { vs =>
       import Database._
       val vevs = VersionedEvents[E](vs.version + 1, evs)
       dbAction(appendEvents(tag, vs.id, vevs).map(_ => (vs, List(vevs))))
-    }) >>=
-      applyEvents _
+    }.flatMap(applyEvents)
 
-  private def applyEvents(evs: List[VersionedEvents[E]]): AD[Unit] =
-    AD(vs => {
+  private def applyEvents(evs: List[VersionedEvents[E]]): AggregateDefinition[Unit] =
+    defineAggregate { vs =>
       val vs_ = evs.foldLeft(vs)((vs_, ve) => {
         if (vs_.version < ve.version) {
           vs_.copy(state = ve.events.foldLeft(vs_.state)((d, e) => on(e)(d)), version = ve.version)
@@ -121,6 +120,6 @@ trait Aggregate[E, C, D] {
         }
       })
       pure((vs_, ()))
-    })
+    }
 }
 
