@@ -1,8 +1,8 @@
 package Cqrs
 
-import Cqrs.Aggregate.ErrorCannotFindHandler
+import Cqrs.Aggregate.{CommandHandlerResult, ErrorCannotFindHandler}
 import cats._
-import cats.data.Xor
+import cats.data.{NonEmptyList => NEL, _}
 import cats.free.Free
 import cats.free.Free.liftF
 import lib.CaseClassTransformer
@@ -10,7 +10,7 @@ import lib.CaseClassTransformer
 import scala.reflect.ClassTag
 
 class EventFlow[Cmd, Evt] {
-  type CommandH = PartialFunction[Cmd, Aggregate.Error Xor List[Evt]]
+  type CommandH = PartialFunction[Cmd, CommandHandlerResult[Evt]]
   type EventH[A] = PartialFunction[Evt, A]
 
   sealed trait FlowF[+Next]
@@ -33,11 +33,11 @@ class EventFlow[Cmd, Evt] {
    * @tparam E The event type, should be isomorphic to the command type
    * @return A CommandH, which takes a Cmd and either returns a error or a list of events (just one in this case)
    */
-  def promote[C <: Cmd: ClassTag, E <: Evt](implicit cct: CaseClassTransformer[C, E]): PartialFunction[Cmd, Aggregate.Error Xor List[Evt]] =
-    Function.unlift[Cmd, Aggregate.Error Xor List[Evt]] {
+  def promote[C <: Cmd: ClassTag, E <: Evt](implicit cct: CaseClassTransformer[C, E]): CommandH =
+    Function.unlift[Cmd, CommandHandlerResult[Evt]] {
       //this raises: isInstanceOf is disabled by wartremover, but it has false positives:
       //https://github.com/puffnfresh/wartremover/issues/152
-      case c: C => Some(Xor.right(cct.transform(c)).map(List(_)))
+      case c: C => Some(Validated.valid(cct.transform(c)).map(List(_)))
       case _ => None
     }
 
@@ -70,13 +70,13 @@ class EventFlow[Cmd, Evt] {
   trait FlowAggregate extends Aggregate[Evt, Cmd, StateData] {
     def aggregateLogic: Flow[Unit]
     def on = e => d => d flatMap (_.evh(e))
-    def handle = c => d => d.foldLeft(None: Option[Aggregate.Error Xor List[Evt]])(
-      (prev: Option[Aggregate.Error Xor List[Evt]], consumer) => prev match {
+    def handle = c => d => d.foldLeft(None: Option[CommandHandlerResult[Evt]])(
+      (prev: Option[CommandHandlerResult[Evt]], consumer) => prev match {
         case Some(_) => prev
         case None => consumer.cmdh.lift(c)
       }
     ).getOrElse {
-      Xor.Left(ErrorCannotFindHandler)
+      Validated.invalid(NEL(ErrorCannotFindHandler))
     }
     def initData = esRunnerCompiler(PartialFunction.empty, aggregateLogic)
   }

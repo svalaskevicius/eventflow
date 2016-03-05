@@ -3,6 +3,7 @@ import Domain.Door.DoorAggregate.tag
 import Domain.Door._
 import Domain.DoorProjection
 import org.scalatest._
+import cats.data.{NonEmptyList => NEL}
 
 import scala.collection.immutable.TreeMap
 
@@ -57,7 +58,7 @@ class DoorSpec extends FlatSpec with Matchers with AggregateSpec {
       newDbRunner
         .withEvents[Event](tag, "door", Registered("door"), Closed, Locked("key"))
     } check {
-      _.failedCommandError(DoorAggregate, "door", Unlock("wrongkey")) should be(ErrorCommandFailure("Attempted unlock key is invalid"))
+      _.failedCommandError(DoorAggregate, "door", Unlock("wrongkey")) should be(Errors(NEL(ErrorCommandFailure("Attempted unlock key is invalid"))))
     }
   }
 
@@ -66,7 +67,7 @@ class DoorSpec extends FlatSpec with Matchers with AggregateSpec {
       newDbRunner
         .withEvents[Event](tag, "door", Registered("door"), Closed, Locked("key"))
     } check {
-      _.failedCommandError(DoorAggregate, "door", Open) should be(ErrorCommandFailure("Locked door can only be unlocked."))
+      _.failedCommandError(DoorAggregate, "door", Open) should be(Errors(NEL(ErrorCommandFailure("Locked door can only be unlocked."))))
     }
   }
 

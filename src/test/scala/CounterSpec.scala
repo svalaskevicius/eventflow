@@ -4,6 +4,7 @@ import Domain.Counter.CounterAggregate.tag
 import Domain.Counter._
 import Domain.CounterProjection.{Data => CounterProjectionData, emptyCounterProjection}
 import org.scalatest._
+import cats.data.{NonEmptyList => NEL}
 
 import scala.collection.immutable.TreeMap
 
@@ -48,7 +49,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
       newDbRunner
         .withEvents[Event](tag, "counterid", Created("counterid", 0), Incremented, Decremented)
     } check {
-      _.failedCommandError(CounterAggregate, "counterid", Decrement) should be(ErrorCommandFailure("Counter cannot be decremented"))
+      _.failedCommandError(CounterAggregate, "counterid", Decrement) should be(Errors(NEL(ErrorCommandFailure("Counter cannot be decremented"))))
     }
   }
 
