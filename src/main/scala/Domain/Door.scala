@@ -20,8 +20,8 @@ object Door {
   final case class Unlock(key: String) extends Command
 
   val flow = new EventFlow[Command, Event]
-  import flow._
-  import DslV1._
+  import flow.{Flow, FlowAggregate}
+  import flow.DslV1._
 
   private def openDoors: Flow[Unit] = handler(
     when(Close).emit(Closed).switch(closedDoors)
@@ -33,10 +33,10 @@ object Door {
   )
 
   private def lockedDoors(key: String): Flow[Unit] = handler(
-    when[Unlock].guard(
-      (_.key.nonEmpty, "Key is not allowed to be empty!"),
-      (_.key == key, "Attempted unlock key is invalid")
-    ).emit[Unlocked].switch(closedDoors),
+    when[Unlock]
+      .guard(_.key.nonEmpty, "Key is not allowed to be empty!")
+      .guard(_.key == key, "Attempted unlock key is invalid")
+      .emit[Unlocked].switch(closedDoors),
     anyOther.failWithMessage("Locked door can only be unlocked.")
   )
 

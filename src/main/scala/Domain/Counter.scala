@@ -16,14 +16,12 @@ object Counter {
   case object Decrement extends Command
 
   val flow = new EventFlow[Command, Event]
-  import flow._
-  import DslV1._
+  import flow.{Flow, FlowAggregate}
+  import flow.DslV1._
 
   private def countingLogic(c: Int): Flow[Unit] = handler(
     when(Increment).emit(Incremented).switch(countingLogic(c + 1)),
-    when(Decrement).guard(
-      (_ => c > 0, "Counter cannot be decremented")
-    ).emit(Decremented).switch(countingLogic(c - 1))
+    when(Decrement).guard(_ => c > 0, "Counter cannot be decremented").emit(Decremented).switch(countingLogic(c - 1))
   )
 
   private val fullAggregateLogic: Flow[Unit] = handler(

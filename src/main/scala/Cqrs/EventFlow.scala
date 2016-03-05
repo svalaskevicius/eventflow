@@ -63,23 +63,16 @@ class EventFlow[Cmd, Evt] {
     type Guard[CH <: Cmd] = (CH => Boolean, String)
 
     object when {
-      def apply[CH <: Cmd: ClassTag] = WhenStatement[CH]()
-      def apply[CH <: Cmd: ClassTag](inst: CH) = WhenStatement[CH]()
+      def apply[CH <: Cmd: ClassTag] = WhenStatement[CH](List.empty)
+      def apply[CH <: Cmd: ClassTag](inst: CH) = WhenStatement[CH](List.empty)
     }
 
-    trait EventEmittingStatement[CH <: Cmd] {
-      def guards: List[Guard[CH]]
-      def emit[E <: Evt](implicit cct: CaseClassTransformer[CH, E], ct: ClassTag[CH], et: ClassTag[E]): ThenStatement[CH, E] = {
+    case class WhenStatement[CH <: Cmd: ClassTag](guards: List[Guard[CH]]) {
+      def emit[E <: Evt](implicit cct: CaseClassTransformer[CH, E], et: ClassTag[E]): ThenStatement[CH, E] = {
         ThenStatement[CH, E](promoteCommandToEvent[CH, E], guards)
       }
-      def emit[E <: Evt](inst: E)(implicit cct: CaseClassTransformer[CH, E], ct: ClassTag[CH], et: ClassTag[E]): ThenStatement[CH, E] = emit[E]
-    }
-    case class WhenStatement[CH <: Cmd: ClassTag]() extends EventEmittingStatement[CH] {
-      val guards = List.empty
-      def guard(guards: Guard[CH]*) = GuardedWhenStatement[CH](guards.toList)
-    }
-
-    case class GuardedWhenStatement[CH <: Cmd](guards: List[Guard[CH]]) extends EventEmittingStatement[CH] {
+      def emit[E <: Evt](inst: E)(implicit cct: CaseClassTransformer[CH, E], et: ClassTag[E]): ThenStatement[CH, E] = emit[E]
+      def guard(check: CH => Boolean, message: String) = WhenStatement[CH](guards :+ ((check, message)))
     }
 
     case class ThenStatement[CH <: Cmd: ClassTag, E <: Evt: ClassTag](handler: CommandH, guards: List[Guard[CH]]) extends CompileableDslProvider {
