@@ -1,8 +1,7 @@
 package Cqrs.DbAdapters
 
-import Cqrs.Aggregate
 import Cqrs.Aggregate._
-import Cqrs.Database.{Error, _}
+import Cqrs.Database.{ Error, _ }
 import cats._
 import cats.data.Xor
 import cats.state._
@@ -15,7 +14,7 @@ object InMemoryDb {
 
   final case class DbBackend(
     data: TreeMap[String, TreeMap[String, TreeMap[Int, List[String]]]], // tag -> aggregate id -> version -> event data
-    log: TreeMap[Int, (String, String, Int)],                           // operation nr -> tag, aggregate id, aggregate version
+    log: TreeMap[Int, (String, String, Int)], // operation nr -> tag, aggregate id, aggregate version
     lastOperationNr: Int
   )
   private type Db[A] = State[DbBackend, A]

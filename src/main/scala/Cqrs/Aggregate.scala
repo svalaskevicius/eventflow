@@ -1,12 +1,12 @@
 package Cqrs
 
 import Cqrs.Aggregate.AggregateId
-import Cqrs.Database.{EventDatabaseWithFailure, VersionedEvents}
+import Cqrs.Database.{ EventDatabaseWithFailure, VersionedEvents }
 import algebra.Semigroup
-import cats.{SemigroupK, MonadState, MonadError}
-import cats.data.{NonEmptyList => NEL, ValidatedNel, Validated, Xor, XorT}
+import cats.data.{ NonEmptyList => NEL, Validated, ValidatedNel, Xor, XorT }
 import cats.state._
 import cats.std.all._
+import cats.{ MonadError, MonadState, SemigroupK }
 
 import scala.language.implicitConversions
 
@@ -28,7 +28,6 @@ object Aggregate {
   case object ErrorCannotFindHandler extends Error
   final case class Errors(err: NEL[Error]) extends Error
 
-
   type DatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabaseWithFailure[E, ?], Err, A]
   type DatabaseWithAggregateFailure[E, A] = DatabaseWithAnyFailure[E, Error, A]
 
@@ -47,7 +46,7 @@ object Aggregate {
 
   type CommandHandlerResult[E] = ValidatedNel[Aggregate.Error, List[E]]
   def emitEvent[E](ev: E): CommandHandlerResult[E] = Validated.valid(List(ev))
-  def emitEvents[E](evs: List[E]): CommandHandlerResult[E]  = Validated.valid(evs)
+  def emitEvents[E](evs: List[E]): CommandHandlerResult[E] = Validated.valid(evs)
 
   implicit val nelErrorSemigroup: Semigroup[NEL[Error]] = SemigroupK[NEL].algebra[Error]
 
@@ -117,8 +116,7 @@ trait Aggregate[E, C, D] {
   private def handleCmd(cmd: C): AggregateDefinition[List[E]] = defineAggregate(vs =>
     XorT.fromXor[EventDatabaseWithFailure[E, ?]](
       handle(cmd)(vs.state).fold[Error Xor List[E]](err => Xor.left(Errors(err)), Xor.right)
-    ).map((vs, _))
-  )
+    ).map((vs, _)))
 
   private def onEvents(evs: List[E]): AggregateDefinition[Unit] =
     defineAggregate { vs =>

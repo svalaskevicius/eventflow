@@ -21,7 +21,6 @@ object Door {
 
   val flow = new EventFlow[Command, Event]
   import flow._
-
   import DslV1._
 
   private def openDoors: Flow[Unit] = handler(

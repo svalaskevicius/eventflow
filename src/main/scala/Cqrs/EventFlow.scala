@@ -1,8 +1,8 @@
 package Cqrs
 
-import Cqrs.Aggregate.{ErrorCommandFailure, CommandHandlerResult, ErrorCannotFindHandler}
+import Cqrs.Aggregate.{ CommandHandlerResult, ErrorCannotFindHandler, ErrorCommandFailure }
 import cats._
-import cats.data.{NonEmptyList => NEL, _}
+import cats.data.{ NonEmptyList => NEL, _ }
 import cats.free.Free
 import cats.free.Free.liftF
 import lib.CaseClassTransformer
@@ -29,8 +29,8 @@ class EventFlow[Cmd, Evt] {
   /**
    * Promotes a command to a event. The input types need to be isomoprhic. In other words
    * have the same fields + types
-    *
-    * @tparam C The command type, should be isomorphic to the event type
+   *
+   * @tparam C The command type, should be isomorphic to the event type
    * @tparam E The event type, should be isomorphic to the command type
    * @return A CommandH, which takes a Cmd and either returns a error or a list of events (just one in this case)
    */
@@ -163,8 +163,8 @@ class EventFlow[Cmd, Evt] {
         case None => consumer.cmdh.lift(c)
       }
     ).getOrElse {
-      Validated.invalid(NEL(ErrorCannotFindHandler))
-    }
+        Validated.invalid(NEL(ErrorCannotFindHandler))
+      }
     def initData = esRunnerCompiler(PartialFunction.empty, aggregateLogic)
   }
 }

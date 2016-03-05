@@ -2,8 +2,8 @@ import Cqrs.Aggregate._
 import Domain.Door.DoorAggregate.tag
 import Domain.Door._
 import Domain.DoorProjection
+import cats.data.{ NonEmptyList => NEL }
 import org.scalatest._
-import cats.data.{NonEmptyList => NEL}
 
 import scala.collection.immutable.TreeMap
 
@@ -81,7 +81,6 @@ class DoorSpec extends FlatSpec with Matchers with AggregateSpec {
       _.newEvents[Event](tag, "door") should be(List(Opened))
     }
   }
-
 
   "Door projection" should "return the current state" in {
     import Domain.Door
