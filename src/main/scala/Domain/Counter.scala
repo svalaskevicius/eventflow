@@ -1,7 +1,5 @@
 package Domain
 
-import cats.syntax.flatMap._
-
 import Cqrs.Aggregate._
 import Cqrs._
 
@@ -20,23 +18,18 @@ object Counter {
   val flow = new EventFlow[Command, Event]
   import flow._
 
-  import DslV0._
+  import DslV1._
 
-  private def countingLogic(c: Int): Flow[Unit] =
-    handler {
-      case Increment => emitEvent(Incremented)
-      case Decrement => if (c > 0) emitEvent(Decremented)
-                        else failCommand("Counter cannot be decremented")
-    } >>
-      waitFor {
-        case Incremented => c + 1
-        case Decremented => c - 1
-      } >>=
-      countingLogic
+  private def countingLogic(c: Int): Flow[Unit] = handler(
+    when(Increment).emit(Incremented).switch(countingLogic(c + 1)),
+    when(Decrement).guard(
+      ( _ => c > 0, "Counter cannot be decremented")
+    ).emit(Decremented).switch(countingLogic(c - 1))
+  )
 
-  private val fullAggregateLogic: Flow[Unit] =
-    handler { case Create(id, start) => emitEvent(Created(id, start)) } >> waitFor { case Created(_, _) => () } >> countingLogic(0)
-
+  private val fullAggregateLogic: Flow[Unit] = handler(
+    when[Create].emit[Created].switch(countingLogic(0))
+  )
 
   object CounterAggregate extends FlowAggregate {
     def tag = Tag("Counter")

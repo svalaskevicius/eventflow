@@ -1,7 +1,5 @@
 package Domain
 
-import cats.syntax.flatMap._
-
 import Cqrs.Aggregate._
 import Cqrs._
 
@@ -24,40 +22,28 @@ object Door {
   val flow = new EventFlow[Command, Event]
   import flow._
 
-  import DslV0._
+  import DslV1._
 
-  private def openDoorsLogic: Flow[Unit] =
-    handler {
-      promote[Close.type, Closed.type] orElse
-        { case _ => failCommand("Open door can only be closed.") }
-    } >>
-      waitForAndSwitch {
-        case Closed => closedDoorsLogic
-      }
+  private def openDoors: Flow[Unit] = handler(
+    when(Close).emit(Closed).switch(closedDoors)
+  )
 
-  private def closedDoorsLogic: Flow[Unit] =
-    handler {
-      promote[Lock, Locked] orElse
-      promote[Open.type, Opened.type] orElse
-        { case _ => failCommand("Closed door can only be opened or locked.") }
-    } >>
-      waitForAndSwitch {
-        case Opened => openDoorsLogic
-        case Locked(key) => lockedDoorsLogic(key)
-      }
+  private def closedDoors: Flow[Unit] = handler(
+    when(Open).emit(Opened),
+    when[Lock].emit[Locked].switch(ev => lockedDoors(ev.key))
+  )
 
-  private def lockedDoorsLogic(key: String): Flow[Unit] =
-    handler {
-      case Unlock(attemptedKey) => if (key == attemptedKey) emitEvent(Unlocked(attemptedKey))
-                                   else failCommand("Attempted unlock key is invalid")
-      case _ => failCommand("Locked door can only be unlocked.")
-    } >>
-      waitForAndSwitch {
-        case Unlocked(_) => closedDoorsLogic
-      }
+  private def lockedDoors(key: String): Flow[Unit] = handler(
+    when[Unlock].guard(
+      (_.key.nonEmpty, "Key is not allowed to be empty!"),
+      (_.key == key, "Attempted unlock key is invalid")
+    ).emit[Unlocked].switch(closedDoors),
+    anyOther.failWithMessage("Locked door can only be unlocked.")
+  )
 
-  private val fullAggregateLogic: Flow[Unit] =
-    handler { promote[Register, Registered] } >> waitFor { case Registered(_) => () } >> openDoorsLogic
+  private val fullAggregateLogic: Flow[Unit] = handler(
+    when[Register].emit[Registered].switch(openDoors)
+  )
 
   object DoorAggregate extends FlowAggregate {
     def tag = Tag("Door")
