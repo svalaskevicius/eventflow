@@ -24,6 +24,8 @@ object Door {
   val flow = new EventFlow[Command, Event]
   import flow._
 
+  import DslV0._
+
   private def openDoorsLogic: Flow[Unit] =
     handler {
       promote[Close.type, Closed.type] orElse

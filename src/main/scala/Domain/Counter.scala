@@ -20,6 +20,8 @@ object Counter {
   val flow = new EventFlow[Command, Event]
   import flow._
 
+  import DslV0._
+
   private def countingLogic(c: Int): Flow[Unit] =
     handler {
       case Increment => emitEvent(Incremented)
