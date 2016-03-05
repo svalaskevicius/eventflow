@@ -67,6 +67,7 @@ trait Aggregate[E, C, D] {
 
   type AggregateDefinition[A] = AggregateDef[E, D, A]
   def defineAggregate[A](a: ADStateRun[A]): AggregateDefinition[A] = StateT[DatabaseWithAggregateFailure[E, ?], AggregateState[D], A](a)
+  def liftAggregate[A](a: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a.map(ret => (s, ret)))
 
   type Events = List[E]
   type CommandHandler = C => D => Aggregate.Error Xor Events
@@ -74,28 +75,38 @@ trait Aggregate[E, C, D] {
 
   def liftToAggregateDef[A](f: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate(s => f.map((s, _)))
 
-  def initAggregate[Cmd <: InitialAggregateCommand with C](initCmd: Cmd): DatabaseWithAggregateFailure[E, State] = {
-    import Database._
-    val id = initCmd.id
-    val initState: DatabaseWithAggregateFailure[E, State] =
-      dbAction(doesAggregateExist[E](tag, id)).flatMap { e: Boolean =>
-        if (e) fail(ErrorExistsAlready(id))
-        else dbAction(appendEvents[E](tag, id, VersionedEvents[E](1, List())).map(_ => newState(id)))
-      }
-    initState.flatMap(handleCommand(initCmd).runS)
-  }
-
   def newState(id: AggregateId) = new State(id, initData, 0)
 
   def handleCommand(cmd: C): AggregateDefinition[Unit] = {
     import Database._
-    for {
+
+    val catchUpEvents = for {
       events <- defineAggregate(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version).map((vs, _))))
       _ <- applyEvents(events)
+    } yield ()
+
+    def initAggregateInDb(id: AggregateId): AggregateDefinition[Unit] =
+      liftAggregate[Unit] {
+        dbAction[E, Boolean](doesAggregateExist[E](tag, id)).flatMap { e: Boolean =>
+          if (e) fail(ErrorExistsAlready(id))
+          else pure(())
+        }
+      }
+
+    val initActions: AggregateDefinition[Unit] = cmd match {
+      case initCmd: InitialAggregateCommand => initAggregateInDb(initCmd.id)
+      case _ => catchUpEvents
+    }
+
+    for {
+      _ <- initActions
       resultEvents <- handleCmd(cmd)
       _ <- onEvents(resultEvents)
     } yield ()
   }
+
+  def loadAndHandleCommand(id: AggregateId, cmd: C): DatabaseWithAggregateFailure[E, State] =
+    handleCommand(cmd).runS(newState(id))
 
   private def handleCmd(cmd: C): AggregateDefinition[Events] = defineAggregate(vs =>
     XorT.fromXor[EventDatabaseWithFailure[E, ?]](

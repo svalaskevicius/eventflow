@@ -34,8 +34,12 @@ final case class BatchRunner[Db: Backend, PROJS <: HList](db: Db, projections: P
       })
     )
 
-  def db[E, A, S](aggregateState: AggregateState[S], aggregateActions: AggregateDef[E, S, A])(implicit eventSerialiser: EventSerialisation[E]): DbActions[(AggregateState[S], A)] = {
+  def continueDb[E, A, S](aggregateState: AggregateState[S], aggregateActions: AggregateDef[E, S, A])(implicit eventSerialiser: EventSerialisation[E]): DbActions[(AggregateState[S], A)] = {
     db(aggregateActions.run(aggregateState))
+  }
+
+  def continueWithCommand[E, S](aggregateState: AggregateState[S], aggregateActions: AggregateDef[E, S, Unit])(implicit eventSerialiser: EventSerialisation[E]): DbActions[AggregateState[S]] = {
+    db(aggregateActions.runS(aggregateState))
   }
 
   object runProjection extends (Projection ~> Projection) {
