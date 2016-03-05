@@ -35,7 +35,7 @@ trait AggregateSpec {
 
     def command[E: EventSerialisation, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C) = {
       WhenSteps(
-        runner.run(runner.db(aggregate.newState(id), aggregate.handleCommand(cmd)))
+        runner.run(runner.db(aggregate.loadAndHandleCommand(id, cmd)))
           .fold(err => failStop(err.toString), _._1),
         startingDbOpNr
       )
@@ -51,7 +51,7 @@ trait AggregateSpec {
         .fold(err => failStop(err.toString), _._2)
 
     def failedCommandError[E: EventSerialisation, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C) =
-        runner.run(runner.db(aggregate.newState(id), aggregate.handleCommand(cmd)))
+        runner.run(runner.db(aggregate.loadAndHandleCommand(id, cmd)))
           .fold(_._2, _ => failStop("Command did not fail, although was expected to"))
 
     def projectionData[D: Typeable](name: String) = runner.getProjectionData[D](name)

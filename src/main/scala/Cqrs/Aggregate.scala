@@ -2,9 +2,11 @@ package Cqrs
 
 import Cqrs.Aggregate.AggregateId
 import Cqrs.Database.{EventDatabaseWithFailure, VersionedEvents}
-import cats.{MonadState, MonadError}
-import cats.data.{Xor, XorT}
+import algebra.Semigroup
+import cats.{SemigroupK, MonadState, MonadError}
+import cats.data.{NonEmptyList => NEL, ValidatedNel, Validated, Xor, XorT}
 import cats.state._
+import cats.std.all._
 
 import scala.language.implicitConversions
 
@@ -24,6 +26,7 @@ object Aggregate {
   final case class ErrorCommandFailure(message: String) extends Error
   final case class DatabaseError(err: Database.Error) extends Error
   case object ErrorCannotFindHandler extends Error
+  final case class Errors(err: NEL[Error]) extends Error
 
 
   type DatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabaseWithFailure[E, ?], Err, A]
@@ -42,10 +45,14 @@ object Aggregate {
   def pure[E, A](x: A): DatabaseWithAggregateFailure[E, A] = eventDatabaseWithFailureMonad[E].pure(x)
   def fail[E, A](x: Error): DatabaseWithAggregateFailure[E, A] = eventDatabaseWithFailureMonad[E].raiseError[A](x)
 
-  def emitEvent[E](ev: E): Error Xor List[E] = Xor.right(List(ev))
-  def emitEvents[E](evs: List[E]): Error Xor List[E] = Xor.right(evs)
+  type CommandHandlerResult[E] = ValidatedNel[Aggregate.Error, List[E]]
+  def emitEvent[E](ev: E): CommandHandlerResult[E] = Validated.valid(List(ev))
+  def emitEvents[E](evs: List[E]): CommandHandlerResult[E]  = Validated.valid(evs)
 
-  def failCommand[Events](err: String): Error Xor Events = Xor.left(ErrorCommandFailure(err))
+  implicit val nelErrorSemigroup: Semigroup[NEL[Error]] = SemigroupK[NEL].algebra[Error]
+
+  def failCommand[E](err: String): CommandHandlerResult[E] = Validated.invalid(NEL(ErrorCommandFailure(err)))
+
 }
 
 trait InitialAggregateCommand {
@@ -67,43 +74,53 @@ trait Aggregate[E, C, D] {
 
   type AggregateDefinition[A] = AggregateDef[E, D, A]
   def defineAggregate[A](a: ADStateRun[A]): AggregateDefinition[A] = StateT[DatabaseWithAggregateFailure[E, ?], AggregateState[D], A](a)
+  def liftAggregate[A](a: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a.map(ret => (s, ret)))
 
-  type Events = List[E]
-  type CommandHandler = C => D => Aggregate.Error Xor Events
+  type CommandHandler = C => D => CommandHandlerResult[E]
   type EventHandler = E => D => D
 
   def liftToAggregateDef[A](f: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate(s => f.map((s, _)))
-
-  def initAggregate[Cmd <: InitialAggregateCommand with C](initCmd: Cmd): DatabaseWithAggregateFailure[E, State] = {
-    import Database._
-    val id = initCmd.id
-    val initState: DatabaseWithAggregateFailure[E, State] =
-      dbAction(doesAggregateExist[E](tag, id)).flatMap { e: Boolean =>
-        if (e) fail(ErrorExistsAlready(id))
-        else dbAction(appendEvents[E](tag, id, VersionedEvents[E](1, List())).map(_ => newState(id)))
-      }
-    initState.flatMap(handleCommand(initCmd).runS)
-  }
 
   def newState(id: AggregateId) = new State(id, initData, 0)
 
   def handleCommand(cmd: C): AggregateDefinition[Unit] = {
     import Database._
-    for {
+
+    val catchUpEvents = for {
       events <- defineAggregate(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version).map((vs, _))))
       _ <- applyEvents(events)
+    } yield ()
+
+    def initAggregateInDb(id: AggregateId): AggregateDefinition[Unit] =
+      liftAggregate[Unit] {
+        dbAction[E, Boolean](doesAggregateExist[E](tag, id)).flatMap { e: Boolean =>
+          if (e) fail(ErrorExistsAlready(id))
+          else pure(())
+        }
+      }
+
+    val initActions: AggregateDefinition[Unit] = cmd match {
+      case initCmd: InitialAggregateCommand => initAggregateInDb(initCmd.id)
+      case _ => catchUpEvents
+    }
+
+    for {
+      _ <- initActions
       resultEvents <- handleCmd(cmd)
       _ <- onEvents(resultEvents)
     } yield ()
   }
 
-  private def handleCmd(cmd: C): AggregateDefinition[Events] = defineAggregate(vs =>
+  def loadAndHandleCommand(id: AggregateId, cmd: C): DatabaseWithAggregateFailure[E, State] =
+    handleCommand(cmd).runS(newState(id))
+
+  private def handleCmd(cmd: C): AggregateDefinition[List[E]] = defineAggregate(vs =>
     XorT.fromXor[EventDatabaseWithFailure[E, ?]](
-      handle(cmd)(vs.state)
+      handle(cmd)(vs.state).fold[Error Xor List[E]](err => Xor.left(Errors(err)), Xor.right)
     ).map((vs, _))
   )
 
-  private def onEvents(evs: Events): AggregateDefinition[Unit] =
+  private def onEvents(evs: List[E]): AggregateDefinition[Unit] =
     defineAggregate { vs =>
       import Database._
       val vevs = VersionedEvents[E](vs.version + 1, evs)
