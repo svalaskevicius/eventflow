@@ -42,14 +42,13 @@ object Door {
     anyOther.failWithMessage("Locked door can only be unlocked.")
   )
 
-  private val fullAggregateLogic: Flow[Unit] = handler(
+  private val fullAggregate: Flow[Unit] = handler(
     when[Register].emit[Registered].switch(openDoors)
   )
 
   object DoorAggregate extends FlowAggregate {
     def tag = Tag("Door")
-    def aggregateLogic = fullAggregateLogic
-    def initCmd = Register
+    def aggregateLogic = fullAggregate
   }
 }
 

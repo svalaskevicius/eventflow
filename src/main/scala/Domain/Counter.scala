@@ -19,19 +19,18 @@ object Counter {
   import flow.{ Flow, FlowAggregate }
   import flow.DslV1._
 
-  private def countingLogic(c: Int): Flow[Unit] = handler(
-    when(Increment).emit(Incremented).switch(countingLogic(c + 1)),
-    when(Decrement).guard(_ => c > 0, "Counter cannot be decremented").emit(Decremented).switch(countingLogic(c - 1))
+  private def counting(c: Int): Flow[Unit] = handler(
+    when(Increment).emit(Incremented).switch(counting(c + 1)),
+    when(Decrement).guard(_ => c > 0, "Counter cannot be decremented").emit(Decremented).switch(counting(c - 1))
   )
 
-  private val fullAggregateLogic: Flow[Unit] = handler(
-    when[Create].emit[Created].switch(countingLogic(0))
+  private val fullAggregate: Flow[Unit] = handler(
+    when[Create].emit[Created].switch(evt => counting(evt.start))
   )
 
   object CounterAggregate extends FlowAggregate {
     def tag = Tag("Counter")
-    def aggregateLogic = fullAggregateLogic
-    def initCmd = Create
+    def aggregateLogic = fullAggregate
   }
 }
 
