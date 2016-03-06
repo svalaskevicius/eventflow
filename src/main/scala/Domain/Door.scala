@@ -35,6 +35,9 @@ object Door {
   private def lockedDoors(key: String): Flow[Unit] = handler(
     when(Unlock(key)).emit[Unlocked].switch(closedDoors),
     on(Unlocked(key)).switch(closedDoors), // alternative to above
+    on(Unlocked(key)).switch(evt => closedDoors), // alternative to above
+    on[Unlocked].switch(evt => closedDoors), // alternative to above
+    on[Unlocked].switch(closedDoors), // alternative to above
     when[Unlock].failWithMessage("Attempted unlock key is invalid"),
     anyOther.failWithMessage("Locked door can only be unlocked.")
   )
