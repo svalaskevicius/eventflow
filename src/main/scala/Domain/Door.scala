@@ -34,14 +34,20 @@ object Door {
 
   private def lockedDoors(key: String): Flow[Unit] = handler(
     when(Unlock(key)).emit[Unlocked].switch(closedDoors),
-    on(Unlocked(key)).switch(closedDoors), // alternative to above
+    when[Unlock].failWithMessage("Attempted unlock key is invalid"),
+    anyOther.failWithMessage("Locked door can only be unlocked.")
+  )
+
+  // unused, here just for dsl examples
+  private def lockedDoorsAlternativeExamples(key: String): Flow[Unit] = handler(
+    when(Unlock(key)).emitEvent(cmd => Unlocked(cmd.key)).switch(closedDoors), // alternative to `when(Unlock(key)).emit[Unlocked]`
+    on(Unlocked(key)).switch(closedDoors), // alternative to `emit[Unlocked].switch(closedDoors)`
     on(Unlocked(key)).switch(evt => closedDoors), // alternative to above
     on[Unlocked].switch(evt => closedDoors), // alternative to above
     on[Unlocked].switch(closedDoors), // alternative to above
     when[Unlock].failWithMessage("Attempted unlock key is invalid"),
     anyOther.failWithMessage("Locked door can only be unlocked.")
   )
-
   private val fullAggregate: Flow[Unit] = handler(
     when[Register].emit[Registered].switch(openDoors)
   )

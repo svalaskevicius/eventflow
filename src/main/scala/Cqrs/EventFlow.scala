@@ -78,13 +78,19 @@ class EventFlow[Cmd, Evt] {
         ThenStatement[CH, E](promoteCommandToEvent[CH, E], commandMatcher, guards, _ => true)
 
       def emit[E <: Evt](evs: E*)(implicit et: ClassTag[E]) =
-        ThenStatement[CH, E](handleWithSpecificEvents(evs.toList), commandMatcher, guards, _ == evs.head)
+        ThenStatement[CH, E](handleWithSpecificCommandHandler(_ => evs.toList), commandMatcher, guards, _ == evs.head)
+
+      def emitEvent[E <: Evt](cmdHandler: CH => E)(implicit et: ClassTag[E]) =
+        ThenStatement[CH, E](handleWithSpecificCommandHandler(((x: E) => List(x)).compose(cmdHandler)), commandMatcher, guards, _ => true)
+
+      def emitEvents[E <: Evt](cmdHandler: CH => List[E])(implicit et: ClassTag[E]) =
+        ThenStatement[CH, E](handleWithSpecificCommandHandler(cmdHandler), commandMatcher, guards, _ => true)
 
       def guard(check: CH => Boolean, message: String) = WhenStatement[CH](commandMatcher, guards :+ ((check, message)))
 
-      private def handleWithSpecificEvents[E <: Evt](evs: List[E]) =
+      private def handleWithSpecificCommandHandler[E <: Evt](cmdHandler: CH => List[E]) =
         Function.unlift[Cmd, CommandHandlerResult[Evt]] {
-          case c: CH => Some(Validated.valid(evs))
+          case c: CH => Some(Validated.valid(cmdHandler(c)))
           case _ => None
         }
     }
