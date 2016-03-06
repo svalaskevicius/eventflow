@@ -33,10 +33,8 @@ object Door {
   )
 
   private def lockedDoors(key: String): Flow[Unit] = handler(
-    when[Unlock]
-      .guard(_.key.nonEmpty, "Key is not allowed to be empty!")
-      .guard(_.key == key, "Attempted unlock key is invalid")
-      .emit[Unlocked].switch(closedDoors),
+    when(Unlock(key)).emit[Unlocked].switch(closedDoors),
+    when[Unlock].failWithMessage("Attempted unlock key is invalid"),
     anyOther.failWithMessage("Locked door can only be unlocked.")
   )
 

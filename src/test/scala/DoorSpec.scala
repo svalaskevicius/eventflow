@@ -53,7 +53,7 @@ class DoorSpec extends FlatSpec with Matchers with AggregateSpec {
     }
   }
 
-  it should "fail to unclock with the different key" in {
+  it should "fail to unlock with the different key" in {
     given {
       newDbRunner
         .withEvents[Event](tag, "door", Registered("door"), Closed, Locked("key"))
