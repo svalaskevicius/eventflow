@@ -2,7 +2,7 @@ package Cqrs
 
 import Cqrs.Aggregate.{ CommandHandlerResult, ErrorCannotFindHandler, ErrorCommandFailure }
 import cats._
-import cats.data.Validated.{Valid, Invalid}
+import cats.data.Validated.{ Valid, Invalid }
 import cats.data.{ NonEmptyList => NEL, _ }
 import cats.free.Free
 import cats.free.Free.liftF
@@ -68,12 +68,17 @@ class EventFlow[Cmd, Evt] {
       def apply[CH <: Cmd: ClassTag](c: CH) = WhenStatement[CH](_ == c, List.empty)
     }
 
+    object on {
+      def apply[E <: Evt: ClassTag](implicit ct: ClassTag[Cmd]) = ThenStatement[Cmd, E](PartialFunction.empty, _ => false, List.empty, _ => true)
+      def apply[E <: Evt: ClassTag](e: E)(implicit ct: ClassTag[Cmd]) = ThenStatement[Cmd, E](PartialFunction.empty, _ => false, List.empty, _ == e)
+    }
+
     case class WhenStatement[CH <: Cmd: ClassTag](commandMatcher: CH => Boolean, guards: List[Guard[CH]]) extends AllowFailingMessageStatement[CH] {
       def emit[E <: Evt](implicit cct: CaseClassTransformer[CH, E], et: ClassTag[E]) =
-        ThenStatement[CH, E](promoteCommandToEvent[CH, E], commandMatcher, guards)
+        ThenStatement[CH, E](promoteCommandToEvent[CH, E], commandMatcher, guards, _ => true)
 
       def emit[E <: Evt](evs: E*)(implicit et: ClassTag[E]) =
-        ThenStatement[CH, E](handleWithSpecificEvents(evs.toList), commandMatcher, guards)
+        ThenStatement[CH, E](handleWithSpecificEvents(evs.toList), commandMatcher, guards, _ == evs.head)
 
       def guard(check: CH => Boolean, message: String) = WhenStatement[CH](commandMatcher, guards :+ ((check, message)))
 
@@ -84,14 +89,14 @@ class EventFlow[Cmd, Evt] {
         }
     }
 
-    case class ThenStatement[CH <: Cmd: ClassTag, E <: Evt: ClassTag](handler: CommandH, commandMatcher: CH => Boolean, guards: List[Guard[CH]]) extends CompilableDslProvider {
-      def switch(where: E => Flow[Unit]): SwitchToStatement[CH, E] = SwitchToStatement[CH, E](handler, commandMatcher, guards, Some(where))
+    case class ThenStatement[CH <: Cmd: ClassTag, E <: Evt: ClassTag](handler: CommandH, commandMatcher: CH => Boolean, guards: List[Guard[CH]], eventMatcher: E => Boolean) extends CompilableDslProvider {
+      def switch(where: E => Flow[Unit]): SwitchToStatement[CH, E] = SwitchToStatement[CH, E](handler, commandMatcher, guards, Some(where), eventMatcher)
       def switch(where: => Flow[Unit]): SwitchToStatement[CH, E] = switch(_ => where)
 
-      def toCompilableDsl = SwitchToStatement[CH, E](handler, commandMatcher, guards, None).toCompilableDsl
+      def toCompilableDsl = SwitchToStatement[CH, E](handler, commandMatcher, guards, None, eventMatcher).toCompilableDsl
     }
 
-    case class SwitchToStatement[CH <: Cmd: ClassTag, E <: Evt: ClassTag](handler: CommandH, commandMatcher: CH => Boolean, guards: List[Guard[CH]], switchTo: Option[E => Flow[Unit]]) extends CompilableDslProvider {
+    case class SwitchToStatement[CH <: Cmd: ClassTag, E <: Evt: ClassTag](handler: CommandH, commandMatcher: CH => Boolean, guards: List[Guard[CH]], switchTo: Option[E => Flow[Unit]], eventMatcher: E => Boolean) extends CompilableDslProvider {
       def toCompilableDsl = new CompilableDsl {
         def commandHandler = {
           case c: CH if commandMatcher(c) =>
@@ -103,7 +108,7 @@ class EventFlow[Cmd, Evt] {
         }
 
         def eventHandler = Function.unlift[Evt, Flow[Unit]] {
-          case e: E => switchTo.map(_(e))
+          case e: E if eventMatcher(e) => switchTo.map(_(e))
           case _ => None
         }
       }

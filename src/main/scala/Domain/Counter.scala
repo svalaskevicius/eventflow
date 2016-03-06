@@ -16,7 +16,7 @@ object Counter {
   case object Decrement extends Command
 
   val flow = new EventFlow[Command, Event]
-  import flow.{Flow, FlowAggregate}
+  import flow.{ Flow, FlowAggregate }
   import flow.DslV1._
 
   private def countingLogic(c: Int): Flow[Unit] = handler(
