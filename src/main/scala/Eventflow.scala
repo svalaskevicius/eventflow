@@ -1,8 +1,8 @@
 
 import Cqrs.BatchRunner
 import Cqrs.DbAdapters.InMemoryDb._
-import Domain.Counter.{CounterAggregate, Create}
-import Domain.Door.{DoorAggregate, Register}
+import Domain.Counter.{ CounterAggregate, Create }
+import Domain.Door.{ DoorAggregate, Register }
 
 object Eventflow {
 
@@ -33,7 +33,7 @@ object Eventflow {
       _ <- handleCommand(Decrement)
       _ <- handleCommand(Decrement)
       _ <- handleCommand(Decrement)
- //     _ <- handleCommand(Decrement)
+      //     _ <- handleCommand(Decrement)
     } yield ()
   }
 

@@ -1,7 +1,5 @@
 package Domain
 
-import cats.syntax.flatMap._
-
 import Cqrs.Aggregate._
 import Cqrs._
 
@@ -22,45 +20,41 @@ object Door {
   final case class Unlock(key: String) extends Command
 
   val flow = new EventFlow[Command, Event]
-  import flow._
+  import flow.{ Flow, FlowAggregate }
+  import flow.DslV1._
 
-  private def openDoorsLogic: Flow[Unit] =
-    handler {
-      promote[Close.type, Closed.type] orElse
-        { case _ => failCommand("Open door can only be closed.") }
-    } >>
-      waitForAndSwitch {
-        case Closed => closedDoorsLogic
-      }
+  private def openDoors: Flow[Unit] = handler(
+    when(Close).emit(Closed).switch(closedDoors)
+  )
 
-  private def closedDoorsLogic: Flow[Unit] =
-    handler {
-      promote[Lock, Locked] orElse
-      promote[Open.type, Opened.type] orElse
-        { case _ => failCommand("Closed door can only be opened or locked.") }
-    } >>
-      waitForAndSwitch {
-        case Opened => openDoorsLogic
-        case Locked(key) => lockedDoorsLogic(key)
-      }
+  private def closedDoors: Flow[Unit] = handler(
+    when(Open).emit(Opened),
+    when[Lock].emit[Locked].switch(ev => lockedDoors(ev.key))
+  )
 
-  private def lockedDoorsLogic(key: String): Flow[Unit] =
-    handler {
-      case Unlock(attemptedKey) => if (key == attemptedKey) emitEvent(Unlocked(attemptedKey))
-                                   else failCommand("Attempted unlock key is invalid")
-      case _ => failCommand("Locked door can only be unlocked.")
-    } >>
-      waitForAndSwitch {
-        case Unlocked(_) => closedDoorsLogic
-      }
+  private def lockedDoors(key: String): Flow[Unit] = handler(
+    when(Unlock(key)).emit[Unlocked].switch(closedDoors),
+    when[Unlock].failWithMessage("Attempted unlock key is invalid"),
+    anyOther.failWithMessage("Locked door can only be unlocked.")
+  )
 
-  private val fullAggregateLogic: Flow[Unit] =
-    handler { promote[Register, Registered] } >> waitFor { case Registered(_) => () } >> openDoorsLogic
+  // unused, here just for dsl examples
+  private def lockedDoorsAlternativeExamples(key: String): Flow[Unit] = handler(
+    when(Unlock(key)).emitEvent(cmd => Unlocked(cmd.key)).switch(closedDoors), // alternative to `when(Unlock(key)).emit[Unlocked]`
+    on(Unlocked(key)).switch(closedDoors), // alternative to `emit[Unlocked].switch(closedDoors)`
+    on(Unlocked(key)).switch(evt => closedDoors), // alternative to above
+    on[Unlocked].switch(evt => closedDoors), // alternative to above
+    on[Unlocked].switch(closedDoors), // alternative to above
+    when[Unlock].failWithMessage("Attempted unlock key is invalid"),
+    anyOther.failWithMessage("Locked door can only be unlocked.")
+  )
+  private val fullAggregate: Flow[Unit] = handler(
+    when[Register].emit[Registered].switch(openDoors)
+  )
 
   object DoorAggregate extends FlowAggregate {
     def tag = Tag("Door")
-    def aggregateLogic = fullAggregateLogic
-    def initCmd = Register
+    def aggregateLogic = fullAggregate
   }
 }
 

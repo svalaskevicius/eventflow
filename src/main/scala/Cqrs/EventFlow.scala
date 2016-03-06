@@ -1,8 +1,9 @@
 package Cqrs
 
-import Cqrs.Aggregate.{CommandHandlerResult, ErrorCannotFindHandler}
+import Cqrs.Aggregate.{ CommandHandlerResult, ErrorCannotFindHandler, ErrorCommandFailure }
 import cats._
-import cats.data.{NonEmptyList => NEL, _}
+import cats.data.Validated.{ Valid, Invalid }
+import cats.data.{ NonEmptyList => NEL, _ }
 import cats.free.Free
 import cats.free.Free.liftF
 import lib.CaseClassTransformer
@@ -29,11 +30,12 @@ class EventFlow[Cmd, Evt] {
   /**
    * Promotes a command to a event. The input types need to be isomoprhic. In other words
    * have the same fields + types
+   *
    * @tparam C The command type, should be isomorphic to the event type
    * @tparam E The event type, should be isomorphic to the command type
    * @return A CommandH, which takes a Cmd and either returns a error or a list of events (just one in this case)
    */
-  def promote[C <: Cmd: ClassTag, E <: Evt](implicit cct: CaseClassTransformer[C, E]): CommandH =
+  private def promoteCommandToEvent[C <: Cmd: ClassTag, E <: Evt](implicit cct: CaseClassTransformer[C, E]): CommandH =
     Function.unlift[Cmd, CommandHandlerResult[Evt]] {
       //this raises: isInstanceOf is disabled by wartremover, but it has false positives:
       //https://github.com/puffnfresh/wartremover/issues/152
@@ -41,10 +43,109 @@ class EventFlow[Cmd, Evt] {
       case _ => None
     }
 
-  def handler(ch: CommandH): Flow[Unit] = liftF(SetCommandHandler(ch, ()))
-  def waitFor[A](eh: EventH[A]): Flow[A] = liftF(EventHandler[A, A](eh, identity))
-  def waitForAndSwitch[A](eh: EventH[Flow[A]]): Flow[A] = waitFor(eh).flatMap((cont: Flow[A]) => cont)
-  def runForever(): Flow[Unit] = waitFor(PartialFunction.empty[Evt, Unit])
+  object DslV0 {
+    def handler(ch: CommandH): Flow[Unit] = liftF(SetCommandHandler(ch, ()))
+    def waitFor[A](eh: EventH[A]): Flow[A] = liftF(EventHandler[A, A](eh, identity))
+    def waitForAndSwitch[A](eh: EventH[Flow[A]]): Flow[A] = waitFor(eh).flatMap((cont: Flow[A]) => cont)
+    def runForever(): Flow[Unit] = waitFor(PartialFunction.empty[Evt, Unit])
+  }
+
+  object DslV1 {
+
+    trait CompilableDsl {
+      def commandHandler: CommandH
+      def eventHandler: EventH[Flow[Unit]]
+    }
+
+    trait CompilableDslProvider {
+      def toCompilableDsl: CompilableDsl
+    }
+
+    type Guard[CH <: Cmd] = (CH => Boolean, String)
+
+    object when {
+      def apply[CH <: Cmd: ClassTag] = WhenStatement[CH](_ => true, List.empty)
+      def apply[CH <: Cmd: ClassTag](c: CH) = WhenStatement[CH](_ == c, List.empty)
+    }
+
+    object on {
+      def apply[E <: Evt: ClassTag](implicit ct: ClassTag[Cmd]) = ThenStatement[Cmd, E](PartialFunction.empty, _ => false, List.empty, _ => true)
+      def apply[E <: Evt: ClassTag](e: E)(implicit ct: ClassTag[Cmd]) = ThenStatement[Cmd, E](PartialFunction.empty, _ => false, List.empty, _ == e)
+    }
+
+    case class WhenStatement[CH <: Cmd: ClassTag](commandMatcher: CH => Boolean, guards: List[Guard[CH]]) extends AllowFailingMessageStatement[CH] {
+      def emit[E <: Evt](implicit cct: CaseClassTransformer[CH, E], et: ClassTag[E]) =
+        ThenStatement[CH, E](promoteCommandToEvent[CH, E], commandMatcher, guards, _ => true)
+
+      def emit[E <: Evt](evs: E*)(implicit et: ClassTag[E]) =
+        ThenStatement[CH, E](handleWithSpecificCommandHandler(_ => evs.toList), commandMatcher, guards, _ == evs.head)
+
+      def emitEvent[E <: Evt](cmdHandler: CH => E)(implicit et: ClassTag[E]) =
+        ThenStatement[CH, E](handleWithSpecificCommandHandler(((x: E) => List(x)).compose(cmdHandler)), commandMatcher, guards, _ => true)
+
+      def emitEvents[E <: Evt](cmdHandler: CH => List[E])(implicit et: ClassTag[E]) =
+        ThenStatement[CH, E](handleWithSpecificCommandHandler(cmdHandler), commandMatcher, guards, _ => true)
+
+      def guard(check: CH => Boolean, message: String) = WhenStatement[CH](commandMatcher, guards :+ ((check, message)))
+
+      private def handleWithSpecificCommandHandler[E <: Evt](cmdHandler: CH => List[E]) =
+        Function.unlift[Cmd, CommandHandlerResult[Evt]] {
+          case c: CH => Some(Validated.valid(cmdHandler(c)))
+          case _ => None
+        }
+    }
+
+    case class ThenStatement[CH <: Cmd: ClassTag, E <: Evt: ClassTag](handler: CommandH, commandMatcher: CH => Boolean, guards: List[Guard[CH]], eventMatcher: E => Boolean) extends CompilableDslProvider {
+      def switch(where: E => Flow[Unit]): SwitchToStatement[CH, E] = SwitchToStatement[CH, E](handler, commandMatcher, guards, Some(where), eventMatcher)
+      def switch(where: => Flow[Unit]): SwitchToStatement[CH, E] = switch(_ => where)
+
+      def toCompilableDsl = SwitchToStatement[CH, E](handler, commandMatcher, guards, None, eventMatcher).toCompilableDsl
+    }
+
+    case class SwitchToStatement[CH <: Cmd: ClassTag, E <: Evt: ClassTag](handler: CommandH, commandMatcher: CH => Boolean, guards: List[Guard[CH]], switchTo: Option[E => Flow[Unit]], eventMatcher: E => Boolean) extends CompilableDslProvider {
+      def toCompilableDsl = new CompilableDsl {
+        def commandHandler = {
+          case c: CH if commandMatcher(c) =>
+            val errors = guards.flatMap(g => if (!g._1(c)) Some(ErrorCommandFailure(g._2)) else None)
+            errors match {
+              case err :: errs => Validated.invalid(NEL(err, errs))
+              case Nil => handler(c)
+            }
+        }
+
+        def eventHandler = Function.unlift[Evt, Flow[Unit]] {
+          case e: E if eventMatcher(e) => switchTo.map(_(e))
+          case _ => None
+        }
+      }
+    }
+
+    def anyOther = new AllowFailingMessageStatement[Cmd] {
+      def commandMatcher = _ => true
+    }
+
+    trait AllowFailingMessageStatement[CH <: Cmd] {
+      def commandMatcher: CH => Boolean
+      def failWithMessage(msg: String)(implicit ct: ClassTag[CH]) = FailWithMessageStateMent(commandMatcher, msg)
+    }
+
+    case class FailWithMessageStateMent[CH <: Cmd: ClassTag](commandMatcher: CH => Boolean, msg: String) extends CompilableDslProvider {
+      def toCompilableDsl = new CompilableDsl {
+        def commandHandler = { case c: CH if commandMatcher(c) => Aggregate.failCommand(msg) }
+        def eventHandler = PartialFunction.empty
+      }
+    }
+
+    def handler(dsl: CompilableDslProvider*): Flow[Unit] = {
+      val compilable = dsl.map(_.toCompilableDsl)
+      val commandHandler = compilable.map(_.commandHandler).reduceLeft((prev, curr) => prev.orElse(curr))
+      val eventHandler = compilable.map(_.eventHandler).reduceLeft((prev, curr) => prev.orElse(curr))
+      for {
+        _ <- DslV0.handler(commandHandler)
+        _ <- DslV0.waitForAndSwitch(eventHandler)
+      } yield ()
+    }
+  }
 
   case class EventStreamConsumer(cmdh: CommandH, evh: Evt => Option[EventStreamConsumer])
 
@@ -65,8 +166,6 @@ class EventFlow[Cmd, Evt] {
   type StateData = Option[EventStreamConsumer]
   type EAD[A] = Aggregate.AggregateDef[Evt, StateData, A]
 
-  //TODO: rm list from flows
-
   trait FlowAggregate extends Aggregate[Evt, Cmd, StateData] {
     def aggregateLogic: Flow[Unit]
     def on = e => d => d flatMap (_.evh(e))
@@ -76,8 +175,8 @@ class EventFlow[Cmd, Evt] {
         case None => consumer.cmdh.lift(c)
       }
     ).getOrElse {
-      Validated.invalid(NEL(ErrorCannotFindHandler))
-    }
+        Validated.invalid(NEL(ErrorCannotFindHandler))
+      }
     def initData = esRunnerCompiler(PartialFunction.empty, aggregateLogic)
   }
 }

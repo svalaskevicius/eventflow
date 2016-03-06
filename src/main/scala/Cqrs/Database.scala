@@ -1,10 +1,10 @@
 package Cqrs
 
-import Cqrs.Aggregate.{AggregateId, Tag}
-import cats.{MonadError, Monad}
-import cats.data.{XorT, Xor}
+import Cqrs.Aggregate.{ AggregateId, Tag }
+import cats.data.{ Xor, XorT }
 import cats.free.Free
 import cats.free.Free.liftF
+import cats.{ Monad, MonadError }
 
 import scala.util.Try
 

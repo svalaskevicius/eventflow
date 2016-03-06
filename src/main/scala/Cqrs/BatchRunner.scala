@@ -1,11 +1,11 @@
 package Cqrs
 
 import Cqrs.Aggregate._
-import Cqrs.Database.{Backend, EventSerialisation}
+import Cqrs.Database.{ Backend, EventSerialisation }
 import cats.data.Xor
 import cats.state.StateT
 import cats.~>
-import lib.HList.{KMapper, kMap}
+import lib.HList.{ KMapper, kMap }
 import shapeless._
 import shapeless.syntax.typeable._
 

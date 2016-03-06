@@ -1,9 +1,9 @@
 import Cqrs.Aggregate.AggregateId
 import Cqrs.Database._
 import Cqrs.DbAdapters.InMemoryDb._
-import Cqrs.{Aggregate, BatchRunner, Database, Projection}
+import Cqrs.{ Aggregate, BatchRunner, Database, Projection }
 import cats.data.Xor
-import shapeless.{HList, Typeable}
+import shapeless.{ HList, Typeable }
 
 trait AggregateSpec {
 
@@ -15,7 +15,7 @@ trait AggregateSpec {
     def withProjection[D](proj: Projection[D]) = GivenSteps(runner.addProjection(proj))
 
     def withEvent[E: EventSerialisation](tag: Aggregate.Tag, id: AggregateId, e: E): Self =
-      GivenSteps( runner.withDb { db =>
+      GivenSteps(runner.withDb { db =>
         addEvents(runner.db, tag, id, List(e)).fold(
           err => failStop(err.toString),
           identity
@@ -23,7 +23,7 @@ trait AggregateSpec {
       })
 
     def withEvents[E: EventSerialisation](tag: Aggregate.Tag, id: AggregateId, evs: E*): Self =
-      GivenSteps( runner.withDb { db =>
+      GivenSteps(runner.withDb { db =>
         addEvents(runner.db, tag, id, evs.toList).fold(
           err => failStop(err.toString),
           identity
@@ -51,8 +51,8 @@ trait AggregateSpec {
         .fold(err => failStop(err.toString), _._2)
 
     def failedCommandError[E: EventSerialisation, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C) =
-        runner.run(runner.db(aggregate.loadAndHandleCommand(id, cmd)))
-          .fold(_._2, _ => failStop("Command did not fail, although was expected to"))
+      runner.run(runner.db(aggregate.loadAndHandleCommand(id, cmd)))
+        .fold(_._2, _ => failStop("Command did not fail, although was expected to"))
 
     def projectionData[D: Typeable](name: String) = runner.getProjectionData[D](name)
   }
@@ -64,16 +64,16 @@ trait AggregateSpec {
   }
 
   class WhenStepFlow[Db: Backend, PROJS <: HList](runner: BatchRunner[Db, PROJS]) {
-    def when(steps: WhenSteps[Db, PROJS] => WhenSteps[Db, PROJS] ) = {
+    def when(steps: WhenSteps[Db, PROJS] => WhenSteps[Db, PROJS]) = {
       val v = readDbVersion(runner.db).fold(err => failStop(err.toString), identity)
       new ThenStepFlow(steps(WhenSteps(runner, v)))
     }
 
-    def check[R](steps: ThenSteps[Db, PROJS] => R ): R = when(identity).thenCheck(steps)
+    def check[R](steps: ThenSteps[Db, PROJS] => R): R = when(identity).thenCheck(steps)
   }
 
   class ThenStepFlow[Db: Backend, PROJS <: HList](whenSteps: WhenSteps[Db, PROJS]) {
-    def thenCheck[R](steps: ThenSteps[Db, PROJS] => R ): R =
+    def thenCheck[R](steps: ThenSteps[Db, PROJS] => R): R =
       steps(ThenSteps(whenSteps.runner.runProjections, whenSteps.startingDbOpNr))
   }
 
@@ -93,7 +93,6 @@ trait AggregateSpec {
     )
   }
 
-
   private def readDbVersion[Db](db: Db)(implicit backend: Backend[Db]): Database.Error Xor Int =
     backend.consumeDbEvents(db, 0, (), List()).map(_._1)
 
@@ -101,7 +100,7 @@ trait AggregateSpec {
     import Aggregate._
 
     def getVersion(exists: Boolean): DatabaseWithAggregateFailure[E, Int] =
-      if (! exists) pure(0)
+      if (!exists) pure(0)
       else for {
         pastEvents <- dbAction(readNewEvents[E](tag, aggregateId, 0))
       } yield pastEvents.lastOption.map(_.version).getOrElse(0)
@@ -109,14 +108,14 @@ trait AggregateSpec {
     val commands = for {
       exists <- dbAction(doesAggregateExist[E](tag, aggregateId))
       version <- getVersion(exists)
-      _ <- dbAction(appendEvents[E](tag, aggregateId, VersionedEvents(version+1, events)))
+      _ <- dbAction(appendEvents[E](tag, aggregateId, VersionedEvents(version + 1, events)))
     } yield ()
     implicitly[Backend[Db]].runDb(database, commands.value).leftMap(DatabaseError).map(_._1)
   }
 
   private def failStop(message: String) = {
     fail(message)
-    throw new scala.Error("Failed with: "+message)
+    throw new scala.Error("Failed with: " + message)
   }
 
 }

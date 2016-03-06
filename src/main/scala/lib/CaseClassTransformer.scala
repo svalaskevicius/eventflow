@@ -23,3 +23,4 @@ object CaseClassTransformer {
     def transform(input: I): O = genericE.from(genericC.to(input))
   }
 }
+
