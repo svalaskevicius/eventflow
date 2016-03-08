@@ -13,13 +13,11 @@ object Database {
   sealed trait Error
   final case class ErrorDbFailure(message: String) extends Error
   final case class EventDecodingFailure(rawData: String) extends Error
-  final case class ErrorDoesNotExist(id: AggregateId) extends Error
   final case class ErrorUnexpectedVersion(id: AggregateId, currentVersion: Int, targetVersion: Int) extends Error
 
   final case class VersionedEvents[E](version: Int, events: List[E])
 
   sealed trait EventDatabaseOp[E, A]
-  final case class ReadAggregateExistence[E](tag: Tag, id: AggregateId) extends EventDatabaseOp[E, Error Xor Boolean]
   final case class ReadAggregate[E](tag: Tag, id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor List[VersionedEvents[E]]]
   final case class AppendAggregateEvents[E](tag: Tag, id: AggregateId, events: VersionedEvents[E]) extends EventDatabaseOp[E, Error Xor Unit]
 
@@ -29,8 +27,6 @@ object Database {
 
   def lift[E, A](a: EventDatabaseOp[E, Error Xor A]): EventDatabaseWithFailure[E, A] =
     XorT[EventDatabase[E, ?], Error, A](liftF[EventDatabaseOp[E, ?], Error Xor A](a))
-
-  def doesAggregateExist[E](tag: Tag, id: AggregateId): EventDatabaseWithFailure[E, Boolean] = lift(ReadAggregateExistence[E](tag, id))
 
   def readNewEvents[E](tag: Tag, id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[E, List[VersionedEvents[E]]] =
     lift(ReadAggregate[E](tag, id, fromVersion))

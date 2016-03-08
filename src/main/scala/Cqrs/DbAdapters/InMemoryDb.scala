@@ -32,24 +32,17 @@ object InMemoryDb {
     }
 
     (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor List[VersionedEvents[E]]](
-      Xor.left(ErrorDoesNotExist(id))
+      Xor.right(List(VersionedEvents(NewAggregateVersion, List.empty)))
     )(
         (evs: TreeMap[Int, List[String]]) =>
           implicitly[Traverse[List]].sequence[Xor[Error, ?], VersionedEvents[E]](evs.from(fromVersion + 1).toList.map(decodeToVersionedEvents))
       )
   }
 
-  private def readExistenceFromDb[E](database: DbBackend, tag: Tag, id: AggregateId)(implicit eventSerialiser: EventSerialisation[E]): Error Xor Boolean = {
-    val doesNotExist = readFromDb[E](database, tag, id, 0).
-      map { _ => false }.
-      recover({ case ErrorDoesNotExist(_) => true })
-    doesNotExist.map[Boolean](!_)
-  }
-
   private def addToDb[E](database: DbBackend, tag: Tag, id: AggregateId, events: VersionedEvents[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
     val currentTaggedEvents = database.data.get(tag.v)
     val currentEvents = currentTaggedEvents flatMap (_.get(id.v))
-    val previousVersion = currentEvents.fold(0)(e => if (e.isEmpty) 0 else e.lastKey)
+    val previousVersion = currentEvents.fold(-1)(e => if (e.isEmpty) 0 else e.lastKey)
     if (previousVersion != events.version - 1) {
       Xor.left(ErrorUnexpectedVersion(id, previousVersion, events.version))
     } else {
@@ -73,10 +66,6 @@ object InMemoryDb {
   private def transformDbOpToDbState[E](implicit eventSerialiser: EventSerialisation[E]): EventDatabaseOp[E, ?] ~> Db =
     new (EventDatabaseOp[E, ?] ~> Db) {
       def apply[A](fa: EventDatabaseOp[E, A]): Db[A] = fa match {
-        case ReadAggregateExistence(tag, id) => State(database => {
-          val exists = readExistenceFromDb(database, tag, id)(eventSerialiser)
-          (database, exists)
-        })
         case ReadAggregate(tag, id, version) => State(database => {
           val d = readFromDb[E](database, tag, id, version)
           (database, d)

@@ -34,6 +34,8 @@ object Aggregate {
   def dbAction[E, A](dbActions: Database.EventDatabaseWithFailure[E, A]): DatabaseWithAggregateFailure[E, A] =
     XorT[EventDatabaseWithFailure[E, ?], Error, A](dbActions.map(Xor.right))
 
+  val NewAggregateVersion = -1
+
   final case class AggregateState[D](id: AggregateId, state: D, version: Int)
   type AggregateDefAnyD[E, D, A] = StateT[DatabaseWithAggregateFailure[E, ?], D, A]
   type AggregateDef[E, D, A] = AggregateDefAnyD[E, AggregateState[D], A]
@@ -54,10 +56,6 @@ object Aggregate {
 
 }
 
-trait InitialAggregateCommand {
-  def id: AggregateId
-}
-
 trait Aggregate[E, C, D] {
 
   import Aggregate._
@@ -73,6 +71,7 @@ trait Aggregate[E, C, D] {
 
   type AggregateDefinition[A] = AggregateDef[E, D, A]
   def defineAggregate[A](a: ADStateRun[A]): AggregateDefinition[A] = StateT[DatabaseWithAggregateFailure[E, ?], AggregateState[D], A](a)
+  def liftAggregateReadState[A](a: AggregateState[D] => DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a(s).map(ret => (s, ret)))
   def liftAggregate[A](a: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a.map(ret => (s, ret)))
 
   type CommandHandler = C => D => CommandHandlerResult[E]
@@ -80,31 +79,14 @@ trait Aggregate[E, C, D] {
 
   def liftToAggregateDef[A](f: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate(s => f.map((s, _)))
 
-  def newState(id: AggregateId) = new State(id, initData, 0)
+  def newState(id: AggregateId) = new State(id, initData, NewAggregateVersion)
 
   def handleCommand(cmd: C): AggregateDefinition[Unit] = {
     import Database._
 
-    val catchUpEvents = for {
-      events <- defineAggregate(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version).map((vs, _))))
-      _ <- applyEvents(events)
-    } yield ()
-
-    def initAggregateInDb(id: AggregateId): AggregateDefinition[Unit] =
-      liftAggregate[Unit] {
-        dbAction[E, Boolean](doesAggregateExist[E](tag, id)).flatMap { e: Boolean =>
-          if (e) fail(ErrorExistsAlready(id))
-          else pure(())
-        }
-      }
-
-    val initActions: AggregateDefinition[Unit] = cmd match {
-      case initCmd: InitialAggregateCommand => initAggregateInDb(initCmd.id)
-      case _ => catchUpEvents
-    }
-
     for {
-      _ <- initActions
+      events <- liftAggregateReadState(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version)))
+      _ <- applyEvents(events)
       resultEvents <- handleCmd(cmd)
       _ <- onEvents(resultEvents)
     } yield ()

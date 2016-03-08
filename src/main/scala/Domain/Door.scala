@@ -13,7 +13,7 @@ object Door {
   final case class Unlocked(key: String) extends Event
 
   sealed trait Command
-  final case class Register(id: AggregateId) extends Command with InitialAggregateCommand
+  final case class Register(id: AggregateId) extends Command
   case object Open extends Command
   case object Close extends Command
   final case class Lock(key: String) extends Command

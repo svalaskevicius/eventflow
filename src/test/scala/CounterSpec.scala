@@ -1,5 +1,4 @@
 import Cqrs.Aggregate._
-import Cqrs.Database.ErrorDoesNotExist
 import Domain.Counter.CounterAggregate.tag
 import Domain.Counter._
 import Domain.CounterProjection.{ Data => CounterProjectionData, emptyCounterProjection }
@@ -23,7 +22,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
 
   it should "fail for missing counter" in {
     given(newDbRunner) check {
-      _.failedCommandError(CounterAggregate, "counterid", Increment) should be(DatabaseError(ErrorDoesNotExist("counterid")))
+      _.failedCommandError(CounterAggregate, "counterid", Increment) should be(Errors(NEL(ErrorCannotFindHandler("Increment"))))
     }
   }
 
@@ -40,7 +39,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
 
   it should "fail for missing counter" in {
     given(newDbRunner) check {
-      _.failedCommandError(CounterAggregate, "counterid", Decrement) should be(DatabaseError(ErrorDoesNotExist("counterid")))
+      _.failedCommandError(CounterAggregate, "counterid", Decrement) should be(Errors(NEL(ErrorCannotFindHandler("Decrement"))))
     }
   }
 

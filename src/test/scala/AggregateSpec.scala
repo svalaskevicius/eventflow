@@ -99,15 +99,9 @@ trait AggregateSpec {
   private def addEvents[Db: Backend, E: EventSerialisation](database: Db, tag: Aggregate.Tag, aggregateId: AggregateId, events: List[E]): Aggregate.Error Xor Db = {
     import Aggregate._
 
-    def getVersion(exists: Boolean): DatabaseWithAggregateFailure[E, Int] =
-      if (!exists) pure(0)
-      else for {
-        pastEvents <- dbAction(readNewEvents[E](tag, aggregateId, 0))
-      } yield pastEvents.lastOption.map(_.version).getOrElse(0)
-
     val commands = for {
-      exists <- dbAction(doesAggregateExist[E](tag, aggregateId))
-      version <- getVersion(exists)
+      pastEvents <- dbAction(readNewEvents[E](tag, aggregateId, 0))
+      version = pastEvents.lastOption.map(_.version).getOrElse(0)
       _ <- dbAction(appendEvents[E](tag, aggregateId, VersionedEvents(version + 1, events)))
     } yield ()
     implicitly[Backend[Db]].runDb(database, commands.value).leftMap(DatabaseError).map(_._1)

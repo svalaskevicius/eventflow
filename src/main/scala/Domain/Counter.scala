@@ -11,7 +11,7 @@ object Counter {
   case object Decremented extends Event
 
   sealed trait Command
-  final case class Create(id: AggregateId, start: Int) extends Command with InitialAggregateCommand
+  final case class Create(id: AggregateId, start: Int) extends Command
   case object Increment extends Command
   case object Decrement extends Command
 

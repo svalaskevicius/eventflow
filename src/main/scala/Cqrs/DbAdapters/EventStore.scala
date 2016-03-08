@@ -70,20 +70,11 @@ object EventStore {
     //--
 
     (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor List[VersionedEvents[E]]](
-      Xor.left(ErrorDoesNotExist(id))
+      Xor.right(List(VersionedEvents(NewAggregateVersion, List.empty)))
     )(
         (evs: TreeMap[Int, List[String]]) =>
           implicitly[Traverse[List]].sequence[Xor[Error, ?], VersionedEvents[E]](evs.from(fromVersion + 1).toList.map(decodeToVersionedEvents))
       )
-  }
-
-  private def readExistenceFromDb[E](database: DbBackend, tag: Tag, id: AggregateId)(implicit eventSerialiser: EventSerialisation[E]): Error Xor Boolean = {
-
-    //TODO: make event store compatible and instaed of asking, expect
-    val doesNotExist = readFromDb[E](database, tag, id, 0).
-      map { _ => false }.
-      recover({ case ErrorDoesNotExist(_) => true })
-    doesNotExist.map[Boolean](!_)
   }
 
   private def addToDb[E](database: DbBackend, tag: Tag, id: AggregateId, events: VersionedEvents[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
@@ -124,10 +115,6 @@ object EventStore {
   private def transformDbOpToDbState[E](implicit eventSerialiser: EventSerialisation[E]): EventDatabaseOp[E, ?] ~> Db =
     new (EventDatabaseOp[E, ?] ~> Db) {
       def apply[A](fa: EventDatabaseOp[E, A]): Db[A] = fa match {
-        case ReadAggregateExistence(tag, id) => State(database => {
-          val exists = readExistenceFromDb(database, tag, id)(eventSerialiser)
-          (database, exists)
-        })
         case ReadAggregate(tag, id, version) => State(database => {
           val d = readFromDb[E](database, tag, id, version)
           (database, d)
