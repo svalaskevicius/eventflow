@@ -19,7 +19,7 @@ final case class ProjectionBuilder[D](name: String, dbConsumers: List[EventDataC
   def empty(d: D) = Projection(name, 0, d, dbConsumers)
 }
 
-final case class Projection[D](name: String, lastReadOperation: Int, data: D, dbConsumers: List[EventDataConsumerQuery[D]]) {
+final case class Projection[D](name: String, lastReadOperation: Long, data: D, dbConsumers: List[EventDataConsumerQuery[D]]) {
 
   def applyNewEventsFromDb[Db: Backend](db: Db): Database.Error Xor Projection[D] = {
     val updatedProjectionData = Database.consumeDbEvents(db, lastReadOperation, data, dbConsumers)

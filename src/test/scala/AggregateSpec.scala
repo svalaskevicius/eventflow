@@ -31,7 +31,7 @@ trait AggregateSpec {
       })
   }
 
-  case class WhenSteps[Db: Backend, PROJS <: HList](runner: BatchRunner[Db, PROJS], startingDbOpNr: Int) {
+  case class WhenSteps[Db: Backend, PROJS <: HList](runner: BatchRunner[Db, PROJS], startingDbOpNr: Long) {
 
     def command[E: EventSerialisation, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C) = {
       WhenSteps(
@@ -42,7 +42,7 @@ trait AggregateSpec {
     }
   }
 
-  case class ThenSteps[Db: Backend, PROJS <: HList](runner: BatchRunner[Db, PROJS], startingDbOpNr: Int) {
+  case class ThenSteps[Db: Backend, PROJS <: HList](runner: BatchRunner[Db, PROJS], startingDbOpNr: Long) {
 
     type Self = ThenSteps[Db, PROJS]
 
@@ -77,7 +77,7 @@ trait AggregateSpec {
       steps(ThenSteps(whenSteps.runner.runProjections, whenSteps.startingDbOpNr))
   }
 
-  private def readEvents[E: EventSerialisation, Db](db: Db, fromOperation: Int, tag: Aggregate.Tag, aggregateId: AggregateId)(implicit backend: Backend[Db]) = {
+  private def readEvents[E: EventSerialisation, Db](db: Db, fromOperation: Long, tag: Aggregate.Tag, aggregateId: AggregateId)(implicit backend: Backend[Db]) = {
     backend.consumeDbEvents(
       db,
       fromOperation,
@@ -93,7 +93,7 @@ trait AggregateSpec {
     )
   }
 
-  private def readDbVersion[Db](db: Db)(implicit backend: Backend[Db]): Database.Error Xor Int =
+  private def readDbVersion[Db](db: Db)(implicit backend: Backend[Db]): Database.Error Xor Long =
     backend.consumeDbEvents(db, 0, (), List()).map(_._1)
 
   private def addEvents[Db: Backend, E: EventSerialisation](database: Db, tag: Aggregate.Tag, aggregateId: AggregateId, events: List[E]): Aggregate.Error Xor Db = {

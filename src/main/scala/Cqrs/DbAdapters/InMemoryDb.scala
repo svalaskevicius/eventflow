@@ -14,8 +14,8 @@ object InMemoryDb {
 
   final case class DbBackend(
     data: TreeMap[String, TreeMap[String, TreeMap[Int, String]]], // tag -> aggregate id -> version -> event data
-    log: TreeMap[Int, (String, String, Int)], // operation nr -> tag, aggregate id, aggregate version
-    lastOperationNr: Int
+    log: TreeMap[Long, (String, String, Int)], // operation nr -> tag, aggregate id, aggregate version
+    lastOperationNr: Long
   )
   private type Db[A] = State[DbBackend, A]
 
@@ -43,7 +43,7 @@ object InMemoryDb {
     val currentEvents = currentTaggedEvents flatMap (_.get(id.v))
     val previousVersion = currentEvents.fold(-1)(e => if (e.isEmpty) 0 else e.lastKey)
     if (previousVersion != expectedVersion) {
-      Xor.left(ErrorUnexpectedVersion(id, previousVersion, expectedVersion))
+      Xor.left(ErrorUnexpectedVersion(id, s"Aggregate version expectation failed: $previousVersion != $expectedVersion"))
     } else {
       val operationStartNumber = database.lastOperationNr + 1
       val indexedEvents = events.zipWithIndex
@@ -90,7 +90,7 @@ object InMemoryDb {
       r map ((db, _))
     }
 
-    def consumeDbEvents[D](database: DbBackend, fromOperation: Int, initData: D, queries: List[EventDataConsumerQuery[D]]): Error Xor (Int, D) = {
+    def consumeDbEvents[D](database: DbBackend, fromOperation: Long, initData: D, queries: List[EventDataConsumerQuery[D]]): Error Xor (Long, D) = {
 
       def findData(tag: String, id: String, version: Int): Error Xor String = {
         val optionalRet = database.data.get(tag) flatMap (_.get(id)) flatMap (_.get(version))
@@ -108,7 +108,7 @@ object InMemoryDb {
           d => q => if (q.tag.v == logEntry._1) applyQueryToLogEntry(logEntry, d, q.consumer) else Xor.right(d)
         )(initDataForLogEntries)(queries)
 
-      val newData = foldM[D, (Int, (String, String, Int)), Xor[Error, ?]](
+      val newData = foldM[D, (Long, (String, String, Int)), Xor[Error, ?]](
         d => el => checkAndApplyDataLogEntry(d, el._2)
       )(
           initData

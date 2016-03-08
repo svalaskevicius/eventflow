@@ -13,7 +13,8 @@ object Database {
   sealed trait Error
   final case class ErrorDbFailure(message: String) extends Error
   final case class EventDecodingFailure(rawData: String) extends Error
-  final case class ErrorUnexpectedVersion(id: AggregateId, currentVersion: Int, targetVersion: Int) extends Error
+  //TODO: add tag
+  final case class ErrorUnexpectedVersion(id: AggregateId, message: String) extends Error
 
   final case class ReadAggregateEventsResponse[E](lastVersion: Int, events: List[E], endOfStream: Boolean)
 
@@ -66,7 +67,7 @@ object Database {
      * @tparam D            type of the init / return data
      * @return              error on failure or the new operations log number and the fold result
      */
-    def consumeDbEvents[D](database: Db, fromOperation: Int, initData: D, query: List[EventDataConsumerQuery[D]]): Error Xor (Int, D)
+    def consumeDbEvents[D](database: Db, fromOperation: Long, initData: D, query: List[EventDataConsumerQuery[D]]): Error Xor (Long, D)
   }
 
   trait EventSerialisation[E] {
@@ -108,7 +109,7 @@ object Database {
   def runDb[E: EventSerialisation, A, Db](database: Db, actions: EventDatabaseWithFailure[E, A])(implicit backend: Backend[Db]) =
     backend.runDb(database, actions)
 
-  def consumeDbEvents[D, Db](database: Db, fromOperation: Int, initData: D, query: List[EventDataConsumerQuery[D]])(implicit backend: Backend[Db]) =
+  def consumeDbEvents[D, Db](database: Db, fromOperation: Long, initData: D, query: List[EventDataConsumerQuery[D]])(implicit backend: Backend[Db]) =
     backend.consumeDbEvents(database, fromOperation, initData, query)
 }
 
