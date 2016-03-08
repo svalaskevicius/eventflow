@@ -22,7 +22,7 @@ object EventStore {
   final case class DbBackend(
                             system: ActorSystem,
                             connection: EsConnection,
-    data: TreeMap[String, TreeMap[String, TreeMap[Int, List[String]]]], // tag -> aggregate id -> version -> event data
+    data: TreeMap[String, TreeMap[String, TreeMap[Int, String]]], // tag -> aggregate id -> version -> event data
     log: TreeMap[Int, (String, String, Int)], // operation nr -> tag, aggregate id, aggregate version
     lastOperationNr: Int
   )
@@ -36,18 +36,13 @@ object EventStore {
 
   private def readFromDb[E: EventSerialisation](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int): Error Xor VersionedEvents[E] = {
 
-    def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, List[String]]]) = t.get(id.v)
+    def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, String]]) = t.get(id.v)
     def decode(d: String) = implicitly[EventSerialisation[E]].decode(d)
-//    def decodeEvents(d: Iterable[String])(implicit t: Traverse[Iterable]): Error Xor Iterable[E] = t.sequence[Xor[Error, ?], E](d map decode)
     def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
-//    def decodeToVersionedEvents(dbrec: (Int, List[String])): Error Xor VersionedEvents[E] = {
-//      val evs = decodeEvents(dbrec._2)
-//      evs.map(v => VersionedEvents[E](dbrec._1, v))
-//    }
 
     //--
     val f = database.connection future ReadStreamEvents(
-      EventStream.Id(tag.v+"."+id.v),
+      EventStream.Id(tag.v+"+"+id.v),
       EventNumber.Exact((fromVersion - 1).max(0))
     )
     case class Response(lastVersion: Int, events: Error Xor List[E], endOfStream: Boolean)
@@ -69,32 +64,33 @@ object EventStore {
     println("reading events: " + Try(Await.result(noStreamHandled, 10.seconds)))
 
     //--
-???
-//    (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor VersionedEvents[E]](
-//      Xor.right(VersionedEvents(NewAggregateVersion, List.empty))
-//    )(
-//        (evs: TreeMap[Int, List[String]]) => {
-//          val newEvents = evs.from(fromVersion + 1)
-//          val newVersion = newEvents.lastKey
-//          decodeEvents(newEvents.values).map(evs => VersionedEvents(newVersion, evs.toList))
-//        }
-//      )
+    (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor VersionedEvents[E]](
+      Xor.right(VersionedEvents(NewAggregateVersion, List.empty))
+    )(
+      (evs: TreeMap[Int, String]) => {
+        val newEvents = evs.from(fromVersion + 1)
+        val newVersion = if (newEvents.isEmpty) fromVersion else newEvents.lastKey
+        decodeEvents(newEvents.values.toList).map(evs => VersionedEvents(newVersion, evs))
+      }
+    )
   }
 
   private def addToDb[E](database: DbBackend, tag: Tag, id: AggregateId, events: VersionedEvents[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
     val currentTaggedEvents = database.data.get(tag.v)
     val currentEvents = currentTaggedEvents flatMap (_.get(id.v))
-    val previousVersion = currentEvents.fold(0)(e => if (e.isEmpty) 0 else e.lastKey)
+    val previousVersion = currentEvents.fold(-1)(e => if (e.isEmpty) 0 else e.lastKey)
     if (previousVersion != events.version - 1) {
       Xor.left(ErrorUnexpectedVersion(id, previousVersion, events.version))
     } else {
-      val operationNumber = database.lastOperationNr + 1
+      val operationStartNumber = database.lastOperationNr + 1
+      val indexedEvents = events.events.zipWithIndex
       Xor.right {
         //--
+        println(s"writing $id, $events")
         val f = database.connection future WriteEvents(
-          EventStream.Id(tag.v+"."+id.v),
+          EventStream.Id(tag.v+"+"+id.v),
           events.events.map(ev => eventstore.EventData.Json(ev.getClass.toString, data = eventSerialiser.encode(ev))),
-          ExpectedVersion(events.version - 2) //TODO: ES starts from 0, aggregate - from 1 (for now), make in mem db compatible is there are no other restrictions
+          ExpectedVersion(events.version - 1)
         )
         println("writing events: " + Try(Await.result(f, 10.seconds)))
         //--
@@ -104,13 +100,17 @@ object EventStore {
           database.connection,
           database.data.updated(
             tag.v,
-            currentTaggedEvents.getOrElse(TreeMap.empty[String, TreeMap[Int, List[String]]]).updated(
+            currentTaggedEvents.getOrElse(TreeMap.empty[String, TreeMap[Int, String]]).updated(
               id.v,
-              currentEvents.getOrElse(TreeMap.empty[Int, List[String]]).updated(events.version, events.events map eventSerialiser.encode)
+              indexedEvents.foldLeft(currentEvents.getOrElse(TreeMap.empty[Int, String])) { (db, ev) =>
+                db.updated(events.version + ev._2, eventSerialiser.encode(ev._1))
+              }
             )
           ),
-          database.log + ((operationNumber, (tag.v, id.v, events.version))),
-          operationNumber
+          indexedEvents.foldLeft(database.log) { (log, ev) =>
+            log + ((operationStartNumber + ev._2, (tag.v, id.v, events.version + ev._2)))
+          },
+          operationStartNumber + indexedEvents.length
         )
       }
     }
@@ -141,13 +141,13 @@ object EventStore {
 
     def consumeDbEvents[D](database: DbBackend, fromOperation: Int, initData: D, queries: List[EventDataConsumerQuery[D]]): Error Xor (Int, D) = {
 
-      def findData(tag: String, id: String, version: Int): Error Xor List[String] = {
+      def findData(tag: String, id: String, version: Int): Error Xor String = {
         val optionalRet = database.data.get(tag) flatMap (_.get(id)) flatMap (_.get(version))
         optionalRet.map(Xor.right).getOrElse(Xor.left(ErrorDbFailure("Cannot find requested data: " + tag + " " + id + " " + version)))
       }
 
-      def applyLogEntryData(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: List[String]): Error Xor D =
-        foldM[D, String, Xor[Error, ?]](d => v => consumer(d, RawEventData(Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, v)))(d)(data)
+      def applyLogEntryData(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: String): Error Xor D =
+        consumer(d, RawEventData(Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, data))
 
       def applyQueryToLogEntry(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Error Xor D =
         findData(logEntry._1, logEntry._2, logEntry._3) flatMap applyLogEntryData(logEntry, d, consumer)
@@ -160,10 +160,10 @@ object EventStore {
       val newData = foldM[D, (Int, (String, String, Int)), Xor[Error, ?]](
         d => el => checkAndApplyDataLogEntry(d, el._2)
       )(
-          initData
-        )(
-          database.log.from(fromOperation + 1)
-        )
+        initData
+      )(
+        database.log.from(fromOperation + 1)
+      )
 
       newData.map((database.lastOperationNr, _))
     }

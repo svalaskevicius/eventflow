@@ -26,17 +26,13 @@ object InMemoryDb {
     def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, String]]) = t.get(id.v)
     def decode(d: String) = implicitly[EventSerialisation[E]].decode(d)
     def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
-    def decodeToVersionedEvents(dbrec: (Int, List[String])): Error Xor VersionedEvents[E] = {
-      val evs = decodeEvents(dbrec._2)
-      evs.map(v => VersionedEvents[E](dbrec._1, v))
-    }
 
     (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor VersionedEvents[E]](
       Xor.right(VersionedEvents(NewAggregateVersion, List.empty))
     )(
       (evs: TreeMap[Int, String]) => {
         val newEvents = evs.from(fromVersion + 1)
-        val newVersion = newEvents.lastKey
+        val newVersion = if (newEvents.isEmpty) fromVersion else newEvents.lastKey
         decodeEvents(newEvents.values.toList).map(evs => VersionedEvents(newVersion, evs))
       }
     )
