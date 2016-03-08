@@ -57,8 +57,16 @@ object EventStore {
         response.endOfStream
       )
     }
+    val noStreamHandled = events.recover { case e:StreamNotFoundException =>
+      Response(
+        -1, //TODO: add constant
+        Xor.right(List.empty),
+        endOfStream = true
+      )
+    }
     //TODO: add batches support in db api, where aggregate can read more
-    println("reading events: " + Try(Await.result(events, 10.seconds)))
+    println("reading events: " + Try(Await.result(noStreamHandled, 10.seconds)))
+
     //--
 
     (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor List[VersionedEvents[E]]](
