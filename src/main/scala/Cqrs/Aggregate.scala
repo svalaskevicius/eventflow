@@ -103,20 +103,17 @@ trait Aggregate[E, C, D] {
   private def onEvents(evs: List[E]): AggregateDefinition[Unit] =
     defineAggregate { vs =>
       import Database._
-      val vevs = VersionedEvents[E](vs.version + 1, evs)
-      dbAction(appendEvents(tag, vs.id, vevs).map(_ => (vs, List(vevs))))
+      val vevs = VersionedEvents[E](vs.version + evs.length, evs)
+      dbAction(appendEvents(tag, vs.id, vevs).map(_ => (vs, vevs)))
     }.flatMap(applyEvents)
 
-  private def applyEvents(evs: List[VersionedEvents[E]]): AggregateDefinition[Unit] =
+  private def applyEvents(evs: VersionedEvents[E]): AggregateDefinition[Unit] =
     defineAggregate { vs =>
-      val vs_ = evs.foldLeft(vs)((vs_, ve) => {
-        if (vs_.version < ve.version) {
-          vs_.copy(state = ve.events.foldLeft(vs_.state)((d, e) => on(e)(d)), version = ve.version)
-        } else {
-          vs_
-        }
-      })
-      pure((vs_, ()))
+      if (vs.version < evs.version) {
+        pure((vs.copy(state = evs.events.foldLeft(vs.state)((d, e) => on(e)(d)), version = evs.version), ()))
+      } else {
+        pure((vs, ()))
+      }
     }
 }
 

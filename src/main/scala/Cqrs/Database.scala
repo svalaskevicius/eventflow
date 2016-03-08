@@ -18,7 +18,7 @@ object Database {
   final case class VersionedEvents[E](version: Int, events: List[E])
 
   sealed trait EventDatabaseOp[E, A]
-  final case class ReadAggregate[E](tag: Tag, id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor List[VersionedEvents[E]]]
+  final case class ReadAggregate[E](tag: Tag, id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor VersionedEvents[E]]
   final case class AppendAggregateEvents[E](tag: Tag, id: AggregateId, events: VersionedEvents[E]) extends EventDatabaseOp[E, Error Xor Unit]
 
   type EventDatabase[E, A] = Free[EventDatabaseOp[E, ?], A]
@@ -28,7 +28,7 @@ object Database {
   def lift[E, A](a: EventDatabaseOp[E, Error Xor A]): EventDatabaseWithFailure[E, A] =
     XorT[EventDatabase[E, ?], Error, A](liftF[EventDatabaseOp[E, ?], Error Xor A](a))
 
-  def readNewEvents[E](tag: Tag, id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[E, List[VersionedEvents[E]]] =
+  def readNewEvents[E](tag: Tag, id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[E, VersionedEvents[E]] =
     lift(ReadAggregate[E](tag, id, fromVersion))
 
   def appendEvents[E](tag: Tag, id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[E, Unit] =

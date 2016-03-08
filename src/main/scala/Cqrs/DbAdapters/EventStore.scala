@@ -34,15 +34,16 @@ object EventStore {
     DbBackend(system, connection, TreeMap.empty, TreeMap.empty, 0)
   }
 
-  private def readFromDb[E: EventSerialisation](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int): Error Xor List[VersionedEvents[E]] = {
+  private def readFromDb[E: EventSerialisation](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int): Error Xor VersionedEvents[E] = {
 
     def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, List[String]]]) = t.get(id.v)
     def decode(d: String) = implicitly[EventSerialisation[E]].decode(d)
+//    def decodeEvents(d: Iterable[String])(implicit t: Traverse[Iterable]): Error Xor Iterable[E] = t.sequence[Xor[Error, ?], E](d map decode)
     def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
-    def decodeToVersionedEvents(dbrec: (Int, List[String])): Error Xor VersionedEvents[E] = {
-      val evs = decodeEvents(dbrec._2)
-      evs.map(v => VersionedEvents[E](dbrec._1, v))
-    }
+//    def decodeToVersionedEvents(dbrec: (Int, List[String])): Error Xor VersionedEvents[E] = {
+//      val evs = decodeEvents(dbrec._2)
+//      evs.map(v => VersionedEvents[E](dbrec._1, v))
+//    }
 
     //--
     val f = database.connection future ReadStreamEvents(
@@ -68,13 +69,16 @@ object EventStore {
     println("reading events: " + Try(Await.result(noStreamHandled, 10.seconds)))
 
     //--
-
-    (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor List[VersionedEvents[E]]](
-      Xor.right(List(VersionedEvents(NewAggregateVersion, List.empty)))
-    )(
-        (evs: TreeMap[Int, List[String]]) =>
-          implicitly[Traverse[List]].sequence[Xor[Error, ?], VersionedEvents[E]](evs.from(fromVersion + 1).toList.map(decodeToVersionedEvents))
-      )
+???
+//    (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor VersionedEvents[E]](
+//      Xor.right(VersionedEvents(NewAggregateVersion, List.empty))
+//    )(
+//        (evs: TreeMap[Int, List[String]]) => {
+//          val newEvents = evs.from(fromVersion + 1)
+//          val newVersion = newEvents.lastKey
+//          decodeEvents(newEvents.values).map(evs => VersionedEvents(newVersion, evs.toList))
+//        }
+//      )
   }
 
   private def addToDb[E](database: DbBackend, tag: Tag, id: AggregateId, events: VersionedEvents[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
