@@ -25,7 +25,7 @@ object Aggregate {
   final case class ErrorExistsAlready(id: AggregateId) extends Error
   final case class ErrorCommandFailure(message: String) extends Error
   final case class DatabaseError(err: Database.Error) extends Error
-  case object ErrorCannotFindHandler extends Error
+  final case class ErrorCannotFindHandler(commandData: String) extends Error
   final case class Errors(err: NEL[Error]) extends Error
 
   type DatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabaseWithFailure[E, ?], Err, A]

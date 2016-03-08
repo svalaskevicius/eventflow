@@ -28,7 +28,7 @@ object Door {
   )
 
   private def closedDoors: Flow[Unit] = handler(
-    when(Open).emit(Opened),
+    when(Open).emit(Opened).switch(openDoors),
     when[Lock].emit[Locked].switch(ev => lockedDoors(ev.key))
   )
 

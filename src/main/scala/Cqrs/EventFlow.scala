@@ -175,7 +175,7 @@ class EventFlow[Cmd, Evt] {
         case None => consumer.cmdh.lift(c)
       }
     ).getOrElse {
-        Validated.invalid(NEL(ErrorCannotFindHandler))
+        Validated.invalid(NEL(ErrorCannotFindHandler(c.toString)))
       }
     def initData = esRunnerCompiler(PartialFunction.empty, aggregateLogic)
   }
