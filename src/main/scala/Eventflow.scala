@@ -1,6 +1,6 @@
 
 import Cqrs.BatchRunner
-import Cqrs.DbAdapters.InMemoryDb._
+import Cqrs.DbAdapters.EventStore._
 import Domain.Counter.{ CounterAggregate, Create }
 import Domain.Door.{ DoorAggregate, Register }
 
@@ -37,17 +37,7 @@ object Eventflow {
     } yield ()
   }
 
-  def doorActions1 = {
-    import Domain.Door._
-    import DoorAggregate._
-    for {
-      _ <- handleCommand(Close)
-      _ <- handleCommand(Lock("my secret"))
-      _ <- handleCommand(Unlock("my secret"))
-      _ <- handleCommand(Open)
-    } yield ()
-  }
-  def doorActions2 = {
+  def doorActions = {
     import Domain.Door._
     import DoorAggregate._
     for {
@@ -71,7 +61,7 @@ object Eventflow {
       println("============================")
     }
 
-    val runner = BatchRunner.forDb(newInMemoryDb).
+    val runner = BatchRunner.forDb(newEventStoreConn).
       addProjection(CounterProjection.emptyCounterProjection).
       addProjection(DoorProjection.emptyDoorProjection).
       addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
@@ -80,12 +70,12 @@ object Eventflow {
       import runner._
       val runner1 = run(
         for {
-          c1 <- db(CounterAggregate.loadAndHandleCommand("test counter", Create("test counter", 0)))
+          c1 <- db(CounterAggregate.loadAndHandleCommand("testcounter", Create("testcounter", 0)))
           c1 <- continueWithCommand(c1, actions1)
-          d1 <- db(DoorAggregate.loadAndHandleCommand("golden gate", Register("golden gate")))
-          d1 <- continueWithCommand(d1, doorActions1)
+          d1 <- db(DoorAggregate.loadAndHandleCommand("goldengate", Register("goldengate")))
+          d1 <- continueWithCommand(d1, doorActions)
           c1 <- continueWithCommand(c1, actions2)
-          d1 <- continueWithCommand(d1, doorActions2)
+          d1 <- continueWithCommand(d1, doorActions)
         } yield ()
       ).
         fold(err => { println("Error occurred: " + err._2); err._1 }, r => { println("OK"); r._1 })

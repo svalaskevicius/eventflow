@@ -13,6 +13,8 @@ libraryDependencies += "org.scalacheck" %% "scalacheck" % "1.12.4" % "test"
 libraryDependencies += "org.scalactic" %% "scalactic" % "2.2.6"
 libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.6" % "test"
 
+libraryDependencies += "com.geteventstore" % "eventstore-client_2.11" % "2.2.1"
+
 
 resolvers += Resolver.sonatypeRepo("releases")
 
