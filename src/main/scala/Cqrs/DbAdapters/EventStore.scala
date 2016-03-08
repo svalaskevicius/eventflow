@@ -44,7 +44,7 @@ object EventStore {
 
     val eventsFromDb = database.connection future ReadStreamEvents(
       esStreamId(tag, id),
-      EventNumber.Exact((fromVersion - 1).max(0))
+      EventNumber.Exact(fromVersion+1)
     )
     val decodedResponse = eventsFromDb.map { response =>
       decodeEvents(response.events.map(_.data.data.value.utf8String)).map { events =>
@@ -61,7 +61,6 @@ object EventStore {
   }
 
   private def addToDb[E](database: DbBackend, tag: Tag, id: AggregateId, expectedVersion: Int, events: List[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
-    println(s"writing $id, $events")
     val response = database.connection future WriteEvents(
       esStreamId(tag, id),
       events.map(ev => eventstore.EventData.Json(ev.getClass.toString, data = eventSerialiser.encode(ev))),
