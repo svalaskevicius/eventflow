@@ -7,13 +7,15 @@ import cats._
 import cats.data.Xor
 import cats.state._
 import cats.std.all._
-import eventstore.{ExpectedVersion, EventStream, WriteEvents, EsConnection}
+import eventstore._
 import lib.foldM
 
 import scala.collection.immutable.TreeMap
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.util.Try
+
+import scala.concurrent.ExecutionContext.Implicits.global
 
 object EventStore {
 
@@ -42,6 +44,23 @@ object EventStore {
       evs.map(v => VersionedEvents[E](dbrec._1, v))
     }
 
+    //--
+    val f = database.connection future ReadStreamEvents(
+      EventStream.Id(tag.v+"."+id.v),
+      EventNumber.Exact((fromVersion - 1).max(0))
+    )
+    case class Response(lastVersion: Int, events: Error Xor List[E], endOfStream: Boolean)
+    val events = f.map { response =>
+      Response(
+        response.lastEventNumber.value,
+        decodeEvents(response.events.map(_.data.data.value.utf8String)),
+        response.endOfStream
+      )
+    }
+    //TODO: add batches support in db api, where aggregate can read more
+    println("reading events: " + Try(Await.result(events, 10.seconds)))
+    //--
+
     (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor List[VersionedEvents[E]]](
       Xor.left(ErrorDoesNotExist(id))
     )(
@@ -51,6 +70,8 @@ object EventStore {
   }
 
   private def readExistenceFromDb[E](database: DbBackend, tag: Tag, id: AggregateId)(implicit eventSerialiser: EventSerialisation[E]): Error Xor Boolean = {
+
+    //TODO: make event store compatible and instaed of asking, expect
     val doesNotExist = readFromDb[E](database, tag, id, 0).
       map { _ => false }.
       recover({ case ErrorDoesNotExist(_) => true })
@@ -70,7 +91,7 @@ object EventStore {
         val f = database.connection future WriteEvents(
           EventStream.Id(tag.v+"."+id.v),
           events.events.map(ev => eventstore.EventData.Json(ev.getClass.toString, data = eventSerialiser.encode(ev))),
-          ExpectedVersion(events.version - 2) // ES starts from 0, aggregate - from 1 (for now)
+          ExpectedVersion(events.version - 2) //TODO: ES starts from 0, aggregate - from 1 (for now), make in mem db compatible is there are no other restrictions
         )
         println("writing events: " + Try(Await.result(f, 10.seconds)))
         //--
