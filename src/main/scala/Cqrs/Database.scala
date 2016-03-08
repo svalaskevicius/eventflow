@@ -15,11 +15,11 @@ object Database {
   final case class EventDecodingFailure(rawData: String) extends Error
   final case class ErrorUnexpectedVersion(id: AggregateId, currentVersion: Int, targetVersion: Int) extends Error
 
-  final case class VersionedEvents[E](version: Int, events: List[E])
+  final case class ReadAggregateEventsResponse[E](lastVersion: Int, events: List[E], endOfStream: Boolean)
 
   sealed trait EventDatabaseOp[E, A]
-  final case class ReadAggregate[E](tag: Tag, id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor VersionedEvents[E]]
-  final case class AppendAggregateEvents[E](tag: Tag, id: AggregateId, events: VersionedEvents[E]) extends EventDatabaseOp[E, Error Xor Unit]
+  final case class ReadAggregateEvents[E](tag: Tag, id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor ReadAggregateEventsResponse[E]]
+  final case class AppendAggregateEvents[E](tag: Tag, id: AggregateId, expectedVersion: Int, events: List[E]) extends EventDatabaseOp[E, Error Xor Unit]
 
   type EventDatabase[E, A] = Free[EventDatabaseOp[E, ?], A]
   type EventDatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabase[E, ?], Err, A]
@@ -28,11 +28,11 @@ object Database {
   def lift[E, A](a: EventDatabaseOp[E, Error Xor A]): EventDatabaseWithFailure[E, A] =
     XorT[EventDatabase[E, ?], Error, A](liftF[EventDatabaseOp[E, ?], Error Xor A](a))
 
-  def readNewEvents[E](tag: Tag, id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[E, VersionedEvents[E]] =
-    lift(ReadAggregate[E](tag, id, fromVersion))
+  def readNewEvents[E](tag: Tag, id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[E, ReadAggregateEventsResponse[E]] =
+    lift(ReadAggregateEvents[E](tag, id, fromVersion))
 
-  def appendEvents[E](tag: Tag, id: AggregateId, events: VersionedEvents[E]): EventDatabaseWithFailure[E, Unit] =
-    lift(AppendAggregateEvents(tag, id, events))
+  def appendEvents[E](tag: Tag, id: AggregateId, expectedVersion: Int, events: List[E]): EventDatabaseWithFailure[E, Unit] =
+    lift(AppendAggregateEvents(tag, id, expectedVersion, events))
 
   implicit def eventDatabaseMonad[E]: Monad[EventDatabase[E, ?]] = Free.freeMonad[EventDatabaseOp[E, ?]]
   implicit def eventDatabaseWithFailureMonad[E]: MonadError[EventDatabaseWithAnyFailure[E, ?, ?], Error] = XorT.xorTMonadError[EventDatabase[E, ?], Error]

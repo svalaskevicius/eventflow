@@ -101,7 +101,7 @@ trait AggregateSpec {
 
     val commands = for {
       pastEvents <- dbAction(readNewEvents[E](tag, aggregateId, 0))
-      _ <- dbAction(appendEvents[E](tag, aggregateId, VersionedEvents(pastEvents.version + 1, events)))
+      _ <- dbAction(appendEvents[E](tag, aggregateId, pastEvents.lastVersion, events))
     } yield ()
     implicitly[Backend[Db]].runDb(database, commands.value).leftMap(DatabaseError).map(_._1)
   }

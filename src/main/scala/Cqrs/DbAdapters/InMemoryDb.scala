@@ -21,32 +21,32 @@ object InMemoryDb {
 
   def newInMemoryDb: DbBackend = DbBackend(TreeMap.empty, TreeMap.empty, 0)
 
-  private def readFromDb[E: EventSerialisation](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int): Error Xor VersionedEvents[E] = {
+  private def readFromDb[E: EventSerialisation](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int): Error Xor ReadAggregateEventsResponse[E] = {
 
     def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, String]]) = t.get(id.v)
     def decode(d: String) = implicitly[EventSerialisation[E]].decode(d)
     def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
 
-    (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor VersionedEvents[E]](
-      Xor.right(VersionedEvents(NewAggregateVersion, List.empty))
+    (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor ReadAggregateEventsResponse[E]](
+      Xor.right(ReadAggregateEventsResponse(NewAggregateVersion, List.empty, true))
     )(
       (evs: TreeMap[Int, String]) => {
         val newEvents = evs.from(fromVersion + 1)
         val newVersion = if (newEvents.isEmpty) fromVersion else newEvents.lastKey
-        decodeEvents(newEvents.values.toList).map(evs => VersionedEvents(newVersion, evs))
+        decodeEvents(newEvents.values.toList).map(evs => ReadAggregateEventsResponse(newVersion, evs, true))
       }
     )
   }
 
-  private def addToDb[E](database: DbBackend, tag: Tag, id: AggregateId, events: VersionedEvents[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
+  private def addToDb[E](database: DbBackend, tag: Tag, id: AggregateId, expectedVersion: Int, events: List[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
     val currentTaggedEvents = database.data.get(tag.v)
     val currentEvents = currentTaggedEvents flatMap (_.get(id.v))
     val previousVersion = currentEvents.fold(-1)(e => if (e.isEmpty) 0 else e.lastKey)
-    if (previousVersion != events.version - 1) {
-      Xor.left(ErrorUnexpectedVersion(id, previousVersion, events.version))
+    if (previousVersion != expectedVersion) {
+      Xor.left(ErrorUnexpectedVersion(id, previousVersion, expectedVersion))
     } else {
       val operationStartNumber = database.lastOperationNr + 1
-      val indexedEvents = events.events.zipWithIndex
+      val indexedEvents = events.zipWithIndex
       Xor.right(
         DbBackend(
           database.data.updated(
@@ -54,12 +54,12 @@ object InMemoryDb {
             currentTaggedEvents.getOrElse(TreeMap.empty[String, TreeMap[Int, String]]).updated(
               id.v,
               indexedEvents.foldLeft(currentEvents.getOrElse(TreeMap.empty[Int, String])) { (db, ev) =>
-                db.updated(events.version + ev._2, eventSerialiser.encode(ev._1))
+                db.updated(previousVersion + 1 + ev._2, eventSerialiser.encode(ev._1))
               }
             )
           ),
           indexedEvents.foldLeft(database.log) { (log, ev) =>
-            log + ((operationStartNumber + ev._2, (tag.v, id.v, events.version + ev._2)))
+            log + ((operationStartNumber + ev._2, (tag.v, id.v, previousVersion + 1 + ev._2)))
           },
           operationStartNumber + indexedEvents.length
         )
@@ -70,12 +70,12 @@ object InMemoryDb {
   private def transformDbOpToDbState[E](implicit eventSerialiser: EventSerialisation[E]): EventDatabaseOp[E, ?] ~> Db =
     new (EventDatabaseOp[E, ?] ~> Db) {
       def apply[A](fa: EventDatabaseOp[E, A]): Db[A] = fa match {
-        case ReadAggregate(tag, id, version) => State(database => {
+        case ReadAggregateEvents(tag, id, version) => State(database => {
           val d = readFromDb[E](database, tag, id, version)
           (database, d)
         })
-        case AppendAggregateEvents(tag, id, events) => State((database: DbBackend) => {
-          val d = addToDb[E](database, tag, id, events)
+        case AppendAggregateEvents(tag, id, expectedVersion, events) => State((database: DbBackend) => {
+          val d = addToDb[E](database, tag, id, expectedVersion, events)
           d.fold[(DbBackend, Error Xor Unit)](
             err => (database, Xor.left[Error, Unit](err)),
             db => (db, Xor.right[Error, Unit](()))

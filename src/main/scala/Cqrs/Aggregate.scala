@@ -1,7 +1,6 @@
 package Cqrs
 
-import Cqrs.Aggregate.AggregateId
-import Cqrs.Database.{ EventDatabaseWithFailure, VersionedEvents }
+import Cqrs.Database.EventDatabaseWithFailure
 import algebra.Semigroup
 import cats.data.{ NonEmptyList => NEL, Validated, ValidatedNel, Xor, XorT }
 import cats.state._
@@ -85,8 +84,8 @@ trait Aggregate[E, C, D] {
     import Database._
 
     for {
-      events <- liftAggregateReadState(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version)))
-      _ <- applyEvents(events)
+      response <- liftAggregateReadState(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version)))
+      _ <- addEvents(response.events)
       resultEvents <- handleCmd(cmd)
       _ <- onEvents(resultEvents)
     } yield ()
@@ -103,17 +102,15 @@ trait Aggregate[E, C, D] {
   private def onEvents(evs: List[E]): AggregateDefinition[Unit] =
     defineAggregate { vs =>
       import Database._
-      val vevs = VersionedEvents[E](vs.version + evs.length, evs)
-      dbAction(appendEvents(tag, vs.id, vevs).map(_ => (vs, vevs)))
-    }.flatMap(applyEvents)
+      dbAction(appendEvents(tag, vs.id, vs.version, evs).map(_ => (vs, evs)))
+    }.flatMap(addEvents)
 
-  private def applyEvents(evs: VersionedEvents[E]): AggregateDefinition[Unit] =
+  private def addEvents(evs: List[E]): AggregateDefinition[Unit] =
     defineAggregate { vs =>
-      if (vs.version < evs.version) {
-        pure((vs.copy(state = evs.events.foldLeft(vs.state)((d, e) => on(e)(d)), version = evs.version), ()))
-      } else {
-        pure((vs, ()))
-      }
+      pure((vs.copy(
+        state = evs.foldLeft(vs.state)((d, e) => on(e)(d)),
+        version = vs.version + evs.length
+      ), ()))
     }
 }
 
