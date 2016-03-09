@@ -1,8 +1,12 @@
 
-import Cqrs.BatchRunner
+import Cqrs.Aggregate.{AggregateId, EventTag}
+import Cqrs.DbAdapters.EventStore
+import Cqrs.{ConcreteProjRunner, BatchRunner}
+import Cqrs.Database.{EventData2, EventData}
 import Cqrs.DbAdapters.EventStore._
 import Domain.Counter.{ CounterAggregate, Create }
 import Domain.Door.{ DoorAggregate, Register }
+import shapeless.HNil
 
 object Eventflow {
 
@@ -61,31 +65,60 @@ object Eventflow {
       println("============================")
     }
 
-    val runner = BatchRunner.forDb(newEventStoreConn).
-      addProjection(CounterProjection.emptyCounterProjection).
-      addProjection(DoorProjection.emptyDoorProjection).
-      addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
+//    val pr1 = ConcreteProjRunner(CounterProjection.p, 0)
+//    val pr2 = pr1.accept(EventData2(CounterAggregate.tag, AggregateId("a"), 1, Counter.Incremented))
+//    val pr3 = pr2.accept(EventData2(CounterAggregate.tag, AggregateId("a"), 1, Counter.Decremented))
+//    val pr4 = pr3.accept(EventData2(CounterAggregate.tag, AggregateId("a"), 1, Door.Closed))
+//    println(pr3)
 
-    {
-      import runner._
-      val runner1 = run(
-        for {
-          c1 <- db(CounterAggregate.loadAndHandleCommand("testcounter", Create("testcounter", 0)))
-          c1 <- continueWithCommand(c1, actions1)
-          d1 <- db(DoorAggregate.loadAndHandleCommand("goldengate", Register("goldengate")))
-          d1 <- continueWithCommand(d1, doorActions)
-          c1 <- continueWithCommand(c1, actions2)
-          d1 <- continueWithCommand(d1, doorActions)
-        } yield ()
-      ).
-        fold(err => { println("Error occurred: " + err._2); err._1 }, r => { println("OK"); r._1 })
+        var runner: BatchRunner[EventStore.DbBackend, HNil.type] = null
+        runner = BatchRunner.forDb(newEventStoreConn(List(ConcreteProjRunner(CounterProjection.p, 0)), updater => {
+          println(s"updated db from db: ${runner.db} => ${updater(runner.db)}")
+        }))
 
-      printRunner(runner1)
+        {
+          val runner1 = runner.run(
+            for {
+              c1 <- runner.db(CounterAggregate.loadAndHandleCommand("testcounter", Create("testcounter", 0)))
+              c1 <- runner.continueWithCommand(c1, actions1)
+              d1 <- runner.db(DoorAggregate.loadAndHandleCommand("goldengate", Register("goldengate")))
+              d1 <- runner.continueWithCommand(d1, doorActions)
+              c1 <- runner.continueWithCommand(c1, actions2)
+              d1 <- runner.continueWithCommand(d1, doorActions)
+            } yield ()
+          ).
+            fold(err => { println("Error occurred: " + err._2); err._1 }, r => { println("OK"); r._1 })
 
-      val runner2 = runner1.addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
+          printRunner(runner1)
 
-      printRunner(runner2)
-    }
+//          val runner2 = runner1.addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
+//          printRunner(runner2)
+        }
+//    val runner = BatchRunner.forDb(newEventStoreConn).
+//      addProjection(CounterProjection.emptyCounterProjection).
+//      addProjection(DoorProjection.emptyDoorProjection).
+//      addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
+//
+//    {
+//      import runner._
+//      val runner1 = run(
+//        for {
+//          c1 <- db(CounterAggregate.loadAndHandleCommand("testcounter", Create("testcounter", 0)))
+//          c1 <- continueWithCommand(c1, actions1)
+//          d1 <- db(DoorAggregate.loadAndHandleCommand("goldengate", Register("goldengate")))
+//          d1 <- continueWithCommand(d1, doorActions)
+//          c1 <- continueWithCommand(c1, actions2)
+//          d1 <- continueWithCommand(d1, doorActions)
+//        } yield ()
+//      ).
+//        fold(err => { println("Error occurred: " + err._2); err._1 }, r => { println("OK"); r._1 })
+//
+//      printRunner(runner1)
+//
+//      val runner2 = runner1.addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
+//
+//      printRunner(runner2)
+//    }
   }
 }
 

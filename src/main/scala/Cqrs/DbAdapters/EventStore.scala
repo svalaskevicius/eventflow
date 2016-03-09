@@ -1,7 +1,10 @@
 package Cqrs.DbAdapters
 
+import java.io.Closeable
+
 import Cqrs.Aggregate._
 import Cqrs.Database.{Error, _}
+import Cqrs.ProjRunner
 import akka.actor.ActorSystem
 import cats._
 import cats.data.Xor
@@ -13,7 +16,6 @@ import lib.foldM
 import scala.collection.immutable.TreeMap
 import scala.concurrent.{Future, Await}
 import scala.concurrent.duration._
-import scala.util.Try
 
 import scala.concurrent.ExecutionContext.Implicits.global
 
@@ -22,6 +24,7 @@ object EventStore {
   final case class DbBackend(
                               system: ActorSystem,
                               connection: EsConnection,
+                              projections: List[ProjRunner],
                               data: TreeMap[String, TreeMap[String, TreeMap[Int, String]]], // tag -> aggregate id -> version -> event data
                               log: TreeMap[Long, (String, String, Int)], // operation nr -> tag, aggregate id, aggregate version
                               lastOperationNr: Long
@@ -29,15 +32,38 @@ object EventStore {
 
   private type Db[A] = State[DbBackend, A]
 
-  def newEventStoreConn: DbBackend = {
+  def newEventStoreConn(projections: List[ProjRunner], dbUpdate: (DbBackend => DbBackend) => Unit): DbBackend = {
     val system = ActorSystem()
     val connection = EsConnection(system)
-    DbBackend(system, connection, TreeMap.empty, TreeMap.empty, 0)
+    val allEventsSubscription = connection.subscribeToAllFrom(
+      new SubscriptionObserver[IndexedEvent] {
+        def onLiveProcessingStart(subscription: Closeable) = {}
+        def onEvent(event: IndexedEvent, subscription: Closeable) = {
+          parseEsStreamId(event.event.streamId) match {
+            case Some((tagId, aggId)) => dbUpdate { db =>
+              db.copy(projections = db.projections.map { runner =>
+                runner.listeningFor.filter(_.v == tagId).foldLeft(runner) { (rnr, tag) =>
+                  rnr.accept(Cqrs.Database.EventData(tag, aggId, 0, tag.eventSerialiser.decode(event.event.data.data.value.utf8String).toOption.get))
+                }
+              })
+            }
+            case _ => ()
+          }
+        }
+        def onError(e: Throwable) = ??? //TODO: ???
+        def onClose() = {} //TODO: reopen?
+      }
+    )
+    DbBackend(system, connection, projections, TreeMap.empty, TreeMap.empty, 0)
   }
 
-  private def esStreamId(tag: Tag, id: AggregateId) = EventStream.Id(tag.v + "+" + id.v)
+  private def esStreamId(tag: EventTag, id: AggregateId) = EventStream.Id(tag.v + "b" + id.v)
+  private def parseEsStreamId(id: EventStream.Id) = id.value.split('b').toList match {
+    case tagId :: aggId :: Nil => Some(tagId -> aggId)
+    case _ => None
+  }
 
-  private def readFromDb[E: EventSerialisation](database: DbBackend, tag: Tag, id: AggregateId, fromVersion: Int): Error Xor ReadAggregateEventsResponse[E] = {
+  private def readFromDb[E: EventSerialisation](database: DbBackend, tag: EventTag, id: AggregateId, fromVersion: Int): Error Xor ReadAggregateEventsResponse[E] = {
 
     def decode(d: String) = implicitly[EventSerialisation[E]].decode(d)
     def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
@@ -60,7 +86,7 @@ object EventStore {
     Await.result(dbErrorsHandled, 10.seconds)
   }
 
-  private def addToDb[E](database: DbBackend, tag: Tag, id: AggregateId, expectedVersion: Int, events: List[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
+  private def addToDb[E](database: DbBackend, tag: EventTag, id: AggregateId, expectedVersion: Int, events: List[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor DbBackend = {
     val response = database.connection future WriteEvents(
       esStreamId(tag, id),
       events.map(ev => eventstore.EventData.Json(ev.getClass.toString, data = eventSerialiser.encode(ev))),
@@ -77,6 +103,7 @@ object EventStore {
     val updatedResponse = dbErrorsHandled.map(_.map { position =>
       database.copy(lastOperationNr = position.getOrElse(database.lastOperationNr))
     })
+    // TODO: move futures further to natural transform, maybe even public db api?
     Await.result(updatedResponse, 10.seconds)
   }
 
@@ -111,7 +138,7 @@ object EventStore {
       }
 
       def applyLogEntryData(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: String): Error Xor D =
-        consumer(d, RawEventData(Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, data))
+        Xor.right(d) // consumer(d, RawEventData(Tag(logEntry._1), AggregateId(logEntry._2), logEntry._3, data))
 
       def applyQueryToLogEntry(logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Error Xor D =
         findData(logEntry._1, logEntry._2, logEntry._3) flatMap applyLogEntryData(logEntry, d, consumer)

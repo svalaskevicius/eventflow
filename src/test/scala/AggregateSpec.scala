@@ -14,7 +14,7 @@ trait AggregateSpec {
 
     def withProjection[D](proj: Projection[D]) = GivenSteps(runner.addProjection(proj))
 
-    def withEvent[E: EventSerialisation](tag: Aggregate.Tag, id: AggregateId, e: E): Self =
+    def withEvent[E: EventSerialisation](tag: Aggregate.EventTag, id: AggregateId, e: E): Self =
       GivenSteps(runner.withDb { db =>
         addEvents(runner.db, tag, id, List(e)).fold(
           err => failStop(err.toString),
@@ -22,7 +22,7 @@ trait AggregateSpec {
         )
       })
 
-    def withEvents[E: EventSerialisation](tag: Aggregate.Tag, id: AggregateId, evs: E*): Self =
+    def withEvents[E: EventSerialisation](tag: Aggregate.EventTag, id: AggregateId, evs: E*): Self =
       GivenSteps(runner.withDb { db =>
         addEvents(runner.db, tag, id, evs.toList).fold(
           err => failStop(err.toString),
@@ -46,7 +46,7 @@ trait AggregateSpec {
 
     type Self = ThenSteps[Db, PROJS]
 
-    def newEvents[E: EventSerialisation](tag: Aggregate.Tag, aggregateId: AggregateId): List[E] =
+    def newEvents[E: EventSerialisation](tag: Aggregate.EventTag, aggregateId: AggregateId): List[E] =
       readEvents(runner.db, startingDbOpNr, tag, aggregateId)
         .fold(err => failStop(err.toString), _._2)
 
@@ -77,7 +77,7 @@ trait AggregateSpec {
       steps(ThenSteps(whenSteps.runner.runProjections, whenSteps.startingDbOpNr))
   }
 
-  private def readEvents[E: EventSerialisation, Db](db: Db, fromOperation: Long, tag: Aggregate.Tag, aggregateId: AggregateId)(implicit backend: Backend[Db]) = {
+  private def readEvents[E: EventSerialisation, Db](db: Db, fromOperation: Long, tag: Aggregate.EventTag, aggregateId: AggregateId)(implicit backend: Backend[Db]) = {
     backend.consumeDbEvents(
       db,
       fromOperation,
@@ -96,7 +96,7 @@ trait AggregateSpec {
   private def readDbVersion[Db](db: Db)(implicit backend: Backend[Db]): Database.Error Xor Long =
     backend.consumeDbEvents(db, 0, (), List()).map(_._1)
 
-  private def addEvents[Db: Backend, E: EventSerialisation](database: Db, tag: Aggregate.Tag, aggregateId: AggregateId, events: List[E]): Aggregate.Error Xor Db = {
+  private def addEvents[Db: Backend, E: EventSerialisation](database: Db, tag: Aggregate.EventTag, aggregateId: AggregateId, events: List[E]): Aggregate.Error Xor Db = {
     import Aggregate._
 
     val commands = for {

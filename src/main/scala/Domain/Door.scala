@@ -53,7 +53,7 @@ object Door {
   )
 
   object DoorAggregate extends FlowAggregate {
-    def tag = Tag("Door")
+    val tag = createTag("Door")
     def aggregateLogic = fullAggregate
   }
 }

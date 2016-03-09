@@ -1,6 +1,6 @@
 package Cqrs
 
-import Cqrs.Database.EventDatabaseWithFailure
+import Cqrs.Database.{EventSerialisation, EventDatabaseWithFailure}
 import algebra.Semigroup
 import cats.data.{ NonEmptyList => NEL, Validated, ValidatedNel, Xor, XorT }
 import cats.state._
@@ -11,7 +11,18 @@ import scala.language.implicitConversions
 
 object Aggregate {
 
-  final case class Tag(v: String)
+  trait EventTag {
+    type Event
+    def v: String
+    def eventSerialiser: EventSerialisation[Event]
+  }
+  type EventTagAux[E] = EventTag { type Event = E }
+  def createTag[E](id: String)(implicit evSerialiser: EventSerialisation[E]) = new EventTag {
+    type Event = E
+    val v = id
+    val eventSerialiser = evSerialiser
+  }
+
   final case class AggregateId(v: String)
   val emptyAggregateId = AggregateId("")
   implicit def toAggregateId(v: String): AggregateId = AggregateId(v)
@@ -59,7 +70,8 @@ trait Aggregate[E, C, D] {
 
   import Aggregate._
 
-  def tag: Aggregate.Tag
+  protected def createTag(id: String)(implicit eventSerialisation: EventSerialisation[E]) = Aggregate.createTag[E](id)
+  def tag: Aggregate.EventTag
 
   protected def on: EventHandler
   protected def handle: CommandHandler

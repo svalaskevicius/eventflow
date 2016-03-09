@@ -1,7 +1,10 @@
 package Domain
 
 import Cqrs.Aggregate._
+import Cqrs.Database.{EventData2, EventData}
 import Cqrs._
+import Domain.Counter.{Incremented, CounterAggregate}
+import cats.state.State
 
 object Counter {
 
@@ -29,7 +32,7 @@ object Counter {
   )
 
   object CounterAggregate extends FlowAggregate {
-    def tag = Tag("Counter")
+    val tag = createTag("Counter")
     def aggregateLogic = fullAggregate
   }
 }
@@ -37,6 +40,13 @@ object Counter {
 import scala.collection.immutable.TreeMap
 
 object CounterProjection {
+
+  val p = new Proj[Int] {
+    val listeningFor = List(CounterAggregate.tag)
+    def accept[E](count: Int) = {
+      case EventData(_, _, _, Incremented) => count + 1
+    }
+  }
 
   type Data = TreeMap[AggregateId, Int]
 

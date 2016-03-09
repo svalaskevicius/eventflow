@@ -1,6 +1,6 @@
 package Cqrs
 
-import Cqrs.Aggregate.{ AggregateId, Tag }
+import Cqrs.Aggregate.{EventTagAux, AggregateId, EventTag}
 import cats.data.{ Xor, XorT }
 import cats.free.Free
 import cats.free.Free.liftF
@@ -19,8 +19,8 @@ object Database {
   final case class ReadAggregateEventsResponse[E](lastVersion: Int, events: List[E], endOfStream: Boolean)
 
   sealed trait EventDatabaseOp[E, A]
-  final case class ReadAggregateEvents[E](tag: Tag, id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor ReadAggregateEventsResponse[E]]
-  final case class AppendAggregateEvents[E](tag: Tag, id: AggregateId, expectedVersion: Int, events: List[E]) extends EventDatabaseOp[E, Error Xor Unit]
+  final case class ReadAggregateEvents[E](tag: EventTag, id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor ReadAggregateEventsResponse[E]]
+  final case class AppendAggregateEvents[E](tag: EventTag, id: AggregateId, expectedVersion: Int, events: List[E]) extends EventDatabaseOp[E, Error Xor Unit]
 
   type EventDatabase[E, A] = Free[EventDatabaseOp[E, ?], A]
   type EventDatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabase[E, ?], Err, A]
@@ -29,10 +29,10 @@ object Database {
   def lift[E, A](a: EventDatabaseOp[E, Error Xor A]): EventDatabaseWithFailure[E, A] =
     XorT[EventDatabase[E, ?], Error, A](liftF[EventDatabaseOp[E, ?], Error Xor A](a))
 
-  def readNewEvents[E](tag: Tag, id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[E, ReadAggregateEventsResponse[E]] =
+  def readNewEvents[E](tag: EventTag, id: AggregateId, fromVersion: Int): EventDatabaseWithFailure[E, ReadAggregateEventsResponse[E]] =
     lift(ReadAggregateEvents[E](tag, id, fromVersion))
 
-  def appendEvents[E](tag: Tag, id: AggregateId, expectedVersion: Int, events: List[E]): EventDatabaseWithFailure[E, Unit] =
+  def appendEvents[E](tag: EventTag, id: AggregateId, expectedVersion: Int, events: List[E]): EventDatabaseWithFailure[E, Unit] =
     lift(AppendAggregateEvents(tag, id, expectedVersion, events))
 
   implicit def eventDatabaseMonad[E]: Monad[EventDatabase[E, ?]] = Free.freeMonad[EventDatabaseOp[E, ?]]
@@ -80,8 +80,9 @@ object Database {
     def decode(rawData: String): Error Xor E = Try(Xor.right(r.read(upickle.json.read(rawData)))).getOrElse(Xor.left(EventDecodingFailure(rawData)))
   }
 
-  final case class RawEventData(tag: Tag, id: AggregateId, version: Int, data: String)
-  final case class EventData[E](tag: Tag, id: AggregateId, version: Int, data: E)
+  final case class RawEventData(tag: EventTag, id: AggregateId, version: Int, data: String)
+  final case class EventData[E](tag: EventTag, id: AggregateId, version: Int, data: E)
+  final case class EventData2[E](tag: EventTagAux[E], id: AggregateId, version: Int, data: E)
 
   /**
    * Db fold operation that updates the given data according to passed event
@@ -104,7 +105,7 @@ object Database {
    * @param consumer  Db fold operation
    * @tparam D        Data type for the db fold
    */
-  final case class EventDataConsumerQuery[D](tag: Tag, consumer: EventDataConsumer[D])
+  final case class EventDataConsumerQuery[D](tag: EventTag, consumer: EventDataConsumer[D])
 
   def runDb[E: EventSerialisation, A, Db](database: Db, actions: EventDatabaseWithFailure[E, A])(implicit backend: Backend[Db]) =
     backend.runDb(database, actions)
