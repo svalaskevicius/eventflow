@@ -1,6 +1,7 @@
 package Cqrs
 
-import Cqrs.Aggregate.{EventTagAux, AggregateId, EventTag}
+import Cqrs.Aggregate._
+import Cqrs.Database.FoldableDatabase.EventDataConsumerQuery
 import cats.data.{ Xor, XorT }
 import cats.free.Free
 import cats.free.Free.liftF
@@ -39,35 +40,31 @@ object Database {
   implicit def eventDatabaseWithFailureMonad[E]: MonadError[EventDatabaseWithAnyFailure[E, ?, ?], Error] = XorT.xorTMonadError[EventDatabase[E, ?], Error]
 
   /**
-   * Database backend typeclass exposing the DB API.
-   *
-   * @tparam Db specific database connection handle
+   * Database backend exposing the DB API.
    */
-  trait Backend[Db] {
+  trait Backend {
 
     /**
      * Run aggregate interpreter
      *
-     * @param database db connection handle
      * @param actions  aggregate execution program
      * @tparam E       Type of aggregate events
      * @tparam A       return type from the given `actions` program
      * @return         error on failure or the returned value from the aggregate execution program
      */
-    def runDb[E: EventSerialisation, A](database: Db, actions: EventDatabaseWithFailure[E, A]): Error Xor (Db, A)
+    def runDb[E: EventSerialisation, A](actions: EventDatabaseWithFailure[E, A]): Error Xor A
 
-    /**
-     * Read stored events from the given database handle. The execution folds over the events in the database by given
-     * query and returns modified initial value passed as `initData`.
-     *
-     * @param database      db connection handle
-     * @param fromOperation starting log number to read the events from
-     * @param initData      initial data to start folding from
-     * @param query         fold filters and functions to be applied on the `initData`
-     * @tparam D            type of the init / return data
-     * @return              error on failure or the new operations log number and the fold result
-     */
-    def consumeDbEvents[D](database: Db, fromOperation: Long, initData: D, query: List[EventDataConsumerQuery[D]]): Error Xor (Long, D)
+    def runAggregate[E: EventSerialisation, A](actions: DatabaseWithAggregateFailure[E, A]): Aggregate.Error Xor A = {
+      runDb(actions.value) match {
+        case Xor.Left(err) => Xor.left(DatabaseError(err))
+        case Xor.Right(Xor.Left(err)) => Xor.left(err)
+        case Xor.Right(Xor.Right(ret)) => Xor.right(ret)
+      }
+    }
+  }
+
+  trait FoldableDatabase {
+    def consumeDbEvents[D](fromOperation: Long, initData: D, queries: List[EventDataConsumerQuery[D]]): Error Xor (Long, D)
   }
 
   trait EventSerialisation[E] {
@@ -80,37 +77,34 @@ object Database {
     def decode(rawData: String): Error Xor E = Try(Xor.right(r.read(upickle.json.read(rawData)))).getOrElse(Xor.left(EventDecodingFailure(rawData)))
   }
 
-  final case class RawEventData(tag: EventTag, id: AggregateId, version: Int, data: String)
   final case class EventData[E](tag: EventTag, id: AggregateId, version: Int, data: E)
-  final case class EventData2[E](tag: EventTagAux[E], id: AggregateId, version: Int, data: E)
+//  final case class EventData2[E](tag: EventTagAux[E], id: AggregateId, version: Int, data: E)
 
-  /**
-   * Db fold operation that updates the given data according to passed event
-   *
-   * @tparam D
-   */
-  trait EventDataConsumer[D] {
-    def apply(data: D, event: RawEventData): Error Xor D
+  object FoldableDatabase {
+      final case class RawEventData(tag: EventTag, id: AggregateId, version: Int, data: String)
+
+      /**
+       * Db fold operation that updates the given data according to passed event
+       *
+       * @tparam D
+       */
+      trait EventDataConsumer[D] {
+        def apply(data: D, event: RawEventData): Error Xor D
+      }
+
+      def createEventDataConsumer[E, D](handler: (D, EventData[E]) => D)(implicit eventSerialiser: EventSerialisation[E]) =
+        new EventDataConsumer[D] {
+          def apply(data: D, event: RawEventData): Error Xor D = eventSerialiser.decode(event.data).map(e => handler(data, EventData(event.tag, event.id, event.version, e)))
+        }
+
+      /**
+       * A query specifying both the tag to load aggregate events by and the fold operation
+       *
+       * @param tag       Aggregate tag to load events from
+       * @param consumer  Db fold operation
+       * @tparam D        Data type for the db fold
+       */
+      final case class EventDataConsumerQuery[D](tag: EventTag, consumer: EventDataConsumer[D])
   }
-
-  def createEventDataConsumer[E, D](handler: (D, EventData[E]) => D)(implicit eventSerialiser: EventSerialisation[E]) =
-    new EventDataConsumer[D] {
-      def apply(data: D, event: RawEventData): Error Xor D = eventSerialiser.decode(event.data).map(e => handler(data, EventData(event.tag, event.id, event.version, e)))
-    }
-
-  /**
-   * A query specifying both the tag to load aggregate events by and the fold operation
-   *
-   * @param tag       Aggregate tag to load events from
-   * @param consumer  Db fold operation
-   * @tparam D        Data type for the db fold
-   */
-  final case class EventDataConsumerQuery[D](tag: EventTag, consumer: EventDataConsumer[D])
-
-  def runDb[E: EventSerialisation, A, Db](database: Db, actions: EventDatabaseWithFailure[E, A])(implicit backend: Backend[Db]) =
-    backend.runDb(database, actions)
-
-  def consumeDbEvents[D, Db](database: Db, fromOperation: Long, initData: D, query: List[EventDataConsumerQuery[D]])(implicit backend: Backend[Db]) =
-    backend.consumeDbEvents(database, fromOperation, initData, query)
 }
 

@@ -1,7 +1,7 @@
 package Domain
 
 import Cqrs.Aggregate._
-import Cqrs.Database.{EventData2, EventData}
+import Cqrs.Database.EventData
 import Cqrs._
 import Domain.Counter.{Incremented, CounterAggregate}
 import cats.state.State
@@ -42,6 +42,7 @@ import scala.collection.immutable.TreeMap
 object CounterProjection {
 
   val p = new Proj[Int] {
+    def initialData = 0
     val listeningFor = List(CounterAggregate.tag)
     def accept[E](count: Int) = {
       case EventData(_, _, _, Incremented) => count + 1
@@ -50,14 +51,14 @@ object CounterProjection {
 
   type Data = TreeMap[AggregateId, Int]
 
-  def emptyCounterProjection = Projection.build("counters").
-    addHandler(Counter.CounterAggregate.tag, (d: Data, e: Database.EventData[Counter.Event]) => {
-      import Counter._
-      e.data match {
-        case Created(id, start) => d.updated(e.id, start)
-        case Incremented => d.updated(e.id, d.get(e.id).fold(1)(_ + 1))
-        case Decremented => d.updated(e.id, d.get(e.id).fold(-1)(_ - 1))
-      }
-    }).empty(TreeMap.empty)
+//  def emptyCounterProjection = Projection.build("counters").
+//    addHandler(Counter.CounterAggregate.tag, (d: Data, e: Database.EventData[Counter.Event]) => {
+//      import Counter._
+//      e.data match {
+//        case Created(id, start) => d.updated(e.id, start)
+//        case Incremented => d.updated(e.id, d.get(e.id).fold(1)(_ + 1))
+//        case Decremented => d.updated(e.id, d.get(e.id).fold(-1)(_ - 1))
+//      }
+//    }).empty(TreeMap.empty)
 }
 
