@@ -1,6 +1,8 @@
 import Cqrs.Aggregate._
 import Domain.Counter.CounterAggregate.tag
 import Domain.Counter._
+import Domain.CounterProjection
+
 //import Domain.CounterProjection.{ Data => CounterProjectionData, emptyCounterProjection }
 import cats.data.{ NonEmptyList => NEL }
 import org.scalatest._
@@ -43,23 +45,21 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
 
   it should "fail if its at zero balance" in {
     given {
-      newDb.withEvents[Event](tag, "counterid", Created("counterid", 0), Incremented, Decremented)
+      newDb   .withEvents[Event](tag, "counterid", Created("counterid", 0), Incremented, Decremented)
     } check {
       _.failedCommandError(CounterAggregate, "counterid", Decrement) should be(Errors(NEL(ErrorCommandFailure("Counter cannot be decremented"))))
     }
   }
-//
-//  "Counter projection" should "return the current count" in {
-//    given {
-//      newDbRunner
-//        .withEvent(tag, "counterid", Created("counterid", 10))
-//        .withProjection(emptyCounterProjection)
-//    } when {
-//      _.command(CounterAggregate, "counterid", Increment)
-//        .command(CounterAggregate, "counterid", Increment)
-//        .command(CounterAggregate, "counterid", Decrement)
-//    } thenCheck {
-//      _.projectionData[CounterProjectionData]("counters") should be(Some(TreeMap(AggregateId("counterid") -> 11)))
-//    }
-//  }
+
+  "Counter projection" should "return the current count" in {
+    given {
+      newDb(CounterProjection).withEvent(tag, "counterid", Created("counterid", 10))
+    } when {
+      _.command(CounterAggregate, "counterid", Increment)
+        .command(CounterAggregate, "counterid", Increment)
+        .command(CounterAggregate, "counterid", Decrement)
+    } thenCheck {
+      _.projectionData(CounterProjection) should be(Some(TreeMap(AggregateId("counterid") -> 11)))
+    }
+  }
 }

@@ -3,6 +3,7 @@ package Cqrs.DbAdapters
 import Cqrs.Aggregate._
 import Cqrs.Database.FoldableDatabase.{RawEventData, EventDataConsumer, EventDataConsumerQuery}
 import Cqrs.Database.{ Error, _ }
+import Cqrs.{Projection, ProjectionRunner}
 import cats._
 import cats.data.Xor
 import cats.state._
@@ -10,13 +11,15 @@ import cats.std.all._
 import lib.foldM
 
 import scala.collection.immutable.TreeMap
+import scala.reflect.ClassTag
 
 object InMemoryDb {
 
   final case class DbBackend(
     data: TreeMap[String, TreeMap[String, TreeMap[Int, String]]], // tag -> aggregate id -> version -> event data
     log: TreeMap[Long, (String, String, Int)], // operation nr -> tag, aggregate id, aggregate version
-    lastOperationNr: Long
+    lastOperationNr: Long,
+    projections: List[ProjectionRunner]
   )
   private type Db[A] = State[DbBackend, A]
 
@@ -47,8 +50,8 @@ object InMemoryDb {
       val operationStartNumber = database.lastOperationNr + 1
       val indexedEvents = events.zipWithIndex
       Xor.right(
-        DbBackend(
-          database.data.updated(
+        database.copy(
+          data = database.data.updated(
             tag.v,
             currentTaggedEvents.getOrElse(TreeMap.empty[String, TreeMap[Int, String]]).updated(
               id.v,
@@ -57,10 +60,17 @@ object InMemoryDb {
               }
             )
           ),
-          indexedEvents.foldLeft(database.log) { (log, ev) =>
+          log = indexedEvents.foldLeft(database.log) { (log, ev) =>
             log + ((operationStartNumber + ev._2, (tag.v, id.v, previousVersion + 1 + ev._2)))
           },
-          operationStartNumber + indexedEvents.length
+          lastOperationNr = operationStartNumber + indexedEvents.length,
+          projections = database.projections.map { projection =>
+            if (projection.listeningFor.exists(_.v == tag.v)) {
+              indexedEvents.foldLeft(projection)((p, e) => p.accept(EventData(tag, id, previousVersion + 1 + e._2, e._1)))
+            } else {
+              projection
+            }
+          }
         )
       )
     }
@@ -83,13 +93,17 @@ object InMemoryDb {
       }
     }
 
-  def newInMemoryDb = new Backend with FoldableDatabase {
-    var db = DbBackend(TreeMap.empty, TreeMap.empty, 0);
+  def newInMemoryDb(projections: ProjectionRunner*) = new Backend with FoldableDatabase {
+    var db = DbBackend(TreeMap.empty, TreeMap.empty, 0, projections.toList);
 
     def runDb[E: EventSerialisation, A](actions: EventDatabaseWithFailure[E, A]): Error Xor A = synchronized {
       val (newDb, r) = actions.value.foldMap[Db](transformDbOpToDbState).run(db).run
       db = newDb
       r
+    }
+
+    def getProjectionData[D: ClassTag](projection: Projection[D]): Option[D] = synchronized {
+      db.projections.foldLeft(None: Option[D])((ret, p) => ret.orElse(p.getProjectionData[D](projection)))
     }
 
         def consumeDbEvents[D](fromOperation: Long, initData: D, queries: List[EventDataConsumerQuery[D]]): Error Xor (Long, D) = synchronized {

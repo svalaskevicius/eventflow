@@ -7,6 +7,7 @@ import cats.free.Free
 import cats.free.Free.liftF
 import cats.{ Monad, MonadError }
 
+import scala.reflect.ClassTag
 import scala.util.Try
 
 object Database {
@@ -61,6 +62,8 @@ object Database {
         case Xor.Right(Xor.Right(ret)) => Xor.right(ret)
       }
     }
+
+    def getProjectionData[D: ClassTag](projection: Projection[D]): Option[D]
   }
 
   trait FoldableDatabase {

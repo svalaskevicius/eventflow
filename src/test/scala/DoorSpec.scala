@@ -1,7 +1,7 @@
 import Cqrs.Aggregate._
 import Domain.Door.DoorAggregate.tag
 import Domain.Door._
-import Domain.DoorProjection
+import Domain.{DoorState, DoorProjection}
 import cats.data.{ NonEmptyList => NEL }
 import org.scalatest._
 
@@ -74,24 +74,22 @@ class DoorSpec extends FlatSpec with Matchers with AggregateSpec {
       _.newEvents[Event](tag, "door") should be(List(Opened))
     }
   }
-//
-//  "Door projection" should "return the current state" in {
-//    import Domain.Door
-//    import Domain.DoorProjection._
-//    given {
-//      newDbRunner
-//        .withEvent(tag, "door1", Registered("door1"))
-//        .withEvent(tag, "door2", Registered("door2"))
-//        .withProjection(emptyDoorProjection)
-//    } when {
-//      _.command(DoorAggregate, "door1", Door.Close)
-//        .command(DoorAggregate, "door2", Door.Close)
-//        .command(DoorAggregate, "door1", Door.Open)
-//    } thenCheck {
-//      _.projectionData[DoorProjection.Data]("doors") should be(Some(TreeMap(
-//        AggregateId("door1") -> Open,
-//        AggregateId("door2") -> Closed
-//      )))
-//    }
-//  }
+
+  "Door projection" should "return the current state" in {
+    import Domain.Door
+    given {
+      newDb(DoorProjection)
+        .withEvent(tag, "door1", Registered("door1"))
+        .withEvent(tag, "door2", Registered("door2"))
+    } when {
+      _.command(DoorAggregate, "door1", Door.Close)
+        .command(DoorAggregate, "door2", Door.Close)
+        .command(DoorAggregate, "door1", Door.Open)
+    } thenCheck {
+      _.projectionData(DoorProjection) should be(Some(TreeMap(
+        AggregateId("door1") -> DoorState.Open,
+        AggregateId("door2") -> DoorState.Closed
+      )))
+    }
+  }
 }

@@ -2,8 +2,10 @@ import Cqrs.Aggregate.AggregateId
 import Cqrs.Database.FoldableDatabase._
 import Cqrs.Database._
 import Cqrs.DbAdapters.InMemoryDb._
-import Cqrs.{ Aggregate, Database }
+import Cqrs.{Projection, ProjectionRunner, Aggregate, Database}
 import cats.data.Xor
+
+import scala.reflect.ClassTag
 
 trait AggregateSpec {
 
@@ -12,8 +14,6 @@ trait AggregateSpec {
   def fail(message: String)
 
   implicit class GivenSteps(val db: DB) {
-
-//    def withProjection[D](proj: Projection[D]) = GivenSteps(runner.addProjection(proj))
 
     def withEvent[E: EventSerialisation](tag: Aggregate.EventTag, id: AggregateId, e: E): GivenSteps = {
       addEvents(db, tag, id, List(e)).fold(
@@ -50,10 +50,11 @@ trait AggregateSpec {
       db.runAggregate(aggregate.loadAndHandleCommand(id, cmd))
         .fold(identity, _ => failStop("Command did not fail, although was expected to"))
 
-//    def projectionData[D: Typeable](name: String) = runner.getProjectionData[D](name)
+    def projectionData[D: ClassTag](projection: Projection[D]) = db.getProjectionData[D](projection)
   }
 
-  def newDb = GivenSteps(newInMemoryDb)
+  def newDb(projections: ProjectionRunner*): GivenSteps = GivenSteps(newInMemoryDb(projections:_*))
+  def newDb: GivenSteps = GivenSteps(newInMemoryDb())
 
   def given(steps: GivenSteps) = {
     new WhenStepFlow(steps.db)

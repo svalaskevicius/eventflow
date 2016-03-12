@@ -62,6 +62,7 @@ trait Projection[D] {
 trait ProjectionRunner {
   def listeningFor: List[EventTag]
   def accept[E](eventData: EventData[E]): ProjectionRunner
+  def getProjectionData[D: ClassTag](projection: Projection[D]): Option[D]
 }
 
 import scala.language.implicitConversions
@@ -76,6 +77,14 @@ case class ConcreteProjectionRunner[Data](proj: Projection[Data], data: Data) ex
       case Some(newData) => copy(data = newData)
       case None => this
     }
+  def getProjectionData[D: ClassTag](projection: Projection[D]): Option[D] = {
+    if (proj.getClass.getName == projection.getClass.getName) {
+      data match {
+        case asD: D => Some(asD)
+        case _ => None
+      }
+    } else None
+  }
 }
 
 //final case class Projection2[D](name: String, lastReadOperation: Long, data: D, dbConsumers: List[EventDataConsumerQuery[D]]) {

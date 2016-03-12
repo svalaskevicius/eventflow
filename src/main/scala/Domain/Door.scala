@@ -1,7 +1,9 @@
 package Domain
 
 import Cqrs.Aggregate._
+import Cqrs.Database.EventData
 import Cqrs._
+import Domain.Door._
 
 object Door {
 
@@ -60,25 +62,26 @@ object Door {
 
 import scala.collection.immutable.TreeMap
 
-object DoorProjection {
+sealed trait DoorState
+object DoorState {
 
-  sealed trait State
-  case object Open extends State
-  case object Closed extends State
-  final case class Locked(key: String) extends State
+  case object Open extends DoorState
 
-  type Data = TreeMap[AggregateId, State]
+  case object Closed extends DoorState
 
-//  def emptyDoorProjection = Projection.build("doors").
-//    addHandler(Door.DoorAggregate.tag, (d: Data, e: Database.EventData[Door.Event]) => {
-//      import Door._
-//      e.data match {
-//        case Registered(id) => d.updated(e.id, DoorProjection.Open)
-//        case Door.Closed => d.updated(e.id, DoorProjection.Closed)
-//        case Door.Opened => d.updated(e.id, DoorProjection.Open)
-//        case Door.Locked(key) => d.updated(e.id, DoorProjection.Locked(key))
-//        case Door.Unlocked(_) => d.updated(e.id, DoorProjection.Closed)
-//      }
-//    }).empty(TreeMap.empty)
+  final case class Locked(key: String) extends DoorState
+
+}
+object DoorProjection extends Projection[TreeMap[AggregateId, DoorState]]{
+
+  def initialData = TreeMap.empty
+  val listeningFor = List(DoorAggregate.tag)
+  def accept[E](d: Data) = {
+    case EventData(_, id, _, Registered(_)) => d + (id -> DoorState.Open)
+    case EventData(_, id, _, Closed) => d + (id -> DoorState.Closed)
+    case EventData(_, id, _, Opened) => d + (id -> DoorState.Open)
+    case EventData(_, id, _, Locked(key)) => d + (id -> DoorState.Locked(key))
+    case EventData(_, id, _, Unlocked(_)) => d + (id -> DoorState.Closed)
+  }
 }
 
