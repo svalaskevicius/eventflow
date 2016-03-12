@@ -56,14 +56,6 @@ object Eventflow {
   def main(args: Array[String]) {
     import Domain._
 
-    def print[A: pprint.PPrint](a: A) = {
-      import pprint._
-      println("============================")
-      pprintln(a, colors = pprint.Colors.Colored)
-      println("============================")
-    }
-
-
 //    val db = newInMemoryDb(CounterProjection, DoorProjection, OpenDoorsCountersProjection)
     val db = newEventStoreConn(CounterProjection, DoorProjection, OpenDoorsCountersProjection)
 
