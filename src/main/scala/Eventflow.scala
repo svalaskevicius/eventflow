@@ -1,8 +1,8 @@
 
 import Cqrs.Aggregate.{AggregateId, EventTag}
 import Cqrs.DbAdapters.EventStore
-import Cqrs.{Proj, ProjRunner, ConcreteProjRunner}
 import Cqrs.DbAdapters.EventStore._
+import Cqrs.ProjectionRunner
 import Domain.Counter.{ CounterAggregate, Create }
 import Domain.Door.{ DoorAggregate, Register }
 import shapeless.HNil
@@ -68,7 +68,7 @@ object Eventflow {
 //    val pr4 = pr3.accept(EventData2(CounterAggregate.tag, AggregateId("a"), 1, Door.Closed))
 //    println(pr3)
 
-        val db = newEventStoreConn(List(ProjRunner(CounterProjection.p)))
+        val db = newEventStoreConn(CounterProjection)
 
             val ret = for {
               c1 <- db.runAggregate(CounterAggregate.loadAndHandleCommand("testcounter", Create("testcounter", 0)))

@@ -51,22 +51,25 @@ import scala.reflect.ClassTag
 //      case None => this
 //    }
 //}
-trait Proj[Data] {
+trait Projection[D] {
+  type Data = D
   def initialData: Data
   def listeningFor: List[EventTag]
   def accept[E](data: Data): PartialFunction[EventData[E], Data]
 }
 
 
-trait ProjRunner {
+trait ProjectionRunner {
   def listeningFor: List[EventTag]
-  def accept[E](eventData: EventData[E]): ProjRunner
+  def accept[E](eventData: EventData[E]): ProjectionRunner
 }
 
-object ProjRunner {
-  def apply[D](p: Proj[D]) = ConcreteProjRunner[D](p, p.initialData)
+import scala.language.implicitConversions
+
+object ProjectionRunner {
+  implicit def createProjectionRunner[D](p: Projection[D]): ProjectionRunner = ConcreteProjectionRunner[D](p, p.initialData)
 }
-case class ConcreteProjRunner[Data](proj: Proj[Data], data: Data) extends ProjRunner {
+case class ConcreteProjectionRunner[Data](proj: Projection[Data], data: Data) extends ProjectionRunner {
   def listeningFor = proj.listeningFor
   def accept[E](eventData: EventData[E]) =
     proj.accept(data).lift(eventData) match {

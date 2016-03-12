@@ -4,7 +4,7 @@ import java.io.Closeable
 
 import Cqrs.Aggregate._
 import Cqrs.Database.{Error, _}
-import Cqrs.{Aggregate, ProjRunner}
+import Cqrs.ProjectionRunner
 import akka.actor.ActorSystem
 import cats._
 import cats.data.Xor
@@ -21,12 +21,12 @@ import scala.concurrent.ExecutionContext.Implicits.global
 object EventStore {
 
   class DbBackend(
-                              system: ActorSystem,
-                              connection: EsConnection,
-                              projections: List[ProjRunner],
-                              data: TreeMap[String, TreeMap[String, TreeMap[Int, String]]], // tag -> aggregate id -> version -> event data
-                              log: TreeMap[Long, (String, String, Int)], // operation nr -> tag, aggregate id, aggregate version
-                              lastOperationNr: Long
+                   system: ActorSystem,
+                   connection: EsConnection,
+                   projections: List[ProjectionRunner],
+                   data: TreeMap[String, TreeMap[String, TreeMap[Int, String]]], // tag -> aggregate id -> version -> event data
+                   log: TreeMap[Long, (String, String, Int)], // operation nr -> tag, aggregate id, aggregate version
+                   lastOperationNr: Long
                             )  extends Backend {
 
     def runDb[E: EventSerialisation, A](actions: EventDatabaseWithFailure[E, A]): Error Xor A = {
@@ -87,7 +87,7 @@ object EventStore {
 
   }
 
-  def newEventStoreConn(projections: List[ProjRunner]): DbBackend = {
+  def newEventStoreConn(projections: ProjectionRunner*): DbBackend = {
     val system = ActorSystem()
     val connection = EsConnection(system)
     val allEventsSubscription = connection.subscribeToAllFrom(
@@ -109,7 +109,7 @@ object EventStore {
         def onClose() = {} //TODO: reopen?
       }
     )
-    new DbBackend(system, connection, projections, TreeMap.empty, TreeMap.empty, 0)
+    new DbBackend(system, connection, projections.toList, TreeMap.empty, TreeMap.empty, 0)
   }
 
   private def esStreamId(tag: EventTag, id: AggregateId) = EventStream.Id(tag.v + "b" + id.v)

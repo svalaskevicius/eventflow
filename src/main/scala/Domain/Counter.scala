@@ -39,17 +39,15 @@ object Counter {
 
 import scala.collection.immutable.TreeMap
 
-object CounterProjection {
+object CounterProjection extends Projection[Int] {
 
-  val p = new Proj[Int] {
+//  type Data = Int // TreeMap[AggregateId, Int]
+
     def initialData = 0
     val listeningFor = List(CounterAggregate.tag)
-    def accept[E](count: Int) = {
+    def accept[E](count: Data) = {
       case EventData(_, _, _, Incremented) => count + 1
     }
-  }
-
-  type Data = TreeMap[AggregateId, Int]
 
 //  def emptyCounterProjection = Projection.build("counters").
 //    addHandler(Counter.CounterAggregate.tag, (d: Data, e: Database.EventData[Counter.Event]) => {
