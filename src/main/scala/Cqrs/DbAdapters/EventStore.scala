@@ -113,9 +113,11 @@ object EventStore {
     new DbBackend(system, connection, projections.toList)
   }
 
-  private def esStreamId(tag: EventTag, id: AggregateId) = EventStream.Id(tag.v + "." + id.v)
+  private val TagAndIdSeparator = '.'
 
-  private def parseEsStreamId(id: EventStream.Id) = id.value.split('b').toList match {
+  private def esStreamId(tag: EventTag, id: AggregateId) = EventStream.Id(tag.v + TagAndIdSeparator + id.v)
+
+  private def parseEsStreamId(id: EventStream.Id) = id.value.split(TagAndIdSeparator).toList match {
     case tagId :: aggId :: Nil => Some(tagId -> aggId)
     case _ => None
   }
