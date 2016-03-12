@@ -7,8 +7,11 @@ import cats.free.Free
 import cats.free.Free.liftF
 import cats.{Monad, MonadError}
 
+import scala.concurrent.Future
 import scala.reflect.ClassTag
 import scala.util.Try
+
+import scala.concurrent.ExecutionContext.Implicits.global
 
 object Database {
 
@@ -59,10 +62,10 @@ object Database {
       * @tparam A return type from the given `actions` program
       * @return error on failure or the returned value from the aggregate execution program
       */
-    def runDb[E: EventSerialisation, A](actions: EventDatabaseWithFailure[E, A]): Error Xor A
+    def runDb[E: EventSerialisation, A](actions: EventDatabaseWithFailure[E, A]): Future[Error Xor A]
 
-    def runAggregate[E: EventSerialisation, A](actions: DatabaseWithAggregateFailure[E, A]): Aggregate.Error Xor A = {
-      runDb(actions.value) match {
+    def runAggregate[E: EventSerialisation, A](actions: DatabaseWithAggregateFailure[E, A]): Future[Aggregate.Error Xor A] = {
+      runDb(actions.value) map {
         case Xor.Left(err) => Xor.left(DatabaseError(err))
         case Xor.Right(Xor.Left(err)) => Xor.left(err)
         case Xor.Right(Xor.Right(ret)) => Xor.right(ret)

@@ -1,8 +1,13 @@
 
+import Cqrs.Aggregate._
+import Cqrs.Database.EventSerialisation
 import Cqrs.DbAdapters.EventStore._
 import Cqrs.DbAdapters.InMemoryDb._
 import Domain.Counter.{CounterAggregate, Create}
 import Domain.Door.{DoorAggregate, Register}
+
+import scala.concurrent.Await
+import scala.concurrent.duration._
 
 object Eventflow {
 
@@ -58,16 +63,20 @@ object Eventflow {
       println("============================")
     }
 
+
 //    val db = newInMemoryDb(CounterProjection, DoorProjection, OpenDoorsCountersProjection)
     val db = newEventStoreConn(CounterProjection, DoorProjection, OpenDoorsCountersProjection)
 
+    def act[E: EventSerialisation, A](actions: DatabaseWithAggregateFailure[E, A]) =
+      Await.result(db.runAggregate(actions), 10.seconds)
+
     val ret = for {
-      c1 <- db.runAggregate(CounterAggregate.loadAndHandleCommand("testcounter", Create("testcounter", 0)))
-      c1 <- db.runAggregate(actions1 runS c1)
-      d1 <- db.runAggregate(DoorAggregate.loadAndHandleCommand("goldengate", Register("goldengate")))
-      d1 <- db.runAggregate(doorActions runS d1)
-      c1 <- db.runAggregate(actions2 runS c1)
-      d1 <- db.runAggregate(doorActions runS d1)
+      c1 <- act(CounterAggregate.loadAndHandleCommand("testcounter", Create("testcounter", 0)))
+      c1 <- act(actions1 runS c1)
+      d1 <- act(DoorAggregate.loadAndHandleCommand("goldengate", Register("goldengate")))
+      d1 <- act(doorActions runS d1)
+      c1 <- act(actions2 runS c1)
+      d1 <- act(doorActions runS d1)
     } yield ()
 
     ret.fold(err => {

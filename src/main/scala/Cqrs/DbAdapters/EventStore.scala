@@ -12,8 +12,7 @@ import cats.std.all._
 import eventstore._
 
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.duration._
-import scala.concurrent.{Await, Future}
+import scala.concurrent.Future
 import scala.reflect.ClassTag
 
 object EventStore {
@@ -53,11 +52,10 @@ object EventStore {
       }
     )
 
-    def runDb[E: EventSerialisation, A](actions: EventDatabaseWithFailure[E, A]): Error Xor A = {
-      actions.value.foldMap[Id](transformDbOpToDbState)
-    }
+    def runDb[E: EventSerialisation, A](actions: EventDatabaseWithFailure[E, A]): Future[Error Xor A] =
+      actions.value.foldMap(transformDbOpToDbState)
 
-    private def readFromDb[E: EventSerialisation](tag: EventTag, id: AggregateId, fromVersion: Int): Error Xor ReadAggregateEventsResponse[E] = {
+    private def readFromDb[E: EventSerialisation](tag: EventTag, id: AggregateId, fromVersion: Int): Future[Error Xor ReadAggregateEventsResponse[E]] = {
 
       def decode(d: String) = implicitly[EventSerialisation[E]].decode(d)
       def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
@@ -71,16 +69,14 @@ object EventStore {
           ReadAggregateEventsResponse(response.lastEventNumber.value, events, response.endOfStream)
         }
       }
-      val dbErrorsHandled: Future[Error Xor ReadAggregateEventsResponse[E]] =
-        decodedResponse.recover {
-          case _: StreamNotFoundException => Xor.right(ReadAggregateEventsResponse(NewAggregateVersion, List.empty, endOfStream = true))
-          case err: EsException => Xor.left(ErrorDbFailure(err.getMessage))
-        }
-      //TODO: add batches support in db api, where aggregate can read more
-      Await.result(dbErrorsHandled, 10.seconds)
+
+      decodedResponse.recover {
+        case _: StreamNotFoundException => Xor.right(ReadAggregateEventsResponse(NewAggregateVersion, List.empty, endOfStream = true))
+        case err: EsException => Xor.left(ErrorDbFailure(err.getMessage))
+      }
     }
 
-    private def addToDb[E](tag: EventTag, id: AggregateId, expectedVersion: Int, events: List[E])(implicit eventSerialiser: EventSerialisation[E]): Error Xor Unit = {
+    private def addToDb[E](tag: EventTag, id: AggregateId, expectedVersion: Int, events: List[E])(implicit eventSerialiser: EventSerialisation[E]): Future[Error Xor Unit] = {
       val response = connection future WriteEvents(
         esStreamId(tag, id),
         events.map(ev => eventstore.EventData.Json(ev.getClass.toString, data = eventSerialiser.encode(ev))),
@@ -94,15 +90,13 @@ object EventStore {
         case err: WrongExpectedVersionException => Xor.left(ErrorUnexpectedVersion(id, err.getMessage))
         case err: EsException => Xor.left(ErrorDbFailure(err.getMessage))
       }
-      val updatedResponse = dbErrorsHandled.map(_.map { _ => () })
 
-      // TODO: move futures further to natural transform, maybe even public db api?
-      Await.result(updatedResponse, 10.seconds)
+      dbErrorsHandled.map(_.map { _ => () })
     }
 
-    private def transformDbOpToDbState[E](implicit eventSerialiser: EventSerialisation[E]): EventDatabaseOp[E, ?] ~> Id =
-      new (EventDatabaseOp[E, ?] ~> Id) {
-        def apply[A](fa: EventDatabaseOp[E, A]): A = fa match {
+    private def transformDbOpToDbState[E](implicit eventSerialiser: EventSerialisation[E]): EventDatabaseOp[E, ?] ~> Future =
+      new (EventDatabaseOp[E, ?] ~> Future) {
+        def apply[A](fa: EventDatabaseOp[E, A]): Future[A] = fa match {
           case ReadAggregateEvents(tag, id, version) => readFromDb[E](tag, id, version)
           case AppendAggregateEvents(tag, id, expectedVersion, events) => addToDb[E](tag, id, expectedVersion, events)
         }

@@ -117,9 +117,16 @@ trait Aggregate[E, C, D] {
   def handleCommand(cmd: C): AggregateDefinition[Unit] = {
     import Database._
 
+    def readAllEventsAndCatchUp: AggregateDefinition[Unit]  =
+      liftAggregateReadState(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version))).flatMap { response =>
+        addEvents(response.events).flatMap { _ =>
+          if (!response.endOfStream) readAllEventsAndCatchUp
+          else liftAggregate(pure(()))
+        }
+      }
+
     for {
-      response <- liftAggregateReadState(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version)))
-      _ <- addEvents(response.events)
+      _ <- readAllEventsAndCatchUp
       resultEvents <- handleCmd(cmd)
       _ <- onEvents(resultEvents)
     } yield ()

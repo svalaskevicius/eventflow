@@ -1,11 +1,14 @@
-import Cqrs.Aggregate.AggregateId
+import Cqrs.Aggregate.{DatabaseWithAggregateFailure, AggregateId}
 import Cqrs.Database.FoldableDatabase._
 import Cqrs.Database._
 import Cqrs.DbAdapters.InMemoryDb._
 import Cqrs.{Aggregate, Database, Projection, ProjectionRunner}
 import cats.data.Xor
 
+import scala.concurrent.Await
 import scala.reflect.ClassTag
+
+import scala.concurrent.duration._
 
 trait AggregateSpec {
 
@@ -35,7 +38,7 @@ trait AggregateSpec {
   case class WhenSteps(val db: DB, startingDbOpNr: Long) {
 
     def command[E: EventSerialisation, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C) = {
-      db.runAggregate(aggregate.loadAndHandleCommand(id, cmd))
+      act(db, aggregate.loadAndHandleCommand(id, cmd))
         .leftMap(err => failStop(err.toString))
       this
     }
@@ -47,7 +50,7 @@ trait AggregateSpec {
       readEvents(db, startingDbOpNr, tag, aggregateId)
 
     def failedCommandError[E: EventSerialisation, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C): Aggregate.Error =
-      db.runAggregate(aggregate.loadAndHandleCommand(id, cmd))
+      act(db, aggregate.loadAndHandleCommand(id, cmd))
         .fold(identity, _ => failStop("Command did not fail, although was expected to"))
 
     def projectionData[D: ClassTag](projection: Projection[D]) = db.getProjectionData[D](projection)
@@ -100,7 +103,7 @@ trait AggregateSpec {
       pastEvents <- dbAction(readNewEvents[E](tag, aggregateId, 0))
       _ <- dbAction(appendEvents[E](tag, aggregateId, pastEvents.lastVersion, events))
     } yield ()
-    database.runAggregate(commands)
+    act(database, commands)
   }
 
   private def failStop(message: String) = {
@@ -108,4 +111,6 @@ trait AggregateSpec {
     throw new scala.Error("Failed with: " + message)
   }
 
+  private def act[E: EventSerialisation, A](db: Backend, actions: DatabaseWithAggregateFailure[E, A]) =
+    Await.result(db.runAggregate(actions), 1.second)
 }

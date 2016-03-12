@@ -11,6 +11,7 @@ import cats.std.all._
 import lib.foldM
 
 import scala.collection.immutable.TreeMap
+import scala.concurrent.Future
 import scala.reflect.ClassTag
 
 object InMemoryDb {
@@ -97,10 +98,10 @@ object InMemoryDb {
   def newInMemoryDb(projections: ProjectionRunner*) = new Backend with FoldableDatabase {
     var db = DbBackend(TreeMap.empty, TreeMap.empty, 0, projections.toList);
 
-    def runDb[E: EventSerialisation, A](actions: EventDatabaseWithFailure[E, A]): Error Xor A = synchronized {
+    def runDb[E: EventSerialisation, A](actions: EventDatabaseWithFailure[E, A]): Future[Error Xor A] = synchronized {
       val (newDb, r) = actions.value.foldMap[Db](transformDbOpToDbState).run(db).run
       db = newDb
-      r
+      Future.successful(r)
     }
 
     def getProjectionData[D: ClassTag](projection: Projection[D]): Option[D] = synchronized {
