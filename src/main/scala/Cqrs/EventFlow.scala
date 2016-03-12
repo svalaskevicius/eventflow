@@ -1,9 +1,8 @@
 package Cqrs
 
-import Cqrs.Aggregate.{ CommandHandlerResult, ErrorCannotFindHandler, ErrorCommandFailure }
+import Cqrs.Aggregate.{CommandHandlerResult, ErrorCannotFindHandler, ErrorCommandFailure}
 import cats._
-import cats.data.Validated.{ Valid, Invalid }
-import cats.data.{ NonEmptyList => NEL, _ }
+import cats.data.{NonEmptyList => NEL, _}
 import cats.free.Free
 import cats.free.Free.liftF
 import lib.CaseClassTransformer

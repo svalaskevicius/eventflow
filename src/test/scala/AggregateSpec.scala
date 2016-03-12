@@ -2,7 +2,7 @@ import Cqrs.Aggregate.AggregateId
 import Cqrs.Database.FoldableDatabase._
 import Cqrs.Database._
 import Cqrs.DbAdapters.InMemoryDb._
-import Cqrs.{Projection, ProjectionRunner, Aggregate, Database}
+import Cqrs.{Aggregate, Database, Projection, ProjectionRunner}
 import cats.data.Xor
 
 import scala.reflect.ClassTag

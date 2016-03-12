@@ -1,7 +1,6 @@
 package Domain
 
 import Cqrs.Aggregate._
-import Cqrs._
 
 import scala.collection.immutable.TreeMap
 

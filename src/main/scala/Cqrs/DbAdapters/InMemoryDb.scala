@@ -1,8 +1,8 @@
 package Cqrs.DbAdapters
 
 import Cqrs.Aggregate._
-import Cqrs.Database.FoldableDatabase.{RawEventData, EventDataConsumer, EventDataConsumerQuery}
-import Cqrs.Database.{ Error, _ }
+import Cqrs.Database.FoldableDatabase.{EventDataConsumer, EventDataConsumerQuery, RawEventData}
+import Cqrs.Database.{Error, _}
 import Cqrs.{Projection, ProjectionRunner}
 import cats._
 import cats.data.Xor

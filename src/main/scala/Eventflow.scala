@@ -1,11 +1,7 @@
 
-import Cqrs.Aggregate.{AggregateId, EventTag}
-import Cqrs.DbAdapters.EventStore
 import Cqrs.DbAdapters.EventStore._
-import Cqrs.ProjectionRunner
-import Domain.Counter.{ CounterAggregate, Create }
-import Domain.Door.{ DoorAggregate, Register }
-import shapeless.HNil
+import Domain.Counter.{CounterAggregate, Create}
+import Domain.Door.{DoorAggregate, Register}
 
 object Eventflow {
 

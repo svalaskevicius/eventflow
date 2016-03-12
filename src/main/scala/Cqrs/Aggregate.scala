@@ -1,11 +1,11 @@
 package Cqrs
 
-import Cqrs.Database.{EventSerialisation, EventDatabaseWithFailure}
+import Cqrs.Database.{EventDatabaseWithFailure, EventSerialisation}
 import algebra.Semigroup
-import cats.data.{ NonEmptyList => NEL, Validated, ValidatedNel, Xor, XorT }
+import cats.data.{NonEmptyList => NEL, Validated, ValidatedNel, Xor, XorT}
 import cats.state._
 import cats.std.all._
-import cats.{ MonadError, MonadState, SemigroupK }
+import cats.{MonadError, MonadState, SemigroupK}
 
 import scala.language.implicitConversions
 

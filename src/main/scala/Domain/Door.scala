@@ -22,8 +22,8 @@ object Door {
   final case class Unlock(key: String) extends Command
 
   val flow = new EventFlow[Command, Event]
-  import flow.{ Flow, FlowAggregate }
   import flow.DslV1._
+  import flow.{Flow, FlowAggregate}
 
   private def openDoors: Flow[Unit] = handler(
     when(Close).emit(Closed).switch(closedDoors)

@@ -4,9 +4,6 @@ import Cqrs.Aggregate._
 import Cqrs.Database.EventData
 
 //import Cqrs.Projection.Handler
-import cats.data.Xor
-import cats.state.State
-
 import scala.reflect.ClassTag
 
 //object Projection {

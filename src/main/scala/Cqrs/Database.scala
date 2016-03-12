@@ -2,10 +2,10 @@ package Cqrs
 
 import Cqrs.Aggregate._
 import Cqrs.Database.FoldableDatabase.EventDataConsumerQuery
-import cats.data.{ Xor, XorT }
+import cats.data.{Xor, XorT}
 import cats.free.Free
 import cats.free.Free.liftF
-import cats.{ Monad, MonadError }
+import cats.{Monad, MonadError}
 
 import scala.reflect.ClassTag
 import scala.util.Try

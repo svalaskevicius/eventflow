@@ -10,13 +10,11 @@ import cats._
 import cats.data.Xor
 import cats.std.all._
 import eventstore._
-import lib.foldM
 
 import scala.collection.immutable.TreeMap
-import scala.concurrent.{Future, Await}
-import scala.concurrent.duration._
-
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
 import scala.reflect.ClassTag
 
 object EventStore {

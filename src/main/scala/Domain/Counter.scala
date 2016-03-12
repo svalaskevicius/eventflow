@@ -3,8 +3,8 @@ package Domain
 import Cqrs.Aggregate._
 import Cqrs.Database.EventData
 import Cqrs._
-import Domain.Counter.{Created, Decremented, Incremented, CounterAggregate}
-import cats.state.State
+import Domain.Counter.{CounterAggregate, Created, Decremented, Incremented}
+
 import scala.collection.immutable.TreeMap
 
 
@@ -21,8 +21,8 @@ object Counter {
   case object Decrement extends Command
 
   val flow = new EventFlow[Command, Event]
-  import flow.{ Flow, FlowAggregate }
   import flow.DslV1._
+  import flow.{Flow, FlowAggregate}
 
   private def counting(c: Int): Flow[Unit] = handler(
     when(Increment).emit(Incremented).switch(counting(c + 1)),
