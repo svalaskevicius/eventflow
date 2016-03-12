@@ -16,11 +16,12 @@ import scala.reflect.ClassTag
 object InMemoryDb {
 
   final case class DbBackend(
-    data: TreeMap[String, TreeMap[String, TreeMap[Int, String]]], // tag -> aggregate id -> version -> event data
-    log: TreeMap[Long, (String, String, Int)], // operation nr -> tag, aggregate id, aggregate version
-    lastOperationNr: Long,
-    projections: List[ProjectionRunner]
-  )
+                              data: TreeMap[String, TreeMap[String, TreeMap[Int, String]]], // tag -> aggregate id -> version -> event data
+                              log: TreeMap[Long, (String, String, Int)], // operation nr -> tag, aggregate id, aggregate version
+                              lastOperationNr: Long,
+                              projections: List[ProjectionRunner]
+                            )
+
   private type Db[A] = State[DbBackend, A]
 
   private def readFromDb[E: EventSerialisation](database: DbBackend, tag: EventTag, id: AggregateId, fromVersion: Int): Error Xor ReadAggregateEventsResponse[E] = {
@@ -106,41 +107,34 @@ object InMemoryDb {
       db.projections.foldLeft(None: Option[D])((ret, p) => ret.orElse(p.getProjectionData[D](projection)))
     }
 
-        def consumeDbEvents[D](fromOperation: Long, initData: D, queries: List[EventDataConsumerQuery[D]]): Error Xor (Long, D) = synchronized {
+    def consumeDbEvents[D](fromOperation: Long, initData: D, queries: List[EventDataConsumerQuery[D]]): Error Xor (Long, D) = synchronized {
 
-          def findData(tag: String, id: String, version: Int): Error Xor String = {
-            val optionalRet = db.data.get(tag) flatMap (_.get(id)) flatMap (_.get(version))
-            optionalRet.map(Xor.right).getOrElse(Xor.left(ErrorDbFailure("Cannot find requested data: " + tag + " " + id + " " + version)))
-          }
-
-          def applyLogEntryData(tag: EventTag, logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: String): Error Xor D =
-            consumer(d, RawEventData(tag, AggregateId(logEntry._2), logEntry._3, data))
-
-          def applyQueryToLogEntry(tag: EventTag, logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Error Xor D =
-            findData(logEntry._1, logEntry._2, logEntry._3) flatMap applyLogEntryData(tag, logEntry, d, consumer)
-
-          def checkAndApplyDataLogEntry(initDataForLogEntries: D, logEntry: (String, String, Int)): Error Xor D =
-            foldM[D, EventDataConsumerQuery[D], Xor[Error, ?]](
-              d => q => if (q.tag.v == logEntry._1) applyQueryToLogEntry(q.tag, logEntry, d, q.consumer) else Xor.right(d)
-            )(initDataForLogEntries)(queries)
-
-          val newData = foldM[D, (Long, (String, String, Int)), Xor[Error, ?]](
-            d => el => checkAndApplyDataLogEntry(d, el._2)
-          )(
-              initData
-            )(
-              db.log.from(fromOperation + 1)
-            )
-
-          newData.map((db.lastOperationNr, _))
-        }
+      def findData(tag: String, id: String, version: Int): Error Xor String = {
+        val optionalRet = db.data.get(tag) flatMap (_.get(id)) flatMap (_.get(version))
+        optionalRet.map(Xor.right).getOrElse(Xor.left(ErrorDbFailure("Cannot find requested data: " + tag + " " + id + " " + version)))
       }
 
-//  implicit def dbBackend: Backend[DbBackend] = new Backend[DbBackend] {
-//    def runDb[E: EventSerialisation, A](database: DbBackend, actions: EventDatabaseWithFailure[E, A]): Error Xor (DbBackend, A) = {
-//      val (db, r) = actions.value.foldMap[Db](transformDbOpToDbState).run(database).run
-//      r map ((db, _))
-//    }
-//
+      def applyLogEntryData(tag: EventTag, logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: String): Error Xor D =
+        consumer(d, RawEventData(tag, AggregateId(logEntry._2), logEntry._3, data))
+
+      def applyQueryToLogEntry(tag: EventTag, logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Error Xor D =
+        findData(logEntry._1, logEntry._2, logEntry._3) flatMap applyLogEntryData(tag, logEntry, d, consumer)
+
+      def checkAndApplyDataLogEntry(initDataForLogEntries: D, logEntry: (String, String, Int)): Error Xor D =
+        foldM[D, EventDataConsumerQuery[D], Xor[Error, ?]](
+          d => q => if (q.tag.v == logEntry._1) applyQueryToLogEntry(q.tag, logEntry, d, q.consumer) else Xor.right(d)
+        )(initDataForLogEntries)(queries)
+
+      val newData = foldM[D, (Long, (String, String, Int)), Xor[Error, ?]](
+        d => el => checkAndApplyDataLogEntry(d, el._2)
+      )(
+        initData
+      )(
+        db.log.from(fromOperation + 1)
+      )
+
+      newData.map((db.lastOperationNr, _))
+    }
+  }
 }
 

@@ -24,19 +24,19 @@ trait AggregateSpec {
     }
 
     def withEvents[E: EventSerialisation](tag: Aggregate.EventTag, id: AggregateId, evs: E*): GivenSteps = {
-        addEvents(db, tag, id, evs.toList).fold(
-          err => failStop(err.toString),
-          identity
-        )
-        this
-      }
+      addEvents(db, tag, id, evs.toList).fold(
+        err => failStop(err.toString),
+        identity
+      )
+      this
+    }
   }
 
   case class WhenSteps(val db: DB, startingDbOpNr: Long) {
 
     def command[E: EventSerialisation, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C) = {
       db.runAggregate(aggregate.loadAndHandleCommand(id, cmd))
-          .leftMap(err => failStop(err.toString))
+        .leftMap(err => failStop(err.toString))
       this
     }
   }
@@ -53,7 +53,8 @@ trait AggregateSpec {
     def projectionData[D: ClassTag](projection: Projection[D]) = db.getProjectionData[D](projection)
   }
 
-  def newDb(projections: ProjectionRunner*): GivenSteps = GivenSteps(newInMemoryDb(projections:_*))
+  def newDb(projections: ProjectionRunner*): GivenSteps = GivenSteps(newInMemoryDb(projections: _*))
+
   def newDb: GivenSteps = GivenSteps(newInMemoryDb())
 
   def given(steps: GivenSteps) = {
@@ -71,7 +72,7 @@ trait AggregateSpec {
 
   class ThenStepFlow(whenSteps: WhenSteps) {
     def thenCheck[R](steps: ThenSteps => R): R =
-      steps(ThenSteps(whenSteps.db /* .runProjections */, whenSteps.startingDbOpNr))
+      steps(ThenSteps(whenSteps.db /* .runProjections */ , whenSteps.startingDbOpNr))
   }
 
   private def readEvents[E: EventSerialisation](db: DB, fromOperation: Long, tag: Aggregate.EventTag, aggregateId: AggregateId) = {
@@ -86,7 +87,7 @@ trait AggregateSpec {
           }
         )
       )
-    ).fold(err => failStop("Could not read events: "+err), _._2)
+    ).fold(err => failStop("Could not read events: " + err), _._2)
   }
 
   private def readDbVersion(db: DB): Database.Error Xor Long =

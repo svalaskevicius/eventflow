@@ -45,7 +45,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
 
   it should "fail if its at zero balance" in {
     given {
-      newDb   .withEvents[Event](tag, "counterid", Created("counterid", 0), Incremented, Decremented)
+      newDb.withEvents[Event](tag, "counterid", Created("counterid", 0), Incremented, Decremented)
     } check {
       _.failedCommandError(CounterAggregate, "counterid", Decrement) should be(Errors(NEL(ErrorCommandFailure("Counter cannot be decremented"))))
     }

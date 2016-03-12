@@ -8,20 +8,31 @@ import Domain.Door._
 object Door {
 
   sealed trait Event
+
   final case class Registered(id: AggregateId) extends Event
+
   case object Opened extends Event
+
   case object Closed extends Event
+
   final case class Locked(key: String) extends Event
+
   final case class Unlocked(key: String) extends Event
 
   sealed trait Command
+
   final case class Register(id: AggregateId) extends Command
+
   case object Open extends Command
+
   case object Close extends Command
+
   final case class Lock(key: String) extends Command
+
   final case class Unlock(key: String) extends Command
 
   val flow = new EventFlow[Command, Event]
+
   import flow.DslV1._
   import flow.{Flow, FlowAggregate}
 
@@ -50,19 +61,23 @@ object Door {
     when[Unlock].failWithMessage("Attempted unlock key is invalid"),
     anyOther.failWithMessage("Locked door can only be unlocked.")
   )
+
   private val fullAggregate: Flow[Unit] = handler(
     when[Register].emit[Registered].switch(openDoors)
   )
 
   object DoorAggregate extends FlowAggregate {
     val tag = createTag("Door")
+
     def aggregateLogic = fullAggregate
   }
+
 }
 
 import scala.collection.immutable.TreeMap
 
 sealed trait DoorState
+
 object DoorState {
 
   case object Open extends DoorState
@@ -72,10 +87,13 @@ object DoorState {
   final case class Locked(key: String) extends DoorState
 
 }
-object DoorProjection extends Projection[TreeMap[AggregateId, DoorState]]{
+
+object DoorProjection extends Projection[TreeMap[AggregateId, DoorState]] {
 
   def initialData = TreeMap.empty
+
   val listeningFor = List(DoorAggregate.tag)
+
   def accept[E](d: Data) = {
     case EventData(_, id, _, Registered(_)) => d + (id -> DoorState.Open)
     case EventData(_, id, _, Closed) => d + (id -> DoorState.Closed)

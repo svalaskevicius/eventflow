@@ -13,10 +13,14 @@ object Aggregate {
 
   trait EventTag {
     type Event
+
     def v: String
+
     def eventSerialiser: EventSerialisation[Event]
   }
-  type EventTagAux[E] = EventTag { type Event = E }
+
+  type EventTagAux[E] = EventTag {type Event = E}
+
   def createTag[E](id: String)(implicit evSerialiser: EventSerialisation[E]) = new EventTag {
     type Event = E
     val v = id
@@ -24,7 +28,9 @@ object Aggregate {
   }
 
   final case class AggregateId(v: String)
+
   val emptyAggregateId = AggregateId("")
+
   implicit def toAggregateId(v: String): AggregateId = AggregateId(v)
 
   implicit def aggOrdering(implicit ev: Ordering[String]): Ordering[AggregateId] = new Ordering[AggregateId] {
@@ -32,10 +38,15 @@ object Aggregate {
   }
 
   sealed trait Error
+
   final case class ErrorExistsAlready(id: AggregateId) extends Error
+
   final case class ErrorCommandFailure(message: String) extends Error
+
   final case class DatabaseError(err: Database.Error) extends Error
+
   final case class ErrorCannotFindHandler(commandData: String) extends Error
+
   final case class Errors(err: NEL[Error]) extends Error
 
   type DatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabaseWithFailure[E, ?], Err, A]
@@ -47,17 +58,22 @@ object Aggregate {
   val NewAggregateVersion = -1
 
   final case class AggregateState[D](id: AggregateId, state: D, version: Int)
+
   type AggregateDefAnyD[E, D, A] = StateT[DatabaseWithAggregateFailure[E, ?], D, A]
   type AggregateDef[E, D, A] = AggregateDefAnyD[E, AggregateState[D], A]
 
   implicit def eventDatabaseWithFailureMonad[E]: MonadError[DatabaseWithAnyFailure[E, ?, ?], Error] = XorT.xorTMonadError[EventDatabaseWithFailure[E, ?], Error]
+
   implicit def aggregateDefMonad[E, D]: MonadState[AggregateDefAnyD[E, ?, ?], AggregateState[D]] = StateT.stateTMonadState[DatabaseWithAggregateFailure[E, ?], AggregateState[D]]
 
   def pure[E, A](x: A): DatabaseWithAggregateFailure[E, A] = eventDatabaseWithFailureMonad[E].pure(x)
+
   def fail[E, A](x: Error): DatabaseWithAggregateFailure[E, A] = eventDatabaseWithFailureMonad[E].raiseError[A](x)
 
   type CommandHandlerResult[E] = ValidatedNel[Aggregate.Error, List[E]]
+
   def emitEvent[E](ev: E): CommandHandlerResult[E] = Validated.valid(List(ev))
+
   def emitEvents[E](evs: List[E]): CommandHandlerResult[E] = Validated.valid(evs)
 
   implicit val nelErrorSemigroup: Semigroup[NEL[Error]] = SemigroupK[NEL].algebra[Error]
@@ -71,18 +87,24 @@ trait Aggregate[E, C, D] {
   import Aggregate._
 
   protected def createTag(id: String)(implicit eventSerialisation: EventSerialisation[E]) = Aggregate.createTag[E](id)
+
   def tag: Aggregate.EventTag
 
   protected def on: EventHandler
+
   protected def handle: CommandHandler
+
   protected def initData: D
 
   type State = AggregateState[D]
   type ADStateRun[A] = AggregateState[D] => DatabaseWithAggregateFailure[E, (AggregateState[D], A)]
 
   type AggregateDefinition[A] = AggregateDef[E, D, A]
+
   def defineAggregate[A](a: ADStateRun[A]): AggregateDefinition[A] = StateT[DatabaseWithAggregateFailure[E, ?], AggregateState[D], A](a)
+
   def liftAggregateReadState[A](a: AggregateState[D] => DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a(s).map(ret => (s, ret)))
+
   def liftAggregate[A](a: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a.map(ret => (s, ret)))
 
   type CommandHandler = C => D => CommandHandlerResult[E]
