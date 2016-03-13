@@ -47,7 +47,7 @@ object Database {
 
   implicit def eventDatabaseMonad[E]: Monad[EventDatabase[E, ?]] = Free.freeMonad[EventDatabaseOp[E, ?]]
 
-  implicit def eventDatabaseWithFailureMonad[E]: MonadError[EventDatabaseWithAnyFailure[E, ?, ?], Error] = XorT.xorTMonadError[EventDatabase[E, ?], Error]
+  implicit def eventDatabaseWithFailureMonad[E]: MonadError[EventDatabaseWithFailure[E, ?], Error] = XorT.xorTMonadError[EventDatabase[E, ?], Error]
 
   /**
     * Database backend exposing the DB API.
