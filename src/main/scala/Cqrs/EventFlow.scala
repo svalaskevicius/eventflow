@@ -66,12 +66,12 @@ class EventFlow[Cmd, Evt] {
       def toCompilableDsl: CompilableDsl
     }
 
-    type Guard[CH <: Cmd] = (CH => Boolean, String)
+    type Guard[C <: Cmd] = (C => Boolean, String)
 
     object when {
-      def apply[CH <: Cmd : ClassTag] = WhenStatement[CH](_ => true, List.empty)
+      def apply[C <: Cmd : ClassTag] = WhenStatement[C](_ => true, List.empty)
 
-      def apply[CH <: Cmd : ClassTag](c: CH) = WhenStatement[CH](_ == c, List.empty)
+      def apply[C <: Cmd : ClassTag](c: C) = WhenStatement[C](_ == c, List.empty)
     }
 
     object on {
@@ -80,40 +80,40 @@ class EventFlow[Cmd, Evt] {
       def apply[E <: Evt : ClassTag](e: E)(implicit ct: ClassTag[Cmd]) = ThenStatement[Cmd, E](PartialFunction.empty, _ => false, List.empty, _ == e)
     }
 
-    case class WhenStatement[CH <: Cmd : ClassTag](commandMatcher: CH => Boolean, guards: List[Guard[CH]]) extends AllowFailingMessageStatement[CH] {
-      def emit[E <: Evt](implicit cct: CaseClassTransformer[CH, E], et: ClassTag[E]) =
-        ThenStatement[CH, E](promoteCommandToEvent[CH, E], commandMatcher, guards, _ => true)
+    case class WhenStatement[C <: Cmd : ClassTag](commandMatcher: C => Boolean, guards: List[Guard[C]]) extends AllowFailingMessageStatement[C] {
+      def emit[E <: Evt](implicit cct: CaseClassTransformer[C, E], et: ClassTag[E]) =
+        ThenStatement[C, E](promoteCommandToEvent[C, E], commandMatcher, guards, _ => true)
 
       def emit[E <: Evt](evs: E*)(implicit et: ClassTag[E]) =
-        ThenStatement[CH, E](handleWithSpecificCommandHandler(_ => evs.toList), commandMatcher, guards, _ == evs.head)
+        ThenStatement[C, E](handleWithSpecificCommandHandler(_ => evs.toList), commandMatcher, guards, _ == evs.head)
 
-      def emitEvent[E <: Evt](cmdHandler: CH => E)(implicit et: ClassTag[E]) =
-        ThenStatement[CH, E](handleWithSpecificCommandHandler(((x: E) => List(x)).compose(cmdHandler)), commandMatcher, guards, _ => true)
+      def emitEvent[E <: Evt](cmdHandler: C => E)(implicit et: ClassTag[E]) =
+        ThenStatement[C, E](handleWithSpecificCommandHandler(((x: E) => List(x)).compose(cmdHandler)), commandMatcher, guards, _ => true)
 
-      def emitEvents[E <: Evt](cmdHandler: CH => List[E])(implicit et: ClassTag[E]) =
-        ThenStatement[CH, E](handleWithSpecificCommandHandler(cmdHandler), commandMatcher, guards, _ => true)
+      def emitEvents[E <: Evt](cmdHandler: C => List[E])(implicit et: ClassTag[E]) =
+        ThenStatement[C, E](handleWithSpecificCommandHandler(cmdHandler), commandMatcher, guards, _ => true)
 
-      def guard(check: CH => Boolean, message: String) = WhenStatement[CH](commandMatcher, guards :+ ((check, message)))
+      def guard(check: C => Boolean, message: String) = WhenStatement[C](commandMatcher, guards :+ ((check, message)))
 
-      private def handleWithSpecificCommandHandler[E <: Evt](cmdHandler: CH => List[E]) =
+      private def handleWithSpecificCommandHandler[E <: Evt](cmdHandler: C => List[E]) =
         Function.unlift[Cmd, CommandHandlerResult[Evt]] {
-          case c: CH => Some(Validated.valid(cmdHandler(c)))
+          case c: C => Some(Validated.valid(cmdHandler(c)))
           case _ => None
         }
     }
 
-    case class ThenStatement[CH <: Cmd : ClassTag, E <: Evt : ClassTag](handler: CommandH, commandMatcher: CH => Boolean, guards: List[Guard[CH]], eventMatcher: E => Boolean) extends CompilableDslProvider {
-      def switch(where: E => Flow[Unit]): SwitchToStatement[CH, E] = SwitchToStatement[CH, E](handler, commandMatcher, guards, Some(where), eventMatcher)
+    case class ThenStatement[C <: Cmd : ClassTag, E <: Evt : ClassTag](handler: CommandH, commandMatcher: C => Boolean, guards: List[Guard[C]], eventMatcher: E => Boolean) extends CompilableDslProvider {
+      def switch(where: E => Flow[Unit]): SwitchToStatement[C, E] = SwitchToStatement[C, E](handler, commandMatcher, guards, Some(where), eventMatcher)
 
-      def switch(where: => Flow[Unit]): SwitchToStatement[CH, E] = switch(_ => where)
+      def switch(where: => Flow[Unit]): SwitchToStatement[C, E] = switch(_ => where)
 
-      def toCompilableDsl = SwitchToStatement[CH, E](handler, commandMatcher, guards, None, eventMatcher).toCompilableDsl
+      def toCompilableDsl = SwitchToStatement[C, E](handler, commandMatcher, guards, None, eventMatcher).toCompilableDsl
     }
 
-    case class SwitchToStatement[CH <: Cmd : ClassTag, E <: Evt : ClassTag](handler: CommandH, commandMatcher: CH => Boolean, guards: List[Guard[CH]], switchTo: Option[E => Flow[Unit]], eventMatcher: E => Boolean) extends CompilableDslProvider {
+    case class SwitchToStatement[C <: Cmd : ClassTag, E <: Evt : ClassTag](handler: CommandH, commandMatcher: C => Boolean, guards: List[Guard[C]], switchTo: Option[E => Flow[Unit]], eventMatcher: E => Boolean) extends CompilableDslProvider {
       def toCompilableDsl = new CompilableDsl {
         def commandHandler = {
-          case c: CH if commandMatcher(c) =>
+          case c: C if commandMatcher(c) =>
             val errors = guards.flatMap(g => if (!g._1(c)) Some(ErrorCommandFailure(g._2)) else None)
             errors match {
               case err :: errs => Validated.invalid(NEL(err, errs))
@@ -132,16 +132,16 @@ class EventFlow[Cmd, Evt] {
       def commandMatcher = _ => true
     }
 
-    trait AllowFailingMessageStatement[CH <: Cmd] {
-      def commandMatcher: CH => Boolean
+    trait AllowFailingMessageStatement[C <: Cmd] {
+      def commandMatcher: C => Boolean
 
-      def failWithMessage(msg: String)(implicit ct: ClassTag[CH]) = FailWithMessageStateMent(commandMatcher, msg)
+      def failWithMessage(msg: String)(implicit ct: ClassTag[C]) = FailWithMessageStateMent(commandMatcher, msg)
     }
 
-    case class FailWithMessageStateMent[CH <: Cmd : ClassTag](commandMatcher: CH => Boolean, msg: String) extends CompilableDslProvider {
+    case class FailWithMessageStateMent[C <: Cmd : ClassTag](commandMatcher: C => Boolean, msg: String) extends CompilableDslProvider {
       def toCompilableDsl = new CompilableDsl {
         def commandHandler = {
-          case c: CH if commandMatcher(c) => Aggregate.failCommand(msg)
+          case c: C if commandMatcher(c) => Aggregate.failCommand(msg)
         }
 
         def eventHandler = PartialFunction.empty
@@ -175,7 +175,6 @@ class EventFlow[Cmd, Evt] {
     )
 
   type StateData = Option[EventStreamConsumer]
-  type EAD[A] = Aggregate.AggregateDef[Evt, StateData, A]
 
   trait FlowAggregate extends Aggregate[Evt, Cmd, StateData] {
     def aggregateLogic: Flow[Unit]
