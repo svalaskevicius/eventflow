@@ -11,3 +11,6 @@ dependencies:
      - chmod u+x $HOME/bin/sbt
      - which sbt
      - sbt sbt-version
+test:
+    post:
+     - mv "./target/test-reports" "$CIRCLE_TEST_REPORTS/junit"
