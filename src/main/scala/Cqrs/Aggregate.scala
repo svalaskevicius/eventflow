@@ -2,8 +2,7 @@ package Cqrs
 
 import Cqrs.Database.{EventDatabaseWithFailure, EventSerialisation}
 import algebra.Semigroup
-import cats.data.{NonEmptyList => NEL, Validated, ValidatedNel, Xor, XorT}
-import cats.state._
+import cats.data.{NonEmptyList => NEL, _}
 import cats.std.all._
 import cats.{MonadError, MonadState, SemigroupK}
 
@@ -62,9 +61,9 @@ object Aggregate {
   type AggregateDefAnyD[E, D, A] = StateT[DatabaseWithAggregateFailure[E, ?], D, A]
   type AggregateDef[E, D, A] = AggregateDefAnyD[E, AggregateState[D], A]
 
-  implicit def eventDatabaseWithFailureMonad[E]: MonadError[DatabaseWithAnyFailure[E, ?, ?], Error] = XorT.xorTMonadError[EventDatabaseWithFailure[E, ?], Error]
+  implicit def eventDatabaseWithFailureMonad[E]: MonadError[DatabaseWithAggregateFailure[E, ?], Error] = XorT.xorTMonadError[EventDatabaseWithFailure[E, ?], Error]
 
-  implicit def aggregateDefMonad[E, D]: MonadState[AggregateDefAnyD[E, ?, ?], AggregateState[D]] = StateT.stateTMonadState[DatabaseWithAggregateFailure[E, ?], AggregateState[D]]
+  implicit def aggregateDefMonad[E, D]: MonadState[AggregateDef[E, D, ?], AggregateState[D]] = StateT.stateTMonadState[DatabaseWithAggregateFailure[E, ?], AggregateState[D]]
 
   def pure[E, A](x: A): DatabaseWithAggregateFailure[E, A] = eventDatabaseWithFailureMonad[E].pure(x)
 

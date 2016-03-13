@@ -5,8 +5,7 @@ import Cqrs.Database.FoldableDatabase.{EventDataConsumer, RawEventData}
 import Cqrs.Database.{Error, _}
 import Cqrs.{Projection, ProjectionRunner}
 import cats._
-import cats.data.Xor
-import cats.state._
+import cats.data.{State, Xor}
 import cats.std.all._
 import lib.foldM
 
@@ -99,7 +98,7 @@ object InMemoryDb {
     var db = DbBackend(TreeMap.empty, TreeMap.empty, 0, projections.toList);
 
     def runDb[E, A](actions: EventDatabaseWithFailure[E, A]): Future[Error Xor A] = synchronized {
-      val (newDb, r) = actions.value.foldMap[Db](transformDbOpToDbState).run(db).run
+      val (newDb, r) = actions.value.foldMap[Db](transformDbOpToDbState).run(db).value
       db = newDb
       Future.successful(r)
     }
