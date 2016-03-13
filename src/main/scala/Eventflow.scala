@@ -2,7 +2,7 @@
 import Cqrs.Aggregate._
 import Cqrs.Database.EventSerialisation
 import Cqrs.DbAdapters.EventStore._
-import Cqrs.DbAdapters.InMemoryDb._
+//import Cqrs.DbAdapters.InMemoryDb._
 import Domain.Counter.{CounterAggregate, Create}
 import Domain.Door.{DoorAggregate, Register}
 
