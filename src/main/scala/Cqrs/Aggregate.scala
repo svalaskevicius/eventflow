@@ -1,20 +1,36 @@
 package Cqrs
 
-import Cqrs.Aggregate.AggregateId
-import Cqrs.Database.{ EventDatabaseWithFailure, VersionedEvents }
+import Cqrs.Database.{EventDatabaseWithFailure, EventSerialisation}
 import algebra.Semigroup
-import cats.data.{ NonEmptyList => NEL, Validated, ValidatedNel, Xor, XorT }
+import cats.data.{NonEmptyList => NEL, Validated, ValidatedNel, Xor, XorT}
 import cats.state._
 import cats.std.all._
-import cats.{ MonadError, MonadState, SemigroupK }
+import cats.{MonadError, MonadState, SemigroupK}
 
 import scala.language.implicitConversions
 
 object Aggregate {
 
-  final case class Tag(v: String)
+  trait EventTag {
+    type Event
+
+    def v: String
+
+    def eventSerialiser: EventSerialisation[Event]
+  }
+
+  type EventTagAux[E] = EventTag {type Event = E}
+
+  def createTag[E](id: String)(implicit evSerialiser: EventSerialisation[E]) = new EventTag {
+    type Event = E
+    val v = id
+    val eventSerialiser = evSerialiser
+  }
+
   final case class AggregateId(v: String)
+
   val emptyAggregateId = AggregateId("")
+
   implicit def toAggregateId(v: String): AggregateId = AggregateId(v)
 
   implicit def aggOrdering(implicit ev: Ordering[String]): Ordering[AggregateId] = new Ordering[AggregateId] {
@@ -22,10 +38,15 @@ object Aggregate {
   }
 
   sealed trait Error
+
   final case class ErrorExistsAlready(id: AggregateId) extends Error
+
   final case class ErrorCommandFailure(message: String) extends Error
+
   final case class DatabaseError(err: Database.Error) extends Error
-  case object ErrorCannotFindHandler extends Error
+
+  final case class ErrorCannotFindHandler(commandData: String) extends Error
+
   final case class Errors(err: NEL[Error]) extends Error
 
   type DatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabaseWithFailure[E, ?], Err, A]
@@ -34,18 +55,25 @@ object Aggregate {
   def dbAction[E, A](dbActions: Database.EventDatabaseWithFailure[E, A]): DatabaseWithAggregateFailure[E, A] =
     XorT[EventDatabaseWithFailure[E, ?], Error, A](dbActions.map(Xor.right))
 
+  val NewAggregateVersion = -1
+
   final case class AggregateState[D](id: AggregateId, state: D, version: Int)
+
   type AggregateDefAnyD[E, D, A] = StateT[DatabaseWithAggregateFailure[E, ?], D, A]
   type AggregateDef[E, D, A] = AggregateDefAnyD[E, AggregateState[D], A]
 
   implicit def eventDatabaseWithFailureMonad[E]: MonadError[DatabaseWithAnyFailure[E, ?, ?], Error] = XorT.xorTMonadError[EventDatabaseWithFailure[E, ?], Error]
+
   implicit def aggregateDefMonad[E, D]: MonadState[AggregateDefAnyD[E, ?, ?], AggregateState[D]] = StateT.stateTMonadState[DatabaseWithAggregateFailure[E, ?], AggregateState[D]]
 
   def pure[E, A](x: A): DatabaseWithAggregateFailure[E, A] = eventDatabaseWithFailureMonad[E].pure(x)
+
   def fail[E, A](x: Error): DatabaseWithAggregateFailure[E, A] = eventDatabaseWithFailureMonad[E].raiseError[A](x)
 
   type CommandHandlerResult[E] = ValidatedNel[Aggregate.Error, List[E]]
+
   def emitEvent[E](ev: E): CommandHandlerResult[E] = Validated.valid(List(ev))
+
   def emitEvents[E](evs: List[E]): CommandHandlerResult[E] = Validated.valid(evs)
 
   implicit val nelErrorSemigroup: Semigroup[NEL[Error]] = SemigroupK[NEL].algebra[Error]
@@ -54,25 +82,29 @@ object Aggregate {
 
 }
 
-trait InitialAggregateCommand {
-  def id: AggregateId
-}
-
 trait Aggregate[E, C, D] {
 
   import Aggregate._
 
-  def tag: Aggregate.Tag
+  protected def createTag(id: String)(implicit eventSerialisation: EventSerialisation[E]) = Aggregate.createTag[E](id)
+
+  def tag: Aggregate.EventTagAux[E]
 
   protected def on: EventHandler
+
   protected def handle: CommandHandler
+
   protected def initData: D
 
   type State = AggregateState[D]
   type ADStateRun[A] = AggregateState[D] => DatabaseWithAggregateFailure[E, (AggregateState[D], A)]
 
   type AggregateDefinition[A] = AggregateDef[E, D, A]
+
   def defineAggregate[A](a: ADStateRun[A]): AggregateDefinition[A] = StateT[DatabaseWithAggregateFailure[E, ?], AggregateState[D], A](a)
+
+  def liftAggregateReadState[A](a: AggregateState[D] => DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a(s).map(ret => (s, ret)))
+
   def liftAggregate[A](a: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a.map(ret => (s, ret)))
 
   type CommandHandler = C => D => CommandHandlerResult[E]
@@ -80,31 +112,21 @@ trait Aggregate[E, C, D] {
 
   def liftToAggregateDef[A](f: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate(s => f.map((s, _)))
 
-  def newState(id: AggregateId) = new State(id, initData, 0)
+  def newState(id: AggregateId) = new State(id, initData, NewAggregateVersion)
 
   def handleCommand(cmd: C): AggregateDefinition[Unit] = {
     import Database._
 
-    val catchUpEvents = for {
-      events <- defineAggregate(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version).map((vs, _))))
-      _ <- applyEvents(events)
-    } yield ()
-
-    def initAggregateInDb(id: AggregateId): AggregateDefinition[Unit] =
-      liftAggregate[Unit] {
-        dbAction[E, Boolean](doesAggregateExist[E](tag, id)).flatMap { e: Boolean =>
-          if (e) fail(ErrorExistsAlready(id))
-          else pure(())
+    def readAllEventsAndCatchUp: AggregateDefinition[Unit]  =
+      liftAggregateReadState(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version))).flatMap { response =>
+        addEvents(response.events).flatMap { _ =>
+          if (!response.endOfStream) readAllEventsAndCatchUp
+          else liftAggregate(pure(()))
         }
       }
 
-    val initActions: AggregateDefinition[Unit] = cmd match {
-      case initCmd: InitialAggregateCommand => initAggregateInDb(initCmd.id)
-      case _ => catchUpEvents
-    }
-
     for {
-      _ <- initActions
+      _ <- readAllEventsAndCatchUp
       resultEvents <- handleCmd(cmd)
       _ <- onEvents(resultEvents)
     } yield ()
@@ -121,20 +143,15 @@ trait Aggregate[E, C, D] {
   private def onEvents(evs: List[E]): AggregateDefinition[Unit] =
     defineAggregate { vs =>
       import Database._
-      val vevs = VersionedEvents[E](vs.version + 1, evs)
-      dbAction(appendEvents(tag, vs.id, vevs).map(_ => (vs, List(vevs))))
-    }.flatMap(applyEvents)
+      dbAction(appendEvents(tag, vs.id, vs.version, evs).map(_ => (vs, evs)))
+    }.flatMap(addEvents)
 
-  private def applyEvents(evs: List[VersionedEvents[E]]): AggregateDefinition[Unit] =
+  private def addEvents(evs: List[E]): AggregateDefinition[Unit] =
     defineAggregate { vs =>
-      val vs_ = evs.foldLeft(vs)((vs_, ve) => {
-        if (vs_.version < ve.version) {
-          vs_.copy(state = ve.events.foldLeft(vs_.state)((d, e) => on(e)(d)), version = ve.version)
-        } else {
-          vs_
-        }
-      })
-      pure((vs_, ()))
+      pure((vs.copy(
+        state = evs.foldLeft(vs.state)((d, e) => on(e)(d)),
+        version = vs.version + evs.length
+      ), ()))
     }
 }
 

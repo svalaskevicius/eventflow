@@ -1,29 +1,51 @@
 package Cqrs
 
 import Cqrs.Aggregate._
-import Cqrs.Database.{ Backend, EventDataConsumerQuery }
-import Cqrs.Projection.Handler
-import cats.data.Xor
+import Cqrs.Database.EventData
 
-object Projection {
-  type Handler[D, E] = (D, Database.EventData[E]) => D
+import scala.reflect.ClassTag
 
-  def build[D](name: String) = ProjectionBuilder[D](name, List())
+trait Projection[D] {
+  type Data = D
+
+  def initialData: Data
+
+  def listeningFor: List[EventTag]
+
+  def accept[E](data: Data): PartialFunction[EventData[E], Data]
 }
 
-final case class ProjectionBuilder[D](name: String, dbConsumers: List[EventDataConsumerQuery[D]]) {
-  def addHandler[E: Database.EventSerialisation](tag: Tag, handler: Handler[D, E]) = {
-    val n = List(EventDataConsumerQuery(tag, Database.createEventDataConsumer(handler)))
-    copy(dbConsumers = dbConsumers ++ n)
+
+trait ProjectionRunner {
+  def listeningFor: List[EventTag]
+
+  def accept[E](eventData: EventData[E]): ProjectionRunner
+
+  def getProjectionData[D: ClassTag](projection: Projection[D]): Option[D]
+}
+
+import scala.language.implicitConversions
+
+object ProjectionRunner {
+  implicit def createProjectionRunner[D](p: Projection[D]): ProjectionRunner = ConcreteProjectionRunner[D](p, p.initialData)
+}
+
+case class ConcreteProjectionRunner[Data](proj: Projection[Data], data: Data) extends ProjectionRunner {
+  def listeningFor = proj.listeningFor
+
+  def accept[E](eventData: EventData[E]) =
+    proj.accept(data).lift(eventData) match {
+      case Some(newData) => copy(data = newData)
+      case None => this
+    }
+
+  def getProjectionData[D: ClassTag](projection: Projection[D]): Option[D] = {
+    if (proj.getClass.getName == projection.getClass.getName) {
+      data match {
+        case asD: D => Some(asD)
+        case _ => None
+      }
+    } else None
   }
-  def empty(d: D) = Projection(name, 0, d, dbConsumers)
 }
 
-final case class Projection[D](name: String, lastReadOperation: Int, data: D, dbConsumers: List[EventDataConsumerQuery[D]]) {
-
-  def applyNewEventsFromDb[Db: Backend](db: Db): Database.Error Xor Projection[D] = {
-    val updatedProjectionData = Database.consumeDbEvents(db, lastReadOperation, data, dbConsumers)
-    updatedProjectionData.map(d => this.copy(lastReadOperation = d._1, data = d._2))
-  }
-
-}

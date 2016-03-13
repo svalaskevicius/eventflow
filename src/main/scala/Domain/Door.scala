@@ -1,34 +1,47 @@
 package Domain
 
 import Cqrs.Aggregate._
+import Cqrs.Database.EventData
 import Cqrs._
+import Domain.Door._
 
 object Door {
 
   sealed trait Event
+
   final case class Registered(id: AggregateId) extends Event
+
   case object Opened extends Event
+
   case object Closed extends Event
+
   final case class Locked(key: String) extends Event
+
   final case class Unlocked(key: String) extends Event
 
   sealed trait Command
-  final case class Register(id: AggregateId) extends Command with InitialAggregateCommand
+
+  final case class Register(id: AggregateId) extends Command
+
   case object Open extends Command
+
   case object Close extends Command
+
   final case class Lock(key: String) extends Command
+
   final case class Unlock(key: String) extends Command
 
   val flow = new EventFlow[Command, Event]
-  import flow.{ Flow, FlowAggregate }
+
   import flow.DslV1._
+  import flow.{Flow, FlowAggregate}
 
   private def openDoors: Flow[Unit] = handler(
     when(Close).emit(Closed).switch(closedDoors)
   )
 
   private def closedDoors: Flow[Unit] = handler(
-    when(Open).emit(Opened),
+    when(Open).emit(Opened).switch(openDoors),
     when[Lock].emit[Locked].switch(ev => lockedDoors(ev.key))
   )
 
@@ -48,37 +61,45 @@ object Door {
     when[Unlock].failWithMessage("Attempted unlock key is invalid"),
     anyOther.failWithMessage("Locked door can only be unlocked.")
   )
+
   private val fullAggregate: Flow[Unit] = handler(
     when[Register].emit[Registered].switch(openDoors)
   )
 
   object DoorAggregate extends FlowAggregate {
-    def tag = Tag("Door")
+    val tag = createTag("Door")
+
     def aggregateLogic = fullAggregate
   }
+
 }
 
 import scala.collection.immutable.TreeMap
 
-object DoorProjection {
+sealed trait DoorState
 
-  sealed trait State
-  case object Open extends State
-  case object Closed extends State
-  final case class Locked(key: String) extends State
+object DoorState {
 
-  type Data = TreeMap[AggregateId, State]
+  case object Open extends DoorState
 
-  def emptyDoorProjection = Projection.build("doors").
-    addHandler(Door.DoorAggregate.tag, (d: Data, e: Database.EventData[Door.Event]) => {
-      import Door._
-      e.data match {
-        case Registered(id) => d.updated(e.id, DoorProjection.Open)
-        case Door.Closed => d.updated(e.id, DoorProjection.Closed)
-        case Door.Opened => d.updated(e.id, DoorProjection.Open)
-        case Door.Locked(key) => d.updated(e.id, DoorProjection.Locked(key))
-        case Door.Unlocked(_) => d.updated(e.id, DoorProjection.Closed)
-      }
-    }).empty(TreeMap.empty)
+  case object Closed extends DoorState
+
+  final case class Locked(key: String) extends DoorState
+
+}
+
+object DoorProjection extends Projection[TreeMap[AggregateId, DoorState]] {
+
+  def initialData = TreeMap.empty
+
+  val listeningFor = List(DoorAggregate.tag)
+
+  def accept[E](d: Data) = {
+    case EventData(_, id, _, Registered(_)) => d + (id -> DoorState.Open)
+    case EventData(_, id, _, Closed) => d + (id -> DoorState.Closed)
+    case EventData(_, id, _, Opened) => d + (id -> DoorState.Open)
+    case EventData(_, id, _, Locked(key)) => d + (id -> DoorState.Locked(key))
+    case EventData(_, id, _, Unlocked(_)) => d + (id -> DoorState.Closed)
+  }
 }
 

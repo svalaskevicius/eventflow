@@ -1,8 +1,13 @@
 
-import Cqrs.BatchRunner
-import Cqrs.DbAdapters.InMemoryDb._
-import Domain.Counter.{ CounterAggregate, Create }
-import Domain.Door.{ DoorAggregate, Register }
+import Cqrs.Aggregate._
+import Cqrs.Database.EventSerialisation
+import Cqrs.DbAdapters.EventStore._
+//import Cqrs.DbAdapters.InMemoryDb._
+import Domain.Counter.{CounterAggregate, Create}
+import Domain.Door.{DoorAggregate, Register}
+
+import scala.concurrent.Await
+import scala.concurrent.duration._
 
 object Eventflow {
 
@@ -33,21 +38,11 @@ object Eventflow {
       _ <- handleCommand(Decrement)
       _ <- handleCommand(Decrement)
       _ <- handleCommand(Decrement)
-      //     _ <- handleCommand(Decrement)
+    //     _ <- handleCommand(Decrement)
     } yield ()
   }
 
-  def doorActions1 = {
-    import Domain.Door._
-    import DoorAggregate._
-    for {
-      _ <- handleCommand(Close)
-      _ <- handleCommand(Lock("my secret"))
-      _ <- handleCommand(Unlock("my secret"))
-      _ <- handleCommand(Open)
-    } yield ()
-  }
-  def doorActions2 = {
+  def doorActions = {
     import Domain.Door._
     import DoorAggregate._
     for {
@@ -61,41 +56,30 @@ object Eventflow {
   def main(args: Array[String]) {
     import Domain._
 
-    def printRunner[DB: pprint.PPrint, PROJS <: shapeless.HList: pprint.PPrint](runner: BatchRunner[DB, PROJS]) = {
-      import pprint._
-      println("============================")
-      println("DB:")
-      pprintln(runner.db, colors = pprint.Colors.Colored)
-      println("Projections:")
-      pprintln(runner.projections, colors = pprint.Colors.Colored)
-      println("============================")
-    }
+//    val db = newInMemoryDb(CounterProjection, DoorProjection, OpenDoorsCountersProjection)
+    val db = newEventStoreConn(CounterProjection, DoorProjection, OpenDoorsCountersProjection)
 
-    val runner = BatchRunner.forDb(newInMemoryDb).
-      addProjection(CounterProjection.emptyCounterProjection).
-      addProjection(DoorProjection.emptyDoorProjection).
-      addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
+    def act[E: EventSerialisation, A](actions: DatabaseWithAggregateFailure[E, A]) =
+      Await.result(db.runAggregate(actions), 10.seconds)
 
-    {
-      import runner._
-      val runner1 = run(
-        for {
-          c1 <- db(CounterAggregate.loadAndHandleCommand("test counter", Create("test counter", 0)))
-          c1 <- continueWithCommand(c1, actions1)
-          d1 <- db(DoorAggregate.loadAndHandleCommand("golden gate", Register("golden gate")))
-          d1 <- continueWithCommand(d1, doorActions1)
-          c1 <- continueWithCommand(c1, actions2)
-          d1 <- continueWithCommand(d1, doorActions2)
-        } yield ()
-      ).
-        fold(err => { println("Error occurred: " + err._2); err._1 }, r => { println("OK"); r._1 })
+    val ret = for {
+      c1 <- act(CounterAggregate.loadAndHandleCommand("testcounter", Create("testcounter", 0)))
+      c1 <- act(actions1 runS c1)
+      d1 <- act(DoorAggregate.loadAndHandleCommand("goldengate", Register("goldengate")))
+      d1 <- act(doorActions runS d1)
+      c1 <- act(actions2 runS c1)
+      d1 <- act(doorActions runS d1)
+    } yield ()
 
-      printRunner(runner1)
+    ret.fold(err => {
+      println("Error occurred: " + err);
+    }, r => {
+      println("OK"); r
+    })
 
-      val runner2 = runner1.addProjection(OpenDoorsCountersProjection.emptyOpenDoorsCountersProjection)
-
-      printRunner(runner2)
-    }
+    print(db.getProjectionData(CounterProjection))
+    print(db.getProjectionData(DoorProjection))
+    print(db.getProjectionData(OpenDoorsCountersProjection))
   }
 }
 
