@@ -88,7 +88,7 @@ trait Aggregate[E, C, D] {
 
   protected def createTag(id: String)(implicit eventSerialisation: EventSerialisation[E]) = Aggregate.createTag[E](id)
 
-  def tag: Aggregate.EventTag
+  def tag: Aggregate.EventTagAux[E]
 
   protected def on: EventHandler
 

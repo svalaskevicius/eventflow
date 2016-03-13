@@ -24,9 +24,7 @@ object EventStore {
                  ) extends Backend {
 
     val allEventsSubscription = connection.subscribeToAllFrom(new SubscriptionObserver[IndexedEvent] {
-        def onLiveProcessingStart(subscription: Closeable) = {
-          println("caught up proj events: " + projections)
-        }
+        def onLiveProcessingStart(subscription: Closeable) = ()
 
         def onEvent(event: IndexedEvent, subscription: Closeable) = {
           parseEsStreamId(event.event.streamId) match {
@@ -52,12 +50,12 @@ object EventStore {
       }
     )
 
-    def runDb[E: EventSerialisation, A](actions: EventDatabaseWithFailure[E, A]): Future[Error Xor A] =
+    def runDb[E, A](actions: EventDatabaseWithFailure[E, A]): Future[Error Xor A] =
       actions.value.foldMap(transformDbOpToDbState)
 
-    private def readFromDb[E: EventSerialisation](tag: EventTag, id: AggregateId, fromVersion: Int): Future[Error Xor ReadAggregateEventsResponse[E]] = {
+    private def readFromDb[E](tag: EventTagAux[E], id: AggregateId, fromVersion: Int): Future[Error Xor ReadAggregateEventsResponse[E]] = {
 
-      def decode(d: String) = implicitly[EventSerialisation[E]].decode(d)
+      def decode(d: String) = tag.eventSerialiser.decode(d)
       def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
 
       val eventsFromDb = connection future ReadStreamEvents(
@@ -76,10 +74,10 @@ object EventStore {
       }
     }
 
-    private def addToDb[E](tag: EventTag, id: AggregateId, expectedVersion: Int, events: List[E])(implicit eventSerialiser: EventSerialisation[E]): Future[Error Xor Unit] = {
+    private def addToDb[E](tag: EventTagAux[E], id: AggregateId, expectedVersion: Int, events: List[E]): Future[Error Xor Unit] = {
       val response = connection future WriteEvents(
         esStreamId(tag, id),
-        events.map(ev => eventstore.EventData.Json(ev.getClass.toString, data = eventSerialiser.encode(ev))),
+        events.map(ev => eventstore.EventData.Json(ev.getClass.toString, data = tag.eventSerialiser.encode(ev))),
         ExpectedVersion(expectedVersion)
       )
       val convertedToGlobalPosition = response.map { resp =>
@@ -94,7 +92,7 @@ object EventStore {
       dbErrorsHandled.map(_.map { _ => () })
     }
 
-    private def transformDbOpToDbState[E](implicit eventSerialiser: EventSerialisation[E]): EventDatabaseOp[E, ?] ~> Future =
+    private def transformDbOpToDbState[E]: EventDatabaseOp[E, ?] ~> Future =
       new (EventDatabaseOp[E, ?] ~> Future) {
         def apply[A](fa: EventDatabaseOp[E, A]): Future[A] = fa match {
           case ReadAggregateEvents(tag, id, version) => readFromDb[E](tag, id, version)

@@ -18,7 +18,7 @@ trait AggregateSpec {
 
   implicit class GivenSteps(val db: DB) {
 
-    def withEvent[E: EventSerialisation](tag: Aggregate.EventTag, id: AggregateId, e: E): GivenSteps = {
+    def withEvent[E](tag: Aggregate.EventTagAux[E], id: AggregateId, e: E): GivenSteps = {
       addEvents(db, tag, id, List(e)).fold(
         err => failStop(err.toString),
         identity
@@ -26,7 +26,7 @@ trait AggregateSpec {
       this
     }
 
-    def withEvents[E: EventSerialisation](tag: Aggregate.EventTag, id: AggregateId, evs: E*): GivenSteps = {
+    def withEvents[E](tag: Aggregate.EventTagAux[E], id: AggregateId, evs: E*): GivenSteps = {
       addEvents(db, tag, id, evs.toList).fold(
         err => failStop(err.toString),
         identity
@@ -37,7 +37,7 @@ trait AggregateSpec {
 
   case class WhenSteps(val db: DB, startingDbOpNr: Long) {
 
-    def command[E: EventSerialisation, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C) = {
+    def command[E, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C) = {
       act(db, aggregate.loadAndHandleCommand(id, cmd))
         .leftMap(err => failStop(err.toString))
       this
@@ -46,10 +46,10 @@ trait AggregateSpec {
 
   case class ThenSteps(val db: DB, startingDbOpNr: Long) {
 
-    def newEvents[E: EventSerialisation](tag: Aggregate.EventTag, aggregateId: AggregateId): List[E] =
+    def newEvents[E](tag: Aggregate.EventTagAux[E], aggregateId: AggregateId): List[E] =
       readEvents(db, startingDbOpNr, tag, aggregateId)
 
-    def failedCommandError[E: EventSerialisation, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C): Aggregate.Error =
+    def failedCommandError[E, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C): Aggregate.Error =
       act(db, aggregate.loadAndHandleCommand(id, cmd))
         .fold(identity, _ => failStop("Command did not fail, although was expected to"))
 
@@ -78,17 +78,14 @@ trait AggregateSpec {
       steps(ThenSteps(whenSteps.db /* .runProjections */ , whenSteps.startingDbOpNr))
   }
 
-  private def readEvents[E: EventSerialisation](db: DB, fromOperation: Long, tag: Aggregate.EventTag, aggregateId: AggregateId) = {
+  private def readEvents[E](db: DB, fromOperation: Long, tag: Aggregate.EventTagAux[E], aggregateId: AggregateId) = {
     db.consumeDbEvents(
       fromOperation,
       List.empty[E],
       List(
-        EventDataConsumerQuery(
-          tag,
-          createEventDataConsumer[E, List[E]] { (collection: List[E], event: EventData[E]) =>
-            if (event.id == aggregateId) collection :+ event.data else collection
-          }
-        )
+        createEventDataConsumer(tag) { (collection: List[E], event: EventData[E]) =>
+          if (event.id == aggregateId) collection :+ event.data else collection
+        }
       )
     ).fold(err => failStop("Could not read events: " + err), _._2)
   }
@@ -96,7 +93,7 @@ trait AggregateSpec {
   private def readDbVersion(db: DB): Database.Error Xor Long =
     db.consumeDbEvents(0, (), List()).map(_._1)
 
-  private def addEvents[E: EventSerialisation](database: Backend, tag: Aggregate.EventTag, aggregateId: AggregateId, events: List[E]): Aggregate.Error Xor Unit = {
+  private def addEvents[E](database: Backend, tag: Aggregate.EventTagAux[E], aggregateId: AggregateId, events: List[E]): Aggregate.Error Xor Unit = {
     import Aggregate._
 
     val commands = for {
@@ -111,6 +108,6 @@ trait AggregateSpec {
     throw new scala.Error("Failed with: " + message)
   }
 
-  private def act[E: EventSerialisation, A](db: Backend, actions: DatabaseWithAggregateFailure[E, A]) =
+  private def act[E, A](db: Backend, actions: DatabaseWithAggregateFailure[E, A]) =
     Await.result(db.runAggregate(actions), 1.second)
 }
