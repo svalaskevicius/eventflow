@@ -6,7 +6,7 @@ scalaVersion := "2.11.8"
 
 libraryDependencies += "org.typelevel" %% "cats" % "0.4.1"
 libraryDependencies += "com.lihaoyi" %% "upickle" % "0.3.8"
-libraryDependencies += "com.chuusai" %% "shapeless" % "2.1.0"
+libraryDependencies += "com.chuusai" %% "shapeless" % "2.2.5"
 
 libraryDependencies += "org.scalacheck" %% "scalacheck" % "1.12.4" % "test"
 libraryDependencies += "org.scalactic" %% "scalactic" % "2.2.6"
@@ -14,12 +14,16 @@ libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.6" % "test"
 
 libraryDependencies += "com.geteventstore" % "eventstore-client_2.11" % "2.2.1"
 
-val http4sVersion = "0.12.4"
-libraryDependencies += "org.http4s" %% "http4s-dsl"          % http4sVersion  // to use the core dsl
-libraryDependencies += "org.http4s" %% "http4s-blaze-server" % http4sVersion  // to use the blaze backend
-libraryDependencies += "org.http4s" %% "http4s-servlet"      % http4sVersion  // to use the raw servlet backend
-libraryDependencies += "org.http4s" %% "http4s-jetty"        % http4sVersion  // to use the jetty servlet backend
-libraryDependencies += "org.http4s" %% "http4s-blaze-client" % http4sVersion  // to use the blaze client
+libraryDependencies ++= Seq(
+  "com.github.finagle" %% "finch-core" % "0.10.0",
+  "com.github.finagle" %% "finch-circe" % "0.10.0"
+)
+
+libraryDependencies ++= Seq(
+  "io.circe" %% "circe-core" % "0.3.0",
+  "io.circe" %% "circe-generic" % "0.3.0",
+  "io.circe" %% "circe-parser" % "0.3.0"
+)
 
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
