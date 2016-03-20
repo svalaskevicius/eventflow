@@ -25,7 +25,7 @@ import com.twitter.finagle.Http
 
 import scala.concurrent.ExecutionContext.Implicits.global
 
-object Eventflow {
+object EventflowExample {
 
   def actions1 = {
     import Domain.Counter._

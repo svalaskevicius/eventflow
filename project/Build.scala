@@ -11,14 +11,12 @@ object EventflowBuild extends Build {
       "-Xlint", "-Ywarn-unused-import", "-Yno-adapted-args", "-Ywarn-dead-code",
       "-Ywarn-numeric-widen", "-Ywarn-value-discard", "-Ywarn-infer-any")
   )
-  //  resolvers += Resolver.sonatypeRepo("snapshots")
-  //  resolvers += Resolver.sonatypeRepo("releases")
 
   lazy val root = Project(
     id = "eventflow",
     base = file("."),
-    settings = buildSettings
-  ) aggregate(core, example)
+    settings = buildSettings ++ Seq(mainClass in (Compile, run) := Some("EventflowExample"))
+  ) aggregate(core, eventstoreBackend, example) dependsOn(example)
 
   lazy val core = Project(
     id = "eventflow-core",
@@ -26,8 +24,14 @@ object EventflowBuild extends Build {
     settings = buildSettings
   )
 
+  lazy val eventstoreBackend = Project(
+    id = "eventflow-eventstore-backend",
+    base = file("eventstore-backend"),
+    settings = buildSettings
+  ) dependsOn(core)
+
   lazy val example = Project(
     id = "eventflow-example",
     base = file("example"),
-    settings = buildSettings) dependsOn(core)
+    settings = buildSettings) dependsOn(core, eventstoreBackend)
 }
