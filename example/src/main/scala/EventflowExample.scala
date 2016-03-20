@@ -21,26 +21,26 @@ import scala.concurrent.ExecutionContext.Implicits.global
 
 object EventflowExample {
 
+  val futurePool = FuturePool(Executors.newCachedThreadPool())
+
+  val db = newEventStoreConn(CounterProjection, DoorProjection, OpenDoorsCountersProjection)
+
+  val counter = post("counter" / string :: body.as[Counter.Command]) mapOutputAsync {
+    case id :: cmd :: HNil =>
+      scalaToTwitterFuture(db.runAggregate(CounterAggregate.loadAndHandleCommand(id, cmd)).map {
+        case Xor.Right(_) => Ok(())
+        case Xor.Left(err) => PreconditionFailed(new Exception(err.toString))
+      })
+    case _ => twitter.util.Future.value(InternalServerError(new Exception("Cannot handle input")))
+  }
+
+  val counterRead = get("counter" / string) mapOutputAsync {
+    id => futurePool(
+      db.getProjectionData(CounterProjection).flatMap(_.get(id)).map(Ok(_)).getOrElse(NotFound(new Exception("Cannot find such counter")))
+    )
+  }
+
   def main(args: Array[String]) {
-
-    val db = newEventStoreConn(CounterProjection, DoorProjection, OpenDoorsCountersProjection)
-
-    val futurePool = FuturePool(Executors.newCachedThreadPool())
-
-    val counter: Endpoint[Unit] = post("counter" / string :: body.as[Counter.Command]) mapOutputAsync {
-      case id :: cmd :: HNil =>
-        scalaToTwitterFuture(db.runAggregate(CounterAggregate.loadAndHandleCommand(id, cmd)).map {
-          case Xor.Right(_) => Ok(())
-          case Xor.Left(err) => PreconditionFailed(new Exception(err.toString))
-        })
-      case _ => twitter.util.Future.value(InternalServerError(new Exception("Cannot handle input")))
-    }
-    val counterRead: Endpoint[Int] = get("counter" / string) mapOutputAsync {
-      case id => futurePool(
-        db.getProjectionData(CounterProjection).flatMap(_.get(id)).map(Ok(_)).getOrElse(NotFound(new Exception("Cannot find such counter")))
-      )
-      case _ => twitter.util.Future.value(InternalServerError(new Exception("Cannot handle input")))
-    }
     val api = counter :+: counterRead
     val server = Http.serve(":8080", api.toService)
   }
