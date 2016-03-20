@@ -1,4 +1,4 @@
-import Cqrs.Aggregate.{DatabaseWithAggregateFailure, AggregateId}
+import Cqrs.Aggregate.{AggregateId, DatabaseWithAggregateFailure}
 import Cqrs.Database.FoldableDatabase._
 import Cqrs.Database._
 import Cqrs.DbAdapters.InMemoryDb._
@@ -6,9 +6,8 @@ import Cqrs.{Aggregate, Database, Projection, ProjectionRunner}
 import cats.data.Xor
 
 import scala.concurrent.Await
-import scala.reflect.ClassTag
-
 import scala.concurrent.duration._
+import scala.reflect.ClassTag
 
 trait AggregateSpec {
 
