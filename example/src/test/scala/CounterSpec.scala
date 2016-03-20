@@ -1,7 +1,8 @@
 import Cqrs.Aggregate._
-import Domain.Counter.CounterAggregate.tag
 import Domain.Counter._
+import Domain.CounterAggregate
 import Domain.CounterProjection
+import Domain.CounterAggregate.tag
 
 //import Domain.CounterProjection.{ Data => CounterProjectionData, emptyCounterProjection }
 import cats.data.{NonEmptyList => NEL}

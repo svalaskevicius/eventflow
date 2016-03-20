@@ -30,11 +30,10 @@ object Door {
   final case class Lock(key: String) extends Command
 
   final case class Unlock(key: String) extends Command
+}
 
-  val flow = new EventFlow[Command, Event]
-
-  import flow.DslV1._
-  import flow.{Flow, FlowAggregate}
+object DoorAggregate extends EventFlow[Event, Command] {
+  val tag = createTag("Door")
 
   private def openDoors: Flow[Unit] = handler(
     when(Close).emit(Closed).switch(closedDoors)
@@ -62,15 +61,9 @@ object Door {
     anyOther.failWithMessage("Locked door can only be unlocked.")
   )
 
-  private val fullAggregate: Flow[Unit] = handler(
+  val aggregateLogic: Flow[Unit] = handler(
     when[Register].emit[Registered].switch(openDoors)
   )
-
-  object DoorAggregate extends FlowAggregate {
-    val tag = createTag("Door")
-
-    def aggregateLogic = fullAggregate
-  }
 
 }
 

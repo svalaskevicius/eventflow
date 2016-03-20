@@ -81,17 +81,28 @@ object Aggregate {
 
 }
 
-trait Aggregate[E, C, D] {
+trait AggregateTypes {
+  type Event
+  type Command
+}
+
+trait Aggregate[E, C, D] extends AggregateTypes{
 
   import Aggregate._
+
+  type Event = E
+  type Command = C
 
   protected def createTag(id: String)(implicit eventSerialisation: EventSerialisation[E]) = Aggregate.createTag[E](id)
 
   def tag: Aggregate.EventTagAux[E]
 
-  protected def on: EventHandler
+  type CommandHandler = C => D => CommandHandlerResult[E]
+  type EventHandler = E => D => D
 
-  protected def handle: CommandHandler
+  protected def eventHandler: EventHandler
+
+  protected def commandHandler: CommandHandler
 
   protected def initData: D
 
@@ -105,9 +116,6 @@ trait Aggregate[E, C, D] {
   def liftAggregateReadState[A](a: AggregateState[D] => DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a(s).map(ret => (s, ret)))
 
   def liftAggregate[A](a: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a.map(ret => (s, ret)))
-
-  type CommandHandler = C => D => CommandHandlerResult[E]
-  type EventHandler = E => D => D
 
   def liftToAggregateDef[A](f: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate(s => f.map((s, _)))
 
@@ -136,7 +144,7 @@ trait Aggregate[E, C, D] {
 
   private def handleCmd(cmd: C): AggregateDefinition[List[E]] = defineAggregate(vs =>
     XorT.fromXor[EventDatabaseWithFailure[E, ?]](
-      handle(cmd)(vs.state).fold[Error Xor List[E]](err => Xor.left(Errors(err)), Xor.right)
+      commandHandler(cmd)(vs.state).fold[Error Xor List[E]](err => Xor.left(Errors(err)), Xor.right)
     ).map((vs, _)))
 
   private def onEvents(evs: List[E]): AggregateDefinition[Unit] =
@@ -148,7 +156,7 @@ trait Aggregate[E, C, D] {
   private def addEvents(evs: List[E]): AggregateDefinition[Unit] =
     defineAggregate { vs =>
       pure((vs.copy(
-        state = evs.foldLeft(vs.state)((d, e) => on(e)(d)),
+        state = evs.foldLeft(vs.state)((d, e) => eventHandler(e)(d)),
         version = vs.version + evs.length
       ), ()))
     }

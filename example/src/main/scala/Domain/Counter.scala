@@ -3,7 +3,7 @@ package Domain
 import Cqrs.Aggregate._
 import Cqrs.Database.EventData
 import Cqrs._
-import Domain.Counter.{CounterAggregate, Created, Decremented, Incremented}
+import Domain.Counter._
 
 import scala.collection.immutable.TreeMap
 
@@ -25,27 +25,19 @@ object Counter {
   case object Increment extends Command
 
   case object Decrement extends Command
+}
 
-  val flow = new EventFlow[Command, Event]
+object CounterAggregate extends EventFlow[Event, Command] {
+  val tag = createTag("Counter")
 
-  import flow.DslV1._
-  import flow.{Flow, FlowAggregate}
-
-  private def counting(c: Int): Flow[Unit] = handler(
+  def counting(c: Int): Flow[Unit] = handler(
     when(Increment).emit(Incremented).switch(counting(c + 1)),
     when(Decrement).guard(_ => c > 0, "Counter cannot be decremented").emit(Decremented).switch(counting(c - 1))
   )
 
-  private val fullAggregate: Flow[Unit] = handler(
+  val aggregateLogic: Flow[Unit] = handler(
     when[Create].emit[Created].switch(evt => counting(evt.start))
   )
-
-  object CounterAggregate extends FlowAggregate {
-    val tag = createTag("Counter")
-
-    def aggregateLogic = fullAggregate
-  }
-
 }
 
 object CounterProjection extends Projection[TreeMap[AggregateId, Int]] {

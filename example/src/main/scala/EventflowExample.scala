@@ -1,7 +1,6 @@
 
 
 import Domain._
-import Domain.Counter.CounterAggregate
 
 import Cqrs.DbAdapters.EventStore._
 import java.util.concurrent.Executors
