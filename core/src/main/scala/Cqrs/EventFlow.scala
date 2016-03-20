@@ -9,7 +9,7 @@ import lib.CaseClassTransformer
 
 import scala.reflect.ClassTag
 
-class EventFlowImpl[Cmd, Evt] {//TODO: swap params
+class EventFlowImpl[Evt, Cmd] {
   type CommandH = PartialFunction[Cmd, CommandHandlerResult[Evt]]
   type EventH[A] = PartialFunction[Evt, A]
 
@@ -72,9 +72,9 @@ class EventFlowImpl[Cmd, Evt] {//TODO: swap params
   type StateData = Option[EventStreamConsumer]
 }
 
-trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Cmd, Evt]#StateData] {
+trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd]#StateData] {
 
-  val eventFlowImpl = new EventFlowImpl[Cmd, Evt]
+  val eventFlowImpl = new EventFlowImpl[Evt, Cmd]
 
   type Flow[A] = eventFlowImpl.Flow[A]
 
@@ -97,7 +97,7 @@ trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Cmd, Evt
 
 trait DslV1 { self: AggregateTypes =>
 
-  val eventFlowImpl: EventFlowImpl[Command, Event]
+  val eventFlowImpl: EventFlowImpl[Event, Command]
 
   import eventFlowImpl.{Flow, CommandH, EventH}
 
