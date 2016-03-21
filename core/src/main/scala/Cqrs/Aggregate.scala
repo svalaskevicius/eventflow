@@ -1,8 +1,8 @@
 package Cqrs
 
-import Cqrs.Database.{EventDatabaseWithFailure, EventSerialisation}
+import Cqrs.Database.{ErrorUnexpectedVersion, EventDatabaseWithFailure, EventSerialisation, appendEvents, readNewEvents}
 import algebra.Semigroup
-import cats.data.{NonEmptyList => NEL, _}
+import cats.data.{XorT, NonEmptyList => NEL, _}
 import cats.std.all._
 import cats.{MonadError, MonadState, SemigroupK}
 
@@ -104,13 +104,12 @@ trait Aggregate[E, C, D] extends AggregateTypes{
   protected def initData: D
 
   type State = AggregateState[D]
-  type ADStateRun[A] = AggregateState[D] => DatabaseWithAggregateFailure[E, (AggregateState[D], A)]
 
   type AggregateDefinition[A] = AggregateDef[E, D, A]
 
-  def defineAggregate[A](a: ADStateRun[A]): AggregateDefinition[A] = StateT[DatabaseWithAggregateFailure[E, ?], AggregateState[D], A](a)
+  def defineAggregate[A](a: State => DatabaseWithAggregateFailure[E, (State, A)]): AggregateDefinition[A] = StateT[DatabaseWithAggregateFailure[E, ?], State, A](a)
 
-  def liftAggregateReadState[A](a: AggregateState[D] => DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a(s).map(ret => (s, ret)))
+  def liftAggregateReadState[A](a: State => DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a(s).map(ret => (s, ret)))
 
   def liftAggregate[A](a: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a.map(ret => (s, ret)))
 
@@ -118,22 +117,21 @@ trait Aggregate[E, C, D] extends AggregateTypes{
 
   def newState(id: AggregateId) = new State(id, initData, NewAggregateVersion)
 
-  def handleCommand(cmd: C): AggregateDefinition[Unit] = {
-    import Database._
+  def handleCommand(cmd: C, retryCount: Int = 10): AggregateDefinition[Unit] = {
 
-    def readAllEventsAndCatchUp: AggregateDefinition[Unit]  =
-      liftAggregateReadState(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version))).flatMap { response =>
-        addEvents(response.events).flatMap { _ =>
-          if (!response.endOfStream) readAllEventsAndCatchUp
-          else liftAggregate(pure(()))
-        }
-      }
-
-    for {
+    val result = for {
       _ <- readAllEventsAndCatchUp
       resultEvents <- handleCmd(cmd)
       _ <- onEvents(resultEvents)
     } yield ()
+
+    defineAggregate { s =>
+      new DatabaseWithAggregateFailure(
+        result.run(s).value.recoverWith {
+           case ErrorUnexpectedVersion(_, _) if retryCount > 0 => handleCommand(cmd, retryCount - 1).run(s).value
+        }
+      )
+    }
   }
 
   def loadAndHandleCommand(id: AggregateId, cmd: C): DatabaseWithAggregateFailure[E, State] =
@@ -146,7 +144,6 @@ trait Aggregate[E, C, D] extends AggregateTypes{
 
   private def onEvents(evs: List[E]): AggregateDefinition[Unit] =
     defineAggregate { vs =>
-      import Database._
       dbAction(appendEvents(tag, vs.id, vs.version, evs).map(_ => (vs, evs)))
     }.flatMap(addEvents)
 
@@ -156,6 +153,14 @@ trait Aggregate[E, C, D] extends AggregateTypes{
         state = evs.foldLeft(vs.state)((d, e) => eventHandler(e)(d)),
         version = vs.version + evs.length
       ), ()))
+    }
+
+  private def readAllEventsAndCatchUp: AggregateDefinition[Unit] =
+    liftAggregateReadState(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version))).flatMap { response =>
+      addEvents(response.events).flatMap { _ =>
+        if (!response.endOfStream) readAllEventsAndCatchUp
+        else liftAggregate(pure(()))
+      }
     }
 }
 
