@@ -11,4 +11,4 @@ dependencies:
      - echo "java $SBT_OPTS -jar \`dirname \$0\`/sbt-launch.jar \"\$@\"" > $HOME/bin/sbt && chmod u+x $HOME/bin/sbt && which sbt
 test:
     post:
-     - mv "./target/test-reports" "$CIRCLE_TEST_REPORTS/junit"
+     - mv "./example/target/test-reports" "$CIRCLE_TEST_REPORTS/junit"

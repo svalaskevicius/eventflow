@@ -30,12 +30,9 @@ object Door {
   final case class Lock(key: String) extends Command
 
   final case class Unlock(key: String) extends Command
+}
 
-  val flow = new EventFlow[Command, Event]
-
-  import flow.DslV1._
-  import flow.{Flow, FlowAggregate}
-
+object DoorAggregate extends EventFlow[Event, Command] {
   private def openDoors: Flow[Unit] = handler(
     when(Close).emit(Closed).switch(closedDoors)
   )
@@ -62,15 +59,9 @@ object Door {
     anyOther.failWithMessage("Locked door can only be unlocked.")
   )
 
-  private val fullAggregate: Flow[Unit] = handler(
+  val aggregateLogic: Flow[Unit] = handler(
     when[Register].emit[Registered].switch(openDoors)
   )
-
-  object DoorAggregate extends FlowAggregate {
-    val tag = createTag("Door")
-
-    def aggregateLogic = fullAggregate
-  }
 
 }
 
@@ -84,7 +75,7 @@ object DoorState {
 
   case object Closed extends DoorState
 
-  final case class Locked(key: String) extends DoorState
+  case object Locked extends DoorState
 
 }
 
@@ -98,7 +89,7 @@ object DoorProjection extends Projection[TreeMap[AggregateId, DoorState]] {
     case EventData(_, id, _, Registered(_)) => d + (id -> DoorState.Open)
     case EventData(_, id, _, Closed) => d + (id -> DoorState.Closed)
     case EventData(_, id, _, Opened) => d + (id -> DoorState.Open)
-    case EventData(_, id, _, Locked(key)) => d + (id -> DoorState.Locked(key))
+    case EventData(_, id, _, Locked(_)) => d + (id -> DoorState.Locked)
     case EventData(_, id, _, Unlocked(_)) => d + (id -> DoorState.Closed)
   }
 }

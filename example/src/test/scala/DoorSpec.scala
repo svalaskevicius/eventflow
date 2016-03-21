@@ -1,7 +1,7 @@
 import Cqrs.Aggregate._
-import Domain.Door.DoorAggregate.tag
+import Domain.DoorAggregate.tag
 import Domain.Door._
-import Domain.{DoorProjection, DoorState}
+import Domain.{DoorProjection, DoorState, DoorAggregate}
 import cats.data.{NonEmptyList => NEL}
 import org.scalatest._
 

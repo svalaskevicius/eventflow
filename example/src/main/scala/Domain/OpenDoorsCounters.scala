@@ -3,8 +3,6 @@ package Domain
 import Cqrs.Aggregate._
 import Cqrs.Database.EventData
 import Cqrs.Projection
-import Domain.Counter.CounterAggregate
-import Domain.Door.DoorAggregate
 import Domain.{OpenDoorsCountersProjectionData => P}
 
 import scala.collection.immutable.TreeMap
