@@ -53,14 +53,14 @@ object Aggregate {
 
   val NewAggregateVersion = -1
 
-  final case class AggregateState[D](id: AggregateId, state: D, version: Int)
+  final case class VersionedAggregateData[D](id: AggregateId, data: D, version: Int)
 
   type AggregateDefAnyD[E, D, A] = StateT[DatabaseWithAggregateFailure[E, ?], D, A]
-  type AggregateDef[E, D, A] = AggregateDefAnyD[E, AggregateState[D], A]
+  type AggregateDef[E, D, A] = AggregateDefAnyD[E, VersionedAggregateData[D], A]
 
   implicit def eventDatabaseWithFailureMonad[E]: MonadError[DatabaseWithAggregateFailure[E, ?], Error] = XorT.xorTMonadError[EventDatabaseWithFailure[E, ?], Error]
 
-  implicit def aggregateDefMonad[E, D]: MonadState[AggregateDef[E, D, ?], AggregateState[D]] = StateT.stateTMonadState[DatabaseWithAggregateFailure[E, ?], AggregateState[D]]
+  implicit def aggregateDefMonad[E, D]: MonadState[AggregateDef[E, D, ?], VersionedAggregateData[D]] = StateT.stateTMonadState[DatabaseWithAggregateFailure[E, ?], VersionedAggregateData[D]]
 
   def pure[E, A](x: A): DatabaseWithAggregateFailure[E, A] = eventDatabaseWithFailureMonad[E].pure(x)
 
@@ -103,19 +103,19 @@ trait Aggregate[E, C, D] extends AggregateTypes{
 
   protected def initData: D
 
-  type State = AggregateState[D]
+  type AggregateState = VersionedAggregateData[D]
 
   type AggregateDefinition[A] = AggregateDef[E, D, A]
 
-  def defineAggregate[A](a: State => DatabaseWithAggregateFailure[E, (State, A)]): AggregateDefinition[A] = StateT[DatabaseWithAggregateFailure[E, ?], State, A](a)
+  def defineAggregate[A](a: AggregateState => DatabaseWithAggregateFailure[E, (AggregateState, A)]): AggregateDefinition[A] = StateT[DatabaseWithAggregateFailure[E, ?], AggregateState, A](a)
 
-  def liftAggregateReadState[A](a: State => DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a(s).map(ret => (s, ret)))
+  def liftAggregateReadState[A](a: AggregateState => DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a(s).map(ret => (s, ret)))
 
   def liftAggregate[A](a: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a.map(ret => (s, ret)))
 
   def liftToAggregateDef[A](f: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate(s => f.map((s, _)))
 
-  def newState(id: AggregateId) = new State(id, initData, NewAggregateVersion)
+  def newState(id: AggregateId) = new AggregateState(id, initData, NewAggregateVersion)
 
   def handleCommand(cmd: C, retryCount: Int = 10): AggregateDefinition[Unit] = {
 
@@ -134,12 +134,12 @@ trait Aggregate[E, C, D] extends AggregateTypes{
     }
   }
 
-  def loadAndHandleCommand(id: AggregateId, cmd: C): DatabaseWithAggregateFailure[E, State] =
+  def loadAndHandleCommand(id: AggregateId, cmd: C): DatabaseWithAggregateFailure[E, AggregateState] =
     handleCommand(cmd).runS(newState(id))
 
   private def handleCmd(cmd: C): AggregateDefinition[List[E]] = defineAggregate(vs =>
     XorT.fromXor[EventDatabaseWithFailure[E, ?]](
-      commandHandler(cmd)(vs.state).fold[Error Xor List[E]](err => Xor.left(Errors(err)), Xor.right)
+      commandHandler(cmd)(vs.data).fold[Error Xor List[E]](err => Xor.left(Errors(err)), Xor.right)
     ).map((vs, _)))
 
   private def onEvents(evs: List[E]): AggregateDefinition[Unit] =
@@ -150,7 +150,7 @@ trait Aggregate[E, C, D] extends AggregateTypes{
   private def addEvents(evs: List[E]): AggregateDefinition[Unit] =
     defineAggregate { vs =>
       pure((vs.copy(
-        state = evs.foldLeft(vs.state)((d, e) => eventHandler(e)(d)),
+        data = evs.foldLeft(vs.data)((d, e) => eventHandler(e)(d)),
         version = vs.version + evs.length
       ), ()))
     }
