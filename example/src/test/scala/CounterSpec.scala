@@ -60,7 +60,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
         .command(CounterAggregate, "counterid", Increment)
         .command(CounterAggregate, "counterid", Decrement)
     } thenCheck {
-      _.projectionData(CounterProjection) should be(Some(TreeMap(AggregateId("counterid") -> 11)))
+      _.projectionData(CounterProjection) should be(Some(TreeMap("counterid" -> 11)))
     }
   }
 }

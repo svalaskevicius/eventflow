@@ -87,8 +87,8 @@ class DoorSpec extends FlatSpec with Matchers with AggregateSpec {
         .command(DoorAggregate, "door1", Door.Open)
     } thenCheck {
       _.projectionData(DoorProjection) should be(Some(TreeMap(
-        AggregateId("door1") -> DoorState.Open,
-        AggregateId("door2") -> DoorState.Closed
+        "door1" -> DoorState.Open,
+        "door2" -> DoorState.Closed
       )))
     }
   }

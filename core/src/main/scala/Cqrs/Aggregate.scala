@@ -6,14 +6,13 @@ import cats.data.{NonEmptyList => NEL, _}
 import cats.std.all._
 import cats.{MonadError, MonadState, SemigroupK}
 
-import scala.language.implicitConversions
 
 object Aggregate {
 
   trait EventTag {
     type Event
 
-    def v: String
+    def name: String
 
     def eventSerialiser: EventSerialisation[Event]
   }
@@ -22,18 +21,16 @@ object Aggregate {
 
   def createTag[E](id: String)(implicit evSerialiser: EventSerialisation[E]) = new EventTag {
     type Event = E
-    val v = id
+    val name = id
     val eventSerialiser = evSerialiser
   }
 
-  final case class AggregateId(v: String)
+  type AggregateId = String
 
-  val emptyAggregateId = AggregateId("")
-
-  implicit def toAggregateId(v: String): AggregateId = AggregateId(v)
+  val emptyAggregateId = ""
 
   implicit def aggOrdering(implicit ev: Ordering[String]): Ordering[AggregateId] = new Ordering[AggregateId] {
-    def compare(a: AggregateId, b: AggregateId) = ev.compare(a.v, b.v)
+    def compare(a: AggregateId, b: AggregateId) = ev.compare(a, b)
   }
 
   sealed trait Error

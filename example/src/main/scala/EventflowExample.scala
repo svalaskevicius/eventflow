@@ -4,10 +4,11 @@ import Domain._
 import Cqrs.DbAdapters.EventStore._
 import java.util.concurrent.Executors
 
+import Cqrs.Aggregate
 import cats.data.Xor
 import com.twitter
 import com.twitter.util.FuturePool
-import io.finch._
+import io.finch.{Endpoint, _}
 import io.finch.circe._
 import io.circe.generic.auto._
 import com.twitter.finagle.Http
@@ -16,6 +17,7 @@ import shapeless.HNil
 import shapeless.::
 
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.reflect.ClassTag
 
 object EventflowExample {
 
@@ -23,51 +25,46 @@ object EventflowExample {
 
   val db = newEventStoreConn(CounterProjection, DoorProjection, OpenDoorsCountersProjection)
 
-  val counter = post("counter" / string :: body.as[Counter.Command]) mapOutputAsync {
-    case id :: cmd :: HNil =>
-      scalaToTwitterFuture(db.runAggregate(CounterAggregate.loadAndHandleCommand(id, cmd)).map {
-        case Xor.Right(_) => Ok(())
-        case Xor.Left(err) => PreconditionFailed(new Exception(err.toString))
-      })
-    case _ => twitter.util.Future.value(InternalServerError(new Exception("Cannot handle input")))
+  val counter = commandEndpoint("counter", CounterAggregate)
+
+  val counterRead = projectionEndpoint("counter" / string) {
+    id => db.getProjectionData(CounterProjection).flatMap(_.get(id))
   }
 
-  val counterRead = get("counter" / string) mapOutputAsync {
-    case id => futurePool(
-      db.getProjectionData(CounterProjection).flatMap(_.get(id)).map(Ok(_)).getOrElse(NotFound(new Exception("Cannot find such counter")))
-    )
+  val countersRead = projectionEndpoint("counters") {
+    _ => db.getProjectionData(CounterProjection).map(_.keySet.toList)
   }
 
-  val countersRead = get("counters") mapOutputAsync {
-    case HNil => futurePool(
-      db.getProjectionData(CounterProjection).map(data => Ok(data.keySet.toList.map(_.v))).getOrElse(NotFound(new Exception("Cannot find counters")))
-    )
+  val door = commandEndpoint("door", DoorAggregate)
+
+  val doorRead = projectionEndpoint("door" / string) {
+    id => db.getProjectionData(DoorProjection).flatMap(_.get(id))
   }
 
-  val door = post("door" / string :: body.as[Door.Command]) mapOutputAsync {
-    case id :: cmd :: HNil =>
-      scalaToTwitterFuture(db.runAggregate(DoorAggregate.loadAndHandleCommand(id, cmd)).map {
-        case Xor.Right(_) => Ok(())
-        case Xor.Left(err) => PreconditionFailed(new Exception(err.toString))
-      })
-    case _ => twitter.util.Future.value(InternalServerError(new Exception("Cannot handle input")))
-  }
-
-  val doorRead = get("door" / string) mapOutputAsync {
-    case id => futurePool(
-      db.getProjectionData(DoorProjection).flatMap(_.get(id)).map(Ok(_)).getOrElse(NotFound(new Exception("Cannot find such door")))
-    )
-  }
-
-  val doorsRead = get("doors") mapOutputAsync {
-    case HNil => futurePool(
-      db.getProjectionData(DoorProjection).map(data => Ok(data.keySet.toList.map(_.v))).getOrElse(NotFound(new Exception("Cannot find counters")))
-    )
+  val doorsRead = projectionEndpoint("doors") {
+    _ => db.getProjectionData(DoorProjection).map(_.keySet.toList)
   }
 
   def main(args: Array[String]) {
     val api = counter :+: counterRead :+: countersRead :+: door :+: doorRead :+: doorsRead
     val server = Http.serve(":8080", api.toService)
   }
+
+  private def commandEndpoint[E, C: DecodeRequest : ClassTag, D](path: String, aggregate: Aggregate[E, C, D]) =
+    post(path / string :: body.as[C]) mapOutputAsync {
+      case id :: cmd :: HNil =>
+        scalaToTwitterFuture(db.runAggregate(aggregate.loadAndHandleCommand(id, cmd)).map {
+          case Xor.Right(_) => Ok(())
+          case Xor.Left(err) => PreconditionFailed(new Exception(err.toString))
+        })
+      case _ => twitter.util.Future.value(InternalServerError(new Exception("Cannot handle input")))
+    }
+
+  private def projectionEndpoint[R, B](r: Endpoint[R])(f: R => Option[B]): Endpoint[B] =
+    get(r) mapOutputAsync { r =>
+      futurePool(
+        f(r).map(Ok(_)).getOrElse(NotFound(new Exception("Cannot find the requested item.")))
+      )
+    }
 }
 
