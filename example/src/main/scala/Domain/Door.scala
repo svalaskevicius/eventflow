@@ -75,7 +75,7 @@ object DoorState {
 
   case object Closed extends DoorState
 
-  final case class Locked(key: String) extends DoorState
+  case object Locked extends DoorState
 
 }
 
@@ -89,7 +89,7 @@ object DoorProjection extends Projection[TreeMap[AggregateId, DoorState]] {
     case EventData(_, id, _, Registered(_)) => d + (id -> DoorState.Open)
     case EventData(_, id, _, Closed) => d + (id -> DoorState.Closed)
     case EventData(_, id, _, Opened) => d + (id -> DoorState.Open)
-    case EventData(_, id, _, Locked(key)) => d + (id -> DoorState.Locked(key))
+    case EventData(_, id, _, Locked(_)) => d + (id -> DoorState.Locked)
     case EventData(_, id, _, Unlocked(_)) => d + (id -> DoorState.Closed)
   }
 }
