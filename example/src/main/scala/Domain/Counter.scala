@@ -28,8 +28,6 @@ object Counter {
 }
 
 object CounterAggregate extends EventFlow[Event, Command] {
-  val tag = createTag("Counter")
-
   def counting(c: Int): Flow[Unit] = handler(
     when(Increment).emit(Incremented).switch(counting(c + 1)),
     when(Decrement).guard(_ => c > 0, "Counter cannot be decremented").emit(Decremented).switch(counting(c - 1))

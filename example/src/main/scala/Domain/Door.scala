@@ -33,8 +33,6 @@ object Door {
 }
 
 object DoorAggregate extends EventFlow[Event, Command] {
-  val tag = createTag("Door")
-
   private def openDoors: Flow[Unit] = handler(
     when(Close).emit(Closed).switch(closedDoors)
   )

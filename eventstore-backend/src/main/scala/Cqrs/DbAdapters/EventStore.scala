@@ -111,7 +111,7 @@ object EventStore {
     new DbBackend(system, connection, projections.toList)
   }
 
-  private val TagAndIdSeparator = '.'
+  private val TagAndIdSeparator = '#'
 
   private def esStreamId(tag: EventTag, id: AggregateId) = EventStream.Id(tag.v + TagAndIdSeparator + id.v)
 

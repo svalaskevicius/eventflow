@@ -1,6 +1,7 @@
 package Cqrs
 
 import Cqrs.Aggregate.{CommandHandlerResult, ErrorCannotFindHandler, ErrorCommandFailure}
+import Cqrs.Database.EventSerialisation
 import cats._
 import cats.data.{NonEmptyList => NEL, _}
 import cats.free.Free
@@ -204,5 +205,14 @@ trait DslV1 { self: AggregateTypes =>
   }
 }
 
-trait EventFlow[Evt, Cmd] extends EventFlowBase[Evt, Cmd] with DslV1
+abstract class EventFlow[Evt: EventSerialisation, Cmd] extends EventFlowBase[Evt, Cmd] with DslV1 {
+  lazy val tag = {
+    val name = this.getClass.getCanonicalName
+    if (null == name) {
+      throw new Error("Cannot find aggregate name, please implement tag manually.")
+    }
+    val simplifiedName = "[^a-zA-Z0-9_.-]".r.replaceAllIn(name, "")
+    createTag(simplifiedName)
+  }
+}
 
