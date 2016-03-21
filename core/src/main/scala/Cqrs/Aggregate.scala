@@ -1,6 +1,6 @@
 package Cqrs
 
-import Cqrs.Database.{ErrorUnexpectedVersion, EventDatabaseWithFailure, EventSerialisation, appendEvents, readNewEvents}
+import Cqrs.Database.{ErrorUnexpectedVersion, EventDatabaseWithFailure, EventSerialisation}
 import algebra.Semigroup
 import cats.data.{XorT, NonEmptyList => NEL, _}
 import cats.std.all._
@@ -144,7 +144,7 @@ trait Aggregate[E, C, D] extends AggregateTypes{
 
   private def onEvents(evs: List[E]): AggregateDefinition[Unit] =
     defineAggregate { vs =>
-      dbAction(appendEvents(tag, vs.id, vs.version, evs).map(_ => (vs, evs)))
+      dbAction(Database.appendEvents(tag, vs.id, vs.version, evs).map(_ => (vs, evs)))
     }.flatMap(addEvents)
 
   private def addEvents(evs: List[E]): AggregateDefinition[Unit] =
@@ -156,7 +156,7 @@ trait Aggregate[E, C, D] extends AggregateTypes{
     }
 
   private def readAllEventsAndCatchUp: AggregateDefinition[Unit] =
-    liftAggregateReadState(vs => dbAction(readNewEvents[E](tag, vs.id, vs.version))).flatMap { response =>
+    liftAggregateReadState(vs => dbAction(Database.readNewEvents[E](tag, vs.id, vs.version))).flatMap { response =>
       addEvents(response.events).flatMap { _ =>
         if (!response.endOfStream) readAllEventsAndCatchUp
         else liftAggregate(pure(()))
