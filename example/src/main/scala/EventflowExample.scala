@@ -32,7 +32,7 @@ object EventflowExample {
   }
 
   val countersRead = projectionEndpoint("counters") {
-    _ => db.getProjectionData(CounterProjection).map(_.keySet.toList.map(_.v))
+    _ => db.getProjectionData(CounterProjection).map(_.keySet.toList)
   }
 
   val door = commandEndpoint("door", DoorAggregate)
@@ -42,7 +42,7 @@ object EventflowExample {
   }
 
   val doorsRead = projectionEndpoint("doors") {
-    _ => db.getProjectionData(DoorProjection).map(_.keySet.toList.map(_.v))
+    _ => db.getProjectionData(DoorProjection).map(_.keySet.toList)
   }
 
   def main(args: Array[String]) {

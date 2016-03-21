@@ -30,7 +30,7 @@ object EventStore {
           parseEsStreamId(event.event.streamId) match {
             case Some((tagId, aggId)) => synchronized {
               projections = projections.map { runner =>
-                runner.listeningFor.filter(_.v == tagId).foldLeft(runner) { (rnr, tag) =>
+                runner.listeningFor.filter(_.name == tagId).foldLeft(runner) { (rnr, tag) =>
                   rnr.accept(Cqrs.Database.EventData(
                     tag,
                     aggId,
@@ -113,7 +113,7 @@ object EventStore {
 
   private val TagAndIdSeparator = '#'
 
-  private def esStreamId(tag: EventTag, id: AggregateId) = EventStream.Id(tag.v + TagAndIdSeparator + id.v)
+  private def esStreamId(tag: EventTag, id: AggregateId) = EventStream.Id(tag.name + TagAndIdSeparator + id)
 
   private def parseEsStreamId(id: EventStream.Id) = id.value.split(TagAndIdSeparator).toList match {
     case tagId :: aggId :: Nil => Some(tagId -> aggId)

@@ -85,10 +85,13 @@ object Database {
     def decode(rawData: String): Error Xor E
   }
 
-  implicit def defaultEventSerialisation[E](implicit w: upickle.default.Writer[E], r: upickle.default.Reader[E]): EventSerialisation[E] = new EventSerialisation[E] {
-    def encode(event: E): String = upickle.json.write(w.write(event))
+  object EventSerialisation {
 
-    def decode(rawData: String): Error Xor E = Try(Xor.right(r.read(upickle.json.read(rawData)))).getOrElse(Xor.left(EventDecodingFailure(rawData)))
+    implicit def defaultEventSerialisation[E](implicit w: upickle.default.Writer[E], r: upickle.default.Reader[E]): EventSerialisation[E] = new EventSerialisation[E] {
+      def encode(event: E): String = upickle.json.write(w.write(event))
+
+      def decode(rawData: String): Error Xor E = Try(Xor.right(r.read(upickle.json.read(rawData)))).getOrElse(Xor.left(EventDecodingFailure(rawData)))
+    }
   }
 
   final case class EventData[E](tag: EventTag, id: AggregateId, version: Int, data: E)

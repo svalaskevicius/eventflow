@@ -26,11 +26,11 @@ object InMemoryDb {
 
   private def readFromDb[E](database: DbBackend, tag: EventTagAux[E], id: AggregateId, fromVersion: Int): Error Xor ReadAggregateEventsResponse[E] = {
 
-    def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, String]]) = t.get(id.v)
+    def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, String]]) = t.get(id)
     def decode(d: String) = tag.eventSerialiser.decode(d)
     def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
 
-    (database.data.get(tag.v) flatMap getById(id)).fold[Error Xor ReadAggregateEventsResponse[E]](
+    (database.data.get(tag.name) flatMap getById(id)).fold[Error Xor ReadAggregateEventsResponse[E]](
       Xor.right(ReadAggregateEventsResponse(NewAggregateVersion, List.empty, true))
     )(
       (evs: TreeMap[Int, String]) => {
@@ -42,8 +42,8 @@ object InMemoryDb {
   }
 
   private def addToDb[E](database: DbBackend, tag: EventTagAux[E], id: AggregateId, expectedVersion: Int, events: List[E]): Error Xor DbBackend = {
-    val currentTaggedEvents = database.data.get(tag.v)
-    val currentEvents = currentTaggedEvents flatMap (_.get(id.v))
+    val currentTaggedEvents = database.data.get(tag.name)
+    val currentEvents = currentTaggedEvents flatMap (_.get(id))
     val previousVersion = currentEvents.fold(-1)(e => if (e.isEmpty) 0 else e.lastKey)
     if (previousVersion != expectedVersion) {
       Xor.left(ErrorUnexpectedVersion(id, s"Aggregate version expectation failed: $previousVersion != $expectedVersion"))
@@ -53,20 +53,20 @@ object InMemoryDb {
       Xor.right(
         database.copy(
           data = database.data.updated(
-            tag.v,
+            tag.name,
             currentTaggedEvents.getOrElse(TreeMap.empty[String, TreeMap[Int, String]]).updated(
-              id.v,
+              id,
               indexedEvents.foldLeft(currentEvents.getOrElse(TreeMap.empty[Int, String])) { (db, ev) =>
                 db.updated(previousVersion + 1 + ev._2, tag.eventSerialiser.encode(ev._1))
               }
             )
           ),
           log = indexedEvents.foldLeft(database.log) { (log, ev) =>
-            log + ((operationStartNumber + ev._2, (tag.v, id.v, previousVersion + 1 + ev._2)))
+            log + ((operationStartNumber + ev._2, (tag.name, id, previousVersion + 1 + ev._2)))
           },
           lastOperationNr = operationStartNumber + indexedEvents.length,
           projections = database.projections.map { projection =>
-            if (projection.listeningFor.exists(_.v == tag.v)) {
+            if (projection.listeningFor.exists(_.name == tag.name)) {
               indexedEvents.foldLeft(projection)((p, e) => p.accept(EventData(tag, id, previousVersion + 1 + e._2, e._1)))
             } else {
               projection
@@ -115,14 +115,14 @@ object InMemoryDb {
       }
 
       def applyLogEntryData(tag: EventTag, logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: String): Error Xor D =
-        consumer(d, RawEventData(tag, AggregateId(logEntry._2), logEntry._3, data))
+        consumer(d, RawEventData(tag, logEntry._2, logEntry._3, data))
 
       def applyQueryToLogEntry(tag: EventTag, logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Error Xor D =
         findData(logEntry._1, logEntry._2, logEntry._3) flatMap applyLogEntryData(tag, logEntry, d, consumer)
 
       def checkAndApplyDataLogEntry(initDataForLogEntries: D, logEntry: (String, String, Int)): Error Xor D =
         foldM[D, EventDataConsumer[D], Xor[Error, ?]](
-          d => q => if (q.tag.v == logEntry._1) applyQueryToLogEntry(q.tag, logEntry, d, q) else Xor.right(d)
+          d => q => if (q.tag.name == logEntry._1) applyQueryToLogEntry(q.tag, logEntry, d, q) else Xor.right(d)
         )(initDataForLogEntries)(queries)
 
       val newData = foldM[D, (Long, (String, String, Int)), Xor[Error, ?]](
