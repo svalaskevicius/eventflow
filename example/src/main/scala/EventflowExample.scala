@@ -45,7 +45,7 @@ object EventflowExample {
     _ => db.getProjectionData(DoorProjection).map(_.keySet.toList)
   }
 
-  def main(args: Array[String]) {
+  def main(args: Array[String]) = {
     val api = counter :+: counterRead :+: countersRead :+: door :+: doorRead :+: doorsRead
     val server = Http.serve(":8080", api.toService)
   }

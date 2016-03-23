@@ -13,7 +13,7 @@ trait AggregateSpec {
 
   type DB = Backend with FoldableDatabase
 
-  def fail(message: String)
+  def fail(message: String): Unit
 
   implicit class GivenSteps(val db: DB) {
 

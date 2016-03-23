@@ -6,7 +6,6 @@ import cats.data.{XorT, NonEmptyList => NEL, _}
 import cats.std.all._
 import cats.{MonadError, MonadState, SemigroupK}
 
-
 object Aggregate {
 
   trait EventTag {
@@ -17,7 +16,7 @@ object Aggregate {
     def eventSerialiser: EventSerialisation[Event]
   }
 
-  type EventTagAux[E] = EventTag {type Event = E}
+  type EventTagAux[E] = EventTag { type Event = E }
 
   def createTag[E](id: String)(implicit evSerialiser: EventSerialisation[E]) = new EventTag {
     type Event = E
@@ -83,7 +82,7 @@ trait AggregateTypes {
   type Command
 }
 
-trait Aggregate[E, C, D] extends AggregateTypes{
+trait Aggregate[E, C, D] extends AggregateTypes {
 
   import Aggregate._
 
@@ -128,7 +127,7 @@ trait Aggregate[E, C, D] extends AggregateTypes{
     defineAggregate { s =>
       new DatabaseWithAggregateFailure(
         result.run(s).value.recoverWith {
-           case ErrorUnexpectedVersion(_, _) if retryCount > 0 => handleCommand(cmd, retryCount - 1).run(s).value
+          case ErrorUnexpectedVersion(_, _) if retryCount > 0 => handleCommand(cmd, retryCount - 1).run(s).value
         }
       )
     }
