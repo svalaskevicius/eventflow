@@ -1,6 +1,6 @@
 package Cqrs
 
-import Cqrs.Aggregate.{ErrorCannotFindHandler, ErrorCommandFailure}
+import Cqrs.Aggregate.{ErrorCannotFindHandler, ErrorCommandFailure, CommandHandlerResult}
 import Cqrs.Database.EventSerialisation
 import cats._
 import cats.data.{NonEmptyList => NEL, _}
@@ -13,8 +13,7 @@ import scala.language.implicitConversions
 
 
 class EventFlowImpl[Evt, Cmd] {
-  type CommandHResult = ValidatedNel[Aggregate.Error, List[Evt]]
-  type CommandH = PartialFunction[Cmd, CommandHResult]
+  type CommandH = PartialFunction[Cmd, CommandHandlerResult[Evt]]
   type EventH[A] = PartialFunction[Evt, A]
 
   sealed trait FlowF[+Next]
@@ -40,9 +39,9 @@ class EventFlowImpl[Evt, Cmd] {
     * @tparam E The event type, should be isomorphic to the command type
     * @return A CommandH, which takes a Cmd and either returns a error or a list of events (just one in this case)
     */
-  def promoteCommandToEvent[C <: Cmd : ClassTag, E <: Evt](implicit cct: CaseClassTransformer[C, E]): CommandH =
+  def promoteCommandToEvents[C <: Cmd : ClassTag, E <: Evt](implicit cct: CaseClassTransformer[C, E]): PartialFunction[Cmd, List[E]] =
     Function.unlift {
-      case c: C => Some(Validated.valid(cct.transform(c)).map(List(_)))
+      case c: C => Some(cct.transform(c)).map(List(_))
       case _ => None
     }
 
@@ -100,27 +99,25 @@ trait Snapshottable extends AggregateTypes {
 
   lazy val stateToSymbol = snapshottableStates.map({case (a, b) => (b, a)})
 
-  def snapshotAndSwitch[A](handler: FlowStateHandler[A]): Flow[Unit] = handler._2(handler._1)
+  def toFlow[A](handler: FlowStateHandler[A]): Flow[Unit] = handler._2(handler._1)
 }
 
 trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd]#StateData] with Snapshottable {
 
   val eventFlowImpl = new EventFlowImpl[Evt, Cmd]
 
-  import eventFlowImpl.CommandHResult
   type Flow[A] = eventFlowImpl.Flow[A]
 
   def aggregateLogic: Flow[Unit]
 
   def eventHandler = e => d => d flatMap (_.evh(e))
 
-  def commandHandler = c => d => d.foldLeft(None: Option[CommandHResult])(
-    (prev: Option[CommandHResult], consumer) => prev match {
+  def commandHandler = c => d => d.foldLeft(None: Option[CommandHandlerResult[Evt]])(
+    (prev: Option[CommandHandlerResult[Evt]], consumer) => prev match {
       case Some(_) => prev
       case None => consumer.cmdh.lift(c)
     }
   ).
-    map[Aggregate.CommandHandlerResult[Evt]](_.map(Aggregate.JustEvents(_))).
     getOrElse {
     Validated.invalid(NEL(ErrorCannotFindHandler(c.toString)))
   }
@@ -132,7 +129,7 @@ trait DslV1 { self: AggregateTypes with Snapshottable =>
 
   val eventFlowImpl: EventFlowImpl[Event, Command]
 
-  import eventFlowImpl.{Flow, CommandH, EventH, CommandHResult}
+  import eventFlowImpl.{Flow, CommandH, EventH}
 
   trait CompilableDsl {
     def commandHandler: CommandH
@@ -160,7 +157,7 @@ trait DslV1 { self: AggregateTypes with Snapshottable =>
 
   case class WhenStatement[C <: Command : ClassTag](commandMatcher: C => Boolean, guards: List[Guard[C]]) extends AllowFailingMessageStatement[C] {
     def emit[E <: Event](implicit cct: CaseClassTransformer[C, E], et: ClassTag[E]) =
-      ThenStatement[C, E](eventFlowImpl.promoteCommandToEvent[C, E], commandMatcher, guards, _ => true)
+      ThenStatement[C, E](eventFlowImpl.promoteCommandToEvents[C, E], commandMatcher, guards, _ => true)
 
     def emit[E <: Event](evs: E*)(implicit et: ClassTag[E]) =
       ThenStatement[C, E](handleWithSpecificCommandHandler(_ => evs.toList), commandMatcher, guards, _ == evs.head)
@@ -174,13 +171,13 @@ trait DslV1 { self: AggregateTypes with Snapshottable =>
     def guard(check: C => Boolean, message: String) = WhenStatement[C](commandMatcher, guards :+ ((check, message)))
 
     private def handleWithSpecificCommandHandler[E <: Event](cmdHandler: C => List[E]) =
-      Function.unlift[Command, CommandHResult] {
-        case c: C => Some(Validated.valid(cmdHandler(c)))
+      Function.unlift[C, List[E]] {
+        case c: C => Some(cmdHandler(c))
         case _ => None
       }
   }
 
-  case class ThenStatement[C <: Command : ClassTag, E <: Event : ClassTag](handler: CommandH, commandMatcher: C => Boolean, guards: List[Guard[C]], eventMatcher: E => Boolean) extends CompilableDslProvider {
+  case class ThenStatement[C <: Command : ClassTag, E <: Event : ClassTag](handler: PartialFunction[C, List[E]], commandMatcher: C => Boolean, guards: List[Guard[C]], eventMatcher: E => Boolean) extends CompilableDslProvider {
     def switch[A](where: E => FlowStateHandler[A]): SwitchToStatement[C, E, A] = SwitchToStatement[C, E, A](handler, commandMatcher, guards, Some(e => where(e)), eventMatcher)
 
     def switch[A](where: => FlowStateHandler[A]): SwitchToStatement[C, E, A] = switch(_ => where)
@@ -188,19 +185,19 @@ trait DslV1 { self: AggregateTypes with Snapshottable =>
     def toCompilableDsl = SwitchToStatement[C, E, Unit](handler, commandMatcher, guards, None, eventMatcher).toCompilableDsl
   }
 
-  case class SwitchToStatement[C <: Command : ClassTag, E <: Event : ClassTag, A](handler: CommandH, commandMatcher: C => Boolean, guards: List[Guard[C]], switchTo: Option[E => FlowStateHandler[A]], eventMatcher: E => Boolean) extends CompilableDslProvider {
+  case class SwitchToStatement[C <: Command : ClassTag, E <: Event : ClassTag, A](handler: PartialFunction[C, List[E]], commandMatcher: C => Boolean, guards: List[Guard[C]], switchTo: Option[E => FlowStateHandler[A]], eventMatcher: E => Boolean) extends CompilableDslProvider {
     def toCompilableDsl = new CompilableDsl {
       def commandHandler = {
         case c: C if commandMatcher(c) =>
           val errors = guards.flatMap(g => if (!g._1(c)) Some(ErrorCommandFailure(g._2)) else None)
           errors match {
             case err :: errs => Validated.invalid(NEL(err, errs))
-            case Nil => handler(c)
+            case Nil => handler.andThen(Aggregate.emitEvents[Event])(c)
           }
       }
 
       def eventHandler = Function.unlift[Event, Flow[Unit]] {
-        case e: E if eventMatcher(e) => switchTo.map(_(e)).map(snapshotAndSwitch)
+        case e: E if eventMatcher(e) => switchTo.map(_(e)).map(toFlow)
         case _ => None
       }
     }
