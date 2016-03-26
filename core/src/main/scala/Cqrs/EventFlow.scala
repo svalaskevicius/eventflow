@@ -74,7 +74,7 @@ class EventFlowImpl[Evt, Cmd] {
 
 }
 
-trait Snapshottable extends AggregateTypes {
+trait Snapshottable extends AggregateBase {
 
   val eventFlowImpl: EventFlowImpl[Event, Command]
 
@@ -108,6 +108,7 @@ trait Snapshottable extends AggregateTypes {
 
   def toFlow[A](handler: FlowStateHandler[A]): Flow[Unit] = handler._2(handler._1)
 
+  def convertSnapshotToData(s: AggregateSnapshot): Option[AggregateData] = ???
 }
 
 trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd]#StateData, Snapshottable#FlowStateSnapshot] with Snapshottable {
@@ -133,7 +134,7 @@ trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd
   def initData = eventFlowImpl.esRunnerCompiler(PartialFunction.empty, aggregateLogic)
 }
 
-trait DslV1 { self: AggregateTypes with Snapshottable =>
+trait DslV1 { self: AggregateBase with Snapshottable =>
 
   val eventFlowImpl: EventFlowImpl[Event, Command]
 

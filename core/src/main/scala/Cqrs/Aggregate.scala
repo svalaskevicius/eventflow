@@ -85,14 +85,44 @@ object Aggregate {
 
 }
 
-trait AggregateTypes {
+trait AggregateBase {
+
+  import Aggregate._
+
   type Event
   type Command
   type AggregateData
   type AggregateSnapshot
+
+  def convertSnapshotToData(s: AggregateSnapshot): Option[AggregateData]
+
+  def tag: EventTagAux[Event]
+
+  type CommandHandler = Command => AggregateData => CommandHandlerResult[Event]
+  type EventHandler = Event => AggregateData => AggregateData
+
+  protected def eventHandler: EventHandler
+
+  protected def commandHandler: CommandHandler
+
+  protected def initData: AggregateData
+
+  type AggregateState = VersionedAggregateData[AggregateData]
+
+  type AggregateDefinition[A] = AggregateDef[Event, AggregateData, A]
+
+  def defineAggregate[A](a: AggregateState => DatabaseWithAggregateFailure[Event, (AggregateState, A)]): AggregateDefinition[A] = StateT[DatabaseWithAggregateFailure[Event, ?], AggregateState, A](a)
+
+  def liftAggregateReadState[A](a: AggregateState => DatabaseWithAggregateFailure[Event, A]): AggregateDefinition[A] = defineAggregate[A](s => a(s).map(ret => (s, ret)))
+
+  def liftAggregate[A](a: DatabaseWithAggregateFailure[Event, A]): AggregateDefinition[A] = defineAggregate[A](s => a.map(ret => (s, ret)))
+
+  def liftToAggregateDef[A](f: DatabaseWithAggregateFailure[Event, A]): AggregateDefinition[A] = defineAggregate(s => f.map((s, _)))
+
+  def newState(id: AggregateId) = new AggregateState(id, initData, NewAggregateVersion)
 }
 
-trait Aggregate[E, C, D, S] extends AggregateTypes {
+trait Aggregate[E, C, D, S] extends AggregateBase {
 
   import Aggregate._
 
@@ -105,30 +135,6 @@ trait Aggregate[E, C, D, S] extends AggregateTypes {
 
   protected def createTag(id: String)(implicit eventSerialisation: EventSerialisation[E]) = Aggregate.createTag[E](id)
 
-  def tag: Aggregate.EventTagAux[E]
-
-  type CommandHandler = C => D => CommandHandlerResult[E]
-  type EventHandler = E => D => D
-
-  protected def eventHandler: EventHandler
-
-  protected def commandHandler: CommandHandler
-
-  protected def initData: D
-
-  type AggregateState = VersionedAggregateData[D]
-
-  type AggregateDefinition[A] = AggregateDef[E, D, A]
-
-  def defineAggregate[A](a: AggregateState => DatabaseWithAggregateFailure[E, (AggregateState, A)]): AggregateDefinition[A] = StateT[DatabaseWithAggregateFailure[E, ?], AggregateState, A](a)
-
-  def liftAggregateReadState[A](a: AggregateState => DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a(s).map(ret => (s, ret)))
-
-  def liftAggregate[A](a: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate[A](s => a.map(ret => (s, ret)))
-
-  def liftToAggregateDef[A](f: DatabaseWithAggregateFailure[E, A]): AggregateDefinition[A] = defineAggregate(s => f.map((s, _)))
-
-  def newState(id: AggregateId) = new AggregateState(id, initData, NewAggregateVersion)
 
   def handleCommand(cmd: C, retryCount: Int = 10): AggregateDefinition[Unit] = {
 
@@ -149,7 +155,9 @@ trait Aggregate[E, C, D, S] extends AggregateTypes {
 
   def loadAndHandleCommand(id: AggregateId, cmd: C): DatabaseWithAggregateFailure[E, AggregateState] = {
     val snapshot = dbAction(Database.readSnapshot[E, S](tag, id))
-    val state = snapshot.map[AggregateState](???).recoverWith {
+    val state = snapshot.map[AggregateState]{ resp =>
+      convertSnapshotToData(resp.data).map(VersionedAggregateData(id, _, resp.version)).getOrElse(newState(id))
+    }.recoverWith {
         case _ =>  eventDatabaseWithFailureMonad.pure(newState(id))
     }
     state.flatMap(s => handleCommand(cmd).runS(s))
