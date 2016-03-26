@@ -69,13 +69,15 @@ object Aggregate {
     def events: List[E]
   }
   final case class JustEvents[E](events: List[E]) extends CommandProduct[E]
-  final case class EventsAndSnapshotGen[E, A: Database.Serializable](events: List[E], snapshotInfo: Option[Unit => A]) extends CommandProduct[E]
+  final case class EventsAndSnapshotGen[E, A: Database.Serializable](events: List[E], snapshotInfo: A) extends CommandProduct[E]
 
   type CommandHandlerResult[E] = ValidatedNel[Aggregate.Error, CommandProduct[E]]
 
   def emitEvent[E](ev: E): CommandHandlerResult[E] = Validated.valid(JustEvents(List(ev)))
 
   def emitEvents[E](evs: List[E]): CommandHandlerResult[E] = Validated.valid(JustEvents(evs))
+
+  def emitEventsWithSnapshot[E, A: Database.Serializable](evs: List[E], s: A): CommandHandlerResult[E] = Validated.valid(EventsAndSnapshotGen(evs, s))
 
   implicit val nelErrorSemigroup: Semigroup[NEL[Error]] = SemigroupK[NEL].algebra[Error]
 

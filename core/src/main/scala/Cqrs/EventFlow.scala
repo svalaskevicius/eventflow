@@ -82,24 +82,26 @@ trait Snapshottable extends AggregateTypes {
   type FlowState[T] = Function1[T, Flow[Unit]]
   type FlowStateHandler[T] = (T, FlowState[T])
 
-  trait FlowStateRunner {
-    def save[T](args: T, state: FlowStateRunner): String = ???
-    def restore(snapshot: String): Flow[Unit] = ???
+  trait FlowStateSnapshot {
+ //   def save[T](args: T, state: FlowStateHandler[T]): String = ???
+ //   def restore(snapshot: String): Flow[Unit] = ???
   }
 
-  object FlowStateRunner {
-    case class FlowStateRunnerImpl[T](state: FlowState[T]) extends FlowStateRunner
+  object FlowStateSnapshot {
+    implicit def createSnapshot[T](s: FlowState[T]): FlowStateSnapshot = ???
 
-    implicit def createRunner[T](s: FlowState[T]): FlowStateRunner = FlowStateRunnerImpl(s)
+    implicit val snapshotSerializable: Database.Serializable[FlowStateSnapshot] = ???
   }
 
-  type FlowStates = Map[Symbol, FlowStateRunner]
+  type FlowStates = Map[Symbol, FlowStateSnapshot]
 
   val snapshottableStates: FlowStates
 
   lazy val stateToSymbol = snapshottableStates.map({case (a, b) => (b, a)})
 
   def toFlow[A](handler: FlowStateHandler[A]): Flow[Unit] = handler._2(handler._1)
+
+  def takeSnapshot[A](handler: FlowStateHandler[A]): Option[FlowStateSnapshot] = ???
 }
 
 trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd]#StateData] with Snapshottable {
@@ -192,7 +194,7 @@ trait DslV1 { self: AggregateTypes with Snapshottable =>
           val errors = guards.flatMap(g => if (!g._1(c)) Some(ErrorCommandFailure(g._2)) else None)
           errors match {
             case err :: errs => Validated.invalid(NEL(err, errs))
-            case Nil => handler.andThen(Aggregate.emitEvents[Event])(c)
+            case Nil => handler.andThen(onHandledCommand)(c)
           }
       }
 
@@ -201,6 +203,12 @@ trait DslV1 { self: AggregateTypes with Snapshottable =>
         case _ => None
       }
     }
+
+    private def onHandledCommand(evs: List[E]) = switchTo.flatMap { switchHandler =>
+      evs.
+        collectFirst(Function.unlift(ev => takeSnapshot(switchHandler(ev)))).
+        map(snapshot => Aggregate.emitEventsWithSnapshot[Event, FlowStateSnapshot](evs, snapshot))
+    }.getOrElse(Aggregate.emitEvents[Event](evs))
   }
 
   def anyOther = new AllowFailingMessageStatement[Command] {
