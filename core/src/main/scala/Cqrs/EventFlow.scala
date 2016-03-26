@@ -82,16 +82,13 @@ trait Snapshottable extends AggregateTypes {
   type FlowState[T] = Function1[T, Flow[Unit]]
   type FlowStateHandler[T] = (T, FlowState[T])
 
-  trait FlowStateSnapshot {
- //   def save[T](args: T, state: FlowStateHandler[T]): String = ???
- //   def restore(snapshot: String): Flow[Unit] = ???
+  sealed trait FlowStateSnapshot {
   }
 
   object FlowStateSnapshot {
     implicit def createSnapshot[T](s: FlowState[T]): FlowStateSnapshot = ???
-
-    implicit val snapshotSerializable: Database.Serializable[FlowStateSnapshot] = ???
   }
+  implicit def snapshotSerializable[A]: Database.Serializable[FlowStateHandler[A]] = ???
 
   type FlowStates = Map[Symbol, FlowStateSnapshot]
 
@@ -101,7 +98,6 @@ trait Snapshottable extends AggregateTypes {
 
   def toFlow[A](handler: FlowStateHandler[A]): Flow[Unit] = handler._2(handler._1)
 
-  def takeSnapshot[A](handler: FlowStateHandler[A]): Option[FlowStateSnapshot] = ???
 }
 
 trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd]#StateData] with Snapshottable {
@@ -204,10 +200,10 @@ trait DslV1 { self: AggregateTypes with Snapshottable =>
       }
     }
 
-    private def onHandledCommand(evs: List[E]) = switchTo.flatMap { switchHandler =>
+    private def onHandledCommand(evs: List[Event]) = switchTo.flatMap { switchHandler =>
       evs.
-        collectFirst(Function.unlift(ev => takeSnapshot(switchHandler(ev)))).
-        map(snapshot => Aggregate.emitEventsWithSnapshot[Event, FlowStateSnapshot](evs, snapshot))
+        collectFirst(Function.unlift({ case ev: E => Some(switchHandler(ev)) })).
+        map(snapshot => Aggregate.emitEventsWithSnapshot[Event, FlowStateHandler[A]](evs, snapshot))
     }.getOrElse(Aggregate.emitEvents[Event](evs))
   }
 
