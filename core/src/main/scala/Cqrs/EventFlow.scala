@@ -1,6 +1,6 @@
 package Cqrs
 
-import Cqrs.Aggregate.{CommandHandlerResult, ErrorCannotFindHandler, ErrorCommandFailure}
+import Cqrs.Aggregate.{ErrorCannotFindHandler, ErrorCommandFailure}
 import Cqrs.Database.EventSerialisation
 import cats._
 import cats.data.{NonEmptyList => NEL, _}
@@ -9,9 +9,12 @@ import cats.free.Free.liftF
 import lib.CaseClassTransformer
 
 import scala.reflect.ClassTag
+import scala.language.implicitConversions
+
 
 class EventFlowImpl[Evt, Cmd] {
-  type CommandH = PartialFunction[Cmd, CommandHandlerResult[Evt]]
+  type CommandHResult = ValidatedNel[Aggregate.Error, List[Evt]]
+  type CommandH = PartialFunction[Cmd, CommandHResult]
   type EventH[A] = PartialFunction[Evt, A]
 
   sealed trait FlowF[+Next]
@@ -38,9 +41,7 @@ class EventFlowImpl[Evt, Cmd] {
     * @return A CommandH, which takes a Cmd and either returns a error or a list of events (just one in this case)
     */
   def promoteCommandToEvent[C <: Cmd : ClassTag, E <: Evt](implicit cct: CaseClassTransformer[C, E]): CommandH =
-    Function.unlift[Cmd, CommandHandlerResult[Evt]] {
-      //this raises: isInstanceOf is disabled by wartremover, but it has false positives:
-      //https://github.com/puffnfresh/wartremover/issues/152
+    Function.unlift {
       case c: C => Some(Validated.valid(cct.transform(c)).map(List(_)))
       case _ => None
     }
@@ -73,34 +74,65 @@ class EventFlowImpl[Evt, Cmd] {
   type StateData = Option[EventStreamConsumer]
 }
 
-trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd]#StateData] {
+trait Snapshottable extends AggregateTypes {
+
+  val eventFlowImpl: EventFlowImpl[Event, Command]
+
+  import eventFlowImpl.Flow
+
+  type FlowState[T] = Function1[T, Flow[Unit]]
+  type FlowStateHandler[T] = (T, FlowState[T])
+
+  trait FlowStateRunner {
+    def save[T](args: T, state: FlowStateRunner): String = ???
+    def restore(snapshot: String): Flow[Unit] = ???
+  }
+
+  object FlowStateRunner {
+    case class FlowStateRunnerImpl[T](state: FlowState[T]) extends FlowStateRunner
+
+    implicit def createRunner[T](s: FlowState[T]): FlowStateRunner = FlowStateRunnerImpl(s)
+  }
+
+  type FlowStates = Map[Symbol, FlowStateRunner]
+
+  val snapshottableStates: FlowStates
+
+  lazy val stateToSymbol = snapshottableStates.map({case (a, b) => (b, a)})
+
+  def snapshotAndSwitch[A](handler: FlowStateHandler[A]): Flow[Unit] = handler._2(handler._1)
+}
+
+trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd]#StateData] with Snapshottable {
 
   val eventFlowImpl = new EventFlowImpl[Evt, Cmd]
 
+  import eventFlowImpl.CommandHResult
   type Flow[A] = eventFlowImpl.Flow[A]
 
   def aggregateLogic: Flow[Unit]
 
   def eventHandler = e => d => d flatMap (_.evh(e))
 
-  def commandHandler = c => d => d.foldLeft(None: Option[CommandHandlerResult[Evt]])(
-    (prev: Option[CommandHandlerResult[Evt]], consumer) => prev match {
+  def commandHandler = c => d => d.foldLeft(None: Option[CommandHResult])(
+    (prev: Option[CommandHResult], consumer) => prev match {
       case Some(_) => prev
       case None => consumer.cmdh.lift(c)
     }
-  ).getOrElse {
+  ).
+    map[Aggregate.CommandHandlerResult[Evt]](_.map(Aggregate.JustEvents(_))).
+    getOrElse {
     Validated.invalid(NEL(ErrorCannotFindHandler(c.toString)))
   }
 
   def initData = eventFlowImpl.esRunnerCompiler(PartialFunction.empty, aggregateLogic)
-
 }
 
-trait DslV1 { self: AggregateTypes =>
+trait DslV1 { self: AggregateTypes with Snapshottable =>
 
   val eventFlowImpl: EventFlowImpl[Event, Command]
 
-  import eventFlowImpl.{Flow, CommandH, EventH}
+  import eventFlowImpl.{Flow, CommandH, EventH, CommandHResult}
 
   trait CompilableDsl {
     def commandHandler: CommandH
@@ -142,21 +174,21 @@ trait DslV1 { self: AggregateTypes =>
     def guard(check: C => Boolean, message: String) = WhenStatement[C](commandMatcher, guards :+ ((check, message)))
 
     private def handleWithSpecificCommandHandler[E <: Event](cmdHandler: C => List[E]) =
-      Function.unlift[Command, CommandHandlerResult[Event]] {
+      Function.unlift[Command, CommandHResult] {
         case c: C => Some(Validated.valid(cmdHandler(c)))
         case _ => None
       }
   }
 
   case class ThenStatement[C <: Command : ClassTag, E <: Event : ClassTag](handler: CommandH, commandMatcher: C => Boolean, guards: List[Guard[C]], eventMatcher: E => Boolean) extends CompilableDslProvider {
-    def switch(where: E => Flow[Unit]): SwitchToStatement[C, E] = SwitchToStatement[C, E](handler, commandMatcher, guards, Some(where), eventMatcher)
+    def switch[A](where: E => FlowStateHandler[A]): SwitchToStatement[C, E, A] = SwitchToStatement[C, E, A](handler, commandMatcher, guards, Some(e => where(e)), eventMatcher)
 
-    def switch(where: => Flow[Unit]): SwitchToStatement[C, E] = switch(_ => where)
+    def switch[A](where: => FlowStateHandler[A]): SwitchToStatement[C, E, A] = switch(_ => where)
 
-    def toCompilableDsl = SwitchToStatement[C, E](handler, commandMatcher, guards, None, eventMatcher).toCompilableDsl
+    def toCompilableDsl = SwitchToStatement[C, E, Unit](handler, commandMatcher, guards, None, eventMatcher).toCompilableDsl
   }
 
-  case class SwitchToStatement[C <: Command : ClassTag, E <: Event : ClassTag](handler: CommandH, commandMatcher: C => Boolean, guards: List[Guard[C]], switchTo: Option[E => Flow[Unit]], eventMatcher: E => Boolean) extends CompilableDslProvider {
+  case class SwitchToStatement[C <: Command : ClassTag, E <: Event : ClassTag, A](handler: CommandH, commandMatcher: C => Boolean, guards: List[Guard[C]], switchTo: Option[E => FlowStateHandler[A]], eventMatcher: E => Boolean) extends CompilableDslProvider {
     def toCompilableDsl = new CompilableDsl {
       def commandHandler = {
         case c: C if commandMatcher(c) =>
@@ -168,7 +200,7 @@ trait DslV1 { self: AggregateTypes =>
       }
 
       def eventHandler = Function.unlift[Event, Flow[Unit]] {
-        case e: E if eventMatcher(e) => switchTo.map(_ (e))
+        case e: E if eventMatcher(e) => switchTo.map(_(e)).map(snapshotAndSwitch)
         case _ => None
       }
     }

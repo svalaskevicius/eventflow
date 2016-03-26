@@ -45,14 +45,18 @@ object Store {
 
 object StoreAggregate extends EventFlow[Event, Command] {
 
-  def store(storeInfo: StoreInfo): Flow[Unit] = handler(
+  val store: FlowState[StoreInfo] = storeInfo => handler(
     when[RequestRefund].
       guard(_.isNotExpired, "The receipt has expired for cash refunds.").
       guard(cmd => storeInfo.knownReceipts.contains(cmd.receipt.sequenceNumber), "Unkown receipt number.").
       emit[CustomerRefunded].
-      switch(ev => store(storeInfo.add(ev.receipt.product, ev.receipt.quantity))),
+      switch(ev => storeInfo.add(ev.receipt.product, ev.receipt.quantity) -> store),
 
-    on[ItemBought].switch(ev => store(storeInfo.addReceipt(ev.producedReceipt)))
+    on[ItemBought].switch(ev => storeInfo.addReceipt(ev.producedReceipt) -> store)
+  )
+
+  val snapshottableStates: FlowStates = Map(
+    'store -> store
   )
 
   val aggregateLogic = store(initialStock)

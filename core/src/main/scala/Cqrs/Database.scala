@@ -15,6 +15,11 @@ import scala.concurrent.ExecutionContext.Implicits.global
 
 object Database {
 
+  trait Serializable[A] {
+    def serialize(a: A): String
+    def unserialize(s: String): Option[A]
+  }
+
   sealed trait Error
 
   final case class ErrorDbFailure(message: String) extends Error
@@ -32,6 +37,8 @@ object Database {
 
   final case class AppendAggregateEvents[E](tag: EventTagAux[E], id: AggregateId, expectedVersion: Int, events: List[E]) extends EventDatabaseOp[E, Error Xor Unit]
 
+  final case class SaveSnapshot[E, A: Serializable](tag: EventTagAux[E], id: AggregateId, version: Int, data: A) extends EventDatabaseOp[E, Error Xor Unit]
+
   type EventDatabase[E, A] = Free[EventDatabaseOp[E, ?], A]
   type EventDatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabase[E, ?], Err, A]
   type EventDatabaseWithFailure[E, A] = EventDatabaseWithAnyFailure[E, Error, A]
@@ -44,6 +51,9 @@ object Database {
 
   def appendEvents[E](tag: EventTagAux[E], id: AggregateId, expectedVersion: Int, events: List[E]): EventDatabaseWithFailure[E, Unit] =
     lift(AppendAggregateEvents(tag, id, expectedVersion, events))
+
+  def saveSnapshot[E, A: Serializable](tag: EventTagAux[E], id: AggregateId, version: Int, data: A): EventDatabaseWithFailure[E, Unit] =
+    lift(SaveSnapshot(tag, id, version, data))
 
   implicit def eventDatabaseMonad[E]: Monad[EventDatabase[E, ?]] = Free.freeMonad[EventDatabaseOp[E, ?]]
 

@@ -65,15 +65,21 @@ object Aggregate {
 
   def fail[E, A](x: Error): DatabaseWithAggregateFailure[E, A] = eventDatabaseWithFailureMonad[E].raiseError[A](x)
 
-  type CommandHandlerResult[E] = ValidatedNel[Aggregate.Error, List[E]]
+  sealed trait CommandProduct[E] {
+    def events: List[E]
+  }
+  final case class JustEvents[E](events: List[E]) extends CommandProduct[E]
+  final case class EventsAndSnapshotGen[E, A: Database.Serializable](events: List[E], snapshotInfo: Option[Unit => A]) extends CommandProduct[E]
 
-  def emitEvent[E](ev: E): CommandHandlerResult[E] = Validated.valid(List(ev))
+  type CommandHandlerResult[E] = ValidatedNel[Aggregate.Error, CommandProduct[E]]
 
-  def emitEvents[E](evs: List[E]): CommandHandlerResult[E] = Validated.valid(evs)
+  def emitEvent[E](ev: E): CommandHandlerResult[E] = Validated.valid(JustEvents(List(ev)))
+
+  def emitEvents[E](evs: List[E]): CommandHandlerResult[E] = Validated.valid(JustEvents(evs))
 
   implicit val nelErrorSemigroup: Semigroup[NEL[Error]] = SemigroupK[NEL].algebra[Error]
 
-  def failCommand[E](err: String): CommandHandlerResult[E] = Validated.invalid(NEL(ErrorCommandFailure(err)))
+  def failCommand[E, A](err: String): ValidatedNel[Aggregate.Error, A] = Validated.invalid(NEL(ErrorCommandFailure(err)))
 
 }
 
@@ -138,8 +144,11 @@ trait Aggregate[E, C, D] extends AggregateTypes {
 
   private def handleCmd(cmd: C): AggregateDefinition[List[E]] = defineAggregate(vs =>
     XorT.fromXor[EventDatabaseWithFailure[E, ?]](
-      commandHandler(cmd)(vs.data).fold[Error Xor List[E]](err => Xor.left(Errors(err)), Xor.right)
-    ).map((vs, _)))
+      commandHandler(cmd)(vs.data).fold[Error Xor CommandProduct[E]](err => Xor.left(Errors(err)), Xor.right)
+    ).flatMap {
+      case JustEvents(events) => pure(events)
+      case EventsAndSnapshotGen(events, _) => pure(events) // TODO: Store snapshot
+    }.map((vs, _)))
 
   private def onEvents(evs: List[E]): AggregateDefinition[Unit] =
     defineAggregate { vs =>
