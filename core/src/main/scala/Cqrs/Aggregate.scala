@@ -88,14 +88,20 @@ object Aggregate {
 trait AggregateTypes {
   type Event
   type Command
+  type AggregateData
+  type AggregateSnapshot
 }
 
-trait Aggregate[E, C, D] extends AggregateTypes {
+trait Aggregate[E, C, D, S] extends AggregateTypes {
 
   import Aggregate._
 
   type Event = E
   type Command = C
+  type AggregateData = D
+  type AggregateSnapshot = S
+
+  implicit private val snapshotSerializer: Database.Serializable[S] = implicitly[Database.Serializable[S]]
 
   protected def createTag(id: String)(implicit eventSerialisation: EventSerialisation[E]) = Aggregate.createTag[E](id)
 
@@ -141,8 +147,13 @@ trait Aggregate[E, C, D] extends AggregateTypes {
     }
   }
 
-  def loadAndHandleCommand(id: AggregateId, cmd: C): DatabaseWithAggregateFailure[E, AggregateState] =
-    handleCommand(cmd).runS(newState(id))
+  def loadAndHandleCommand(id: AggregateId, cmd: C): DatabaseWithAggregateFailure[E, AggregateState] = {
+    val snapshot = dbAction(Database.readSnapshot[E, S](tag, id))
+    val state = snapshot.map[AggregateState](???).recoverWith {
+        case _ =>  eventDatabaseWithFailureMonad.pure(newState(id))
+    }
+    state.flatMap(s => handleCommand(cmd).runS(s))
+  }
 
   private def handleCmd(cmd: C): AggregateDefinition[List[E]] = defineAggregate(vs =>
     XorT.fromXor[EventDatabaseWithFailure[E, ?]](

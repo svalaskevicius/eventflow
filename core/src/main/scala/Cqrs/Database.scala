@@ -31,6 +31,8 @@ object Database {
 
   final case class ReadAggregateEventsResponse[E](lastVersion: Int, events: List[E], endOfStream: Boolean)
 
+  final case class ReadSnapshotResponse[A](version: Int, data: A)
+
   sealed trait EventDatabaseOp[E, A]
 
   final case class ReadAggregateEvents[E](tag: EventTagAux[E], id: AggregateId, fromVersion: Int) extends EventDatabaseOp[E, Error Xor ReadAggregateEventsResponse[E]]
@@ -38,6 +40,8 @@ object Database {
   final case class AppendAggregateEvents[E](tag: EventTagAux[E], id: AggregateId, expectedVersion: Int, events: List[E]) extends EventDatabaseOp[E, Error Xor Unit]
 
   final case class SaveSnapshot[E, A: Serializable](tag: EventTagAux[E], id: AggregateId, version: Int, data: A) extends EventDatabaseOp[E, Error Xor Unit]
+
+  final case class ReadSnapshot[E, A: Serializable](tag: EventTagAux[E], id: AggregateId) extends EventDatabaseOp[E, Error Xor ReadSnapshotResponse[A]]
 
   type EventDatabase[E, A] = Free[EventDatabaseOp[E, ?], A]
   type EventDatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabase[E, ?], Err, A]
@@ -54,6 +58,9 @@ object Database {
 
   def saveSnapshot[E, A: Serializable](tag: EventTagAux[E], id: AggregateId, version: Int, data: A): EventDatabaseWithFailure[E, Unit] =
     lift(SaveSnapshot(tag, id, version, data))
+
+  def readSnapshot[E, A: Serializable](tag: EventTagAux[E], id: AggregateId): EventDatabaseWithFailure[E, ReadSnapshotResponse[A]] =
+    lift(ReadSnapshot(tag, id))
 
   implicit def eventDatabaseMonad[E]: Monad[EventDatabase[E, ?]] = Free.freeMonad[EventDatabaseOp[E, ?]]
 

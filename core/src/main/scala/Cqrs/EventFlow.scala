@@ -57,7 +57,9 @@ class EventFlowImpl[Evt, Cmd] {
 
   case class EventStreamConsumer(cmdh: CommandH, evh: Evt => Option[EventStreamConsumer])
 
-  def esRunnerCompiler[A](initCmdH: CommandH, esRunner: Flow[A]): Option[EventStreamConsumer] =
+  type StateData = Option[EventStreamConsumer]
+
+  def esRunnerCompiler[A](initCmdH: CommandH, esRunner: Flow[A]): StateData =
     esRunner.fold(
       _ => None, {
         case SetCommandHandler(cmdh, next) => esRunnerCompiler(cmdh, next)
@@ -70,7 +72,6 @@ class EventFlowImpl[Evt, Cmd] {
       }
     )
 
-  type StateData = Option[EventStreamConsumer]
 }
 
 trait Snapshottable extends AggregateTypes {
@@ -86,21 +87,30 @@ trait Snapshottable extends AggregateTypes {
   }
 
   object FlowStateSnapshot {
-    implicit def createSnapshot[T](s: FlowState[T]): FlowStateSnapshot = ???
+    implicit def createSnapshot[T](s: FlowStateHandler[T]): FlowStateSnapshot = ???
+    implicit val snapshotSerializer: Database.Serializable[FlowStateSnapshot] = ???
   }
-  implicit def snapshotSerializable[A]: Database.Serializable[FlowStateHandler[A]] = ???
 
-  type FlowStates = Map[Symbol, FlowStateSnapshot]
+  trait FlowStateAux {
+    type StateParam
+    def state: FlowState[StateParam]
+  }
+  object FlowStateAux {
+    implicit def createFlowStateAux[T](flowState: FlowState[T]): FlowStateAux = new FlowStateAux {
+      type StateParam = T
+      val state = flowState
+    }
+  }
+
+  type FlowStates = Map[Symbol, FlowStateAux]
 
   val snapshottableStates: FlowStates
-
-  lazy val stateToSymbol = snapshottableStates.map({case (a, b) => (b, a)})
 
   def toFlow[A](handler: FlowStateHandler[A]): Flow[Unit] = handler._2(handler._1)
 
 }
 
-trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd]#StateData] with Snapshottable {
+trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd]#StateData, Snapshottable#FlowStateSnapshot] with Snapshottable {
 
   val eventFlowImpl = new EventFlowImpl[Evt, Cmd]
 
@@ -203,7 +213,7 @@ trait DslV1 { self: AggregateTypes with Snapshottable =>
     private def onHandledCommand(evs: List[Event]) = switchTo.flatMap { switchHandler =>
       evs.
         collectFirst(Function.unlift({ case ev: E => Some(switchHandler(ev)) })).
-        map(snapshot => Aggregate.emitEventsWithSnapshot[Event, FlowStateHandler[A]](evs, snapshot))
+        map(snapshot => Aggregate.emitEventsWithSnapshot[Event, FlowStateSnapshot](evs, snapshot))
     }.getOrElse(Aggregate.emitEvents[Event](evs))
   }
 

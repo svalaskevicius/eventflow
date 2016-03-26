@@ -36,7 +36,7 @@ trait AggregateSpec {
 
   case class WhenSteps(val db: DB, startingDbOpNr: Long) {
 
-    def command[E, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C) = {
+    def command[E, C, D](aggregate: Aggregate[E, C, D, Unit], id: AggregateId, cmd: C) = {
       act(db, aggregate.loadAndHandleCommand(id, cmd))
         .leftMap(err => failStop(err.toString))
       this
@@ -48,7 +48,7 @@ trait AggregateSpec {
     def newEvents[E](tag: Aggregate.EventTagAux[E], aggregateId: AggregateId): List[E] =
       readEvents(db, startingDbOpNr, tag, aggregateId)
 
-    def failedCommandError[E, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C): Aggregate.Error =
+    def failedCommandError[E, C, D](aggregate: Aggregate[E, C, D, Unit], id: AggregateId, cmd: C): Aggregate.Error =
       act(db, aggregate.loadAndHandleCommand(id, cmd))
         .fold(identity, _ => failStop("Command did not fail, although was expected to"))
 

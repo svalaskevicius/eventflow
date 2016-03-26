@@ -50,7 +50,7 @@ object EventflowExample {
     val server = Http.serve(":8080", api.toService)
   }
 
-  private def commandEndpoint[E, C: DecodeRequest : ClassTag, D](path: String, aggregate: Aggregate[E, C, D]) =
+  private def commandEndpoint[E, C: DecodeRequest : ClassTag, D, S](path: String, aggregate: Aggregate[E, C, D, S]) =
     post(path / string :: body.as[C]) mapOutputAsync {
       case id :: cmd :: HNil =>
         scalaToTwitterFuture(db.runAggregate(aggregate.loadAndHandleCommand(id, cmd)).map {
