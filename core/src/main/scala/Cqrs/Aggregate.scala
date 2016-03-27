@@ -70,7 +70,7 @@ object Aggregate {
   }
   final case class JustEvents[E](events: List[E]) extends CommandProduct[E]
   final case class EventsAndSnapshotGen[E, A: Database.Serializable](events: List[E], snapshotInfo: A) extends CommandProduct[E] {
-    def serializeSnapshot = implicitly[Database.Serializable[A]].serialize(snapshotInfo)
+    def serializer = implicitly[Database.Serializable[A]]
   }
 
   type CommandHandlerResult[E] = ValidatedNel[Aggregate.Error, CommandProduct[E]]
@@ -158,7 +158,11 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
   def loadAndHandleCommand(id: AggregateId, cmd: C): DatabaseWithAggregateFailure[E, AggregateState] = {
     val snapshot = dbAction(Database.readSnapshot[E, S](tag, id))
     val state = snapshot.map[AggregateState]{ resp =>
-      convertSnapshotToData(resp.data).map(VersionedAggregateData(id, _, resp.version)).getOrElse(newState(id))
+      convertSnapshotToData(resp.data).map { data =>
+        val ret = VersionedAggregateData(id, data, resp.version)
+        println(s"Successfully restored aggregate from snapshot: $ret")
+        ret
+      }.getOrElse(newState(id))
     }
     val recoveredState = new DatabaseWithAggregateFailure(
       state.value.recoverWith {
@@ -176,8 +180,10 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
     ).flatMap {
       case JustEvents(events) => pure(events)
       case xx @ EventsAndSnapshotGen(events, snap) =>
-        println("got snap!!" + snap + "::" + xx.serializeSnapshot)
-        pure(events) // TODO: Store snapshot
+        println("got snap!!" + snap + "::" + xx)
+        for {
+          _ <- dbAction(Database.saveSnapshot(tag, vs.id, vs.version, snap)(xx.serializer))
+        } yield events // TODO: Store snapshot
     }.map((vs, _)))
 
   private def onEvents(evs: List[E]): AggregateDefinition[Unit] =

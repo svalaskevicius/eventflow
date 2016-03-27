@@ -91,7 +91,14 @@ object InMemoryDb {
             db => (db, Xor.right[Error, Unit](()))
           )
         })
-        case ReadSnapshot(tag, id) => State( db => (db, Xor.left(ErrorDbFailure("not implemented"))))
+        case rs@ReadSnapshot(tag, id) => State { db =>
+          println(s"==> reading snapshot: $id")
+          (db, Xor.left(ErrorDbFailure("not implemented")))
+        }
+        case ss@SaveSnapshot(tag, id, version, data) => State { db =>
+          println(s"==> saving snapshot: $id - ${ss.serializer.serialize(data)}")
+          (db, Xor.right(()))
+        }
       }
     }
 

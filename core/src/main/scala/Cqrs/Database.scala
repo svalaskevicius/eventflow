@@ -39,9 +39,13 @@ object Database {
 
   final case class AppendAggregateEvents[E](tag: EventTagAux[E], id: AggregateId, expectedVersion: Int, events: List[E]) extends EventDatabaseOp[E, Error Xor Unit]
 
-  final case class SaveSnapshot[E, A: Serializable](tag: EventTagAux[E], id: AggregateId, version: Int, data: A) extends EventDatabaseOp[E, Error Xor Unit]
+  final case class SaveSnapshot[E, A: Serializable](tag: EventTagAux[E], id: AggregateId, version: Int, data: A) extends EventDatabaseOp[E, Error Xor Unit] {
+    def serializer = implicitly[Serializable[A]]
+  }
 
-  final case class ReadSnapshot[E, A: Serializable](tag: EventTagAux[E], id: AggregateId) extends EventDatabaseOp[E, Error Xor ReadSnapshotResponse[A]]
+  final case class ReadSnapshot[E, A: Serializable](tag: EventTagAux[E], id: AggregateId) extends EventDatabaseOp[E, Error Xor ReadSnapshotResponse[A]] {
+    def serializer = implicitly[Serializable[A]]
+  }
 
   type EventDatabase[E, A] = Free[EventDatabaseOp[E, ?], A]
   type EventDatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabase[E, ?], Err, A]
