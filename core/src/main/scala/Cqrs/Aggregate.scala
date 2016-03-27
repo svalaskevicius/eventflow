@@ -69,7 +69,9 @@ object Aggregate {
     def events: List[E]
   }
   final case class JustEvents[E](events: List[E]) extends CommandProduct[E]
-  final case class EventsAndSnapshotGen[E, A: Database.Serializable](events: List[E], snapshotInfo: A) extends CommandProduct[E]
+  final case class EventsAndSnapshotGen[E, A: Database.Serializable](events: List[E], snapshotInfo: A) extends CommandProduct[E] {
+    def serializeSnapshot = implicitly[Database.Serializable[A]].serialize(snapshotInfo)
+  }
 
   type CommandHandlerResult[E] = ValidatedNel[Aggregate.Error, CommandProduct[E]]
 
@@ -157,10 +159,15 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
     val snapshot = dbAction(Database.readSnapshot[E, S](tag, id))
     val state = snapshot.map[AggregateState]{ resp =>
       convertSnapshotToData(resp.data).map(VersionedAggregateData(id, _, resp.version)).getOrElse(newState(id))
-    }.recoverWith {
-        case _ =>  eventDatabaseWithFailureMonad.pure(newState(id))
     }
-    state.flatMap(s => handleCommand(cmd).runS(s))
+    val recoveredState = new DatabaseWithAggregateFailure(
+      state.value.recoverWith {
+        case _ =>
+          println("recovered from no snapshot, new agg data")
+          eventDatabaseWithFailureMonad.pure(newState(id)).value
+      }
+    )
+    recoveredState.flatMap(s => handleCommand(cmd).runS(s))
   }
 
   private def handleCmd(cmd: C): AggregateDefinition[List[E]] = defineAggregate(vs =>
@@ -168,7 +175,9 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
       commandHandler(cmd)(vs.data).fold[Error Xor CommandProduct[E]](err => Xor.left(Errors(err)), Xor.right)
     ).flatMap {
       case JustEvents(events) => pure(events)
-      case EventsAndSnapshotGen(events, _) => pure(events) // TODO: Store snapshot
+      case xx @ EventsAndSnapshotGen(events, snap) =>
+        println("got snap!!" + snap + "::" + xx.serializeSnapshot)
+        pure(events) // TODO: Store snapshot
     }.map((vs, _)))
 
   private def onEvents(evs: List[E]): AggregateDefinition[Unit] =

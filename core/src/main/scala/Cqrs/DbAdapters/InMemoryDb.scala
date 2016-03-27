@@ -91,6 +91,7 @@ object InMemoryDb {
             db => (db, Xor.right[Error, Unit](()))
           )
         })
+        case ReadSnapshot(tag, id) => State( db => (db, Xor.left(ErrorDbFailure("not implemented"))))
       }
     }
 

@@ -14,18 +14,18 @@ object Store {
   type Timestamp = Long
   type Money = Int
 
-  case class StoreInfo(inventory: Map[ProductId, Int], prices: Map[ProductId, Money], knownReceipts: Map[SequenceNumber, Receipt]) {
+  final case class StoreInfo(inventory: Map[ProductId, Int], prices: Map[ProductId, Money], knownReceipts: Map[SequenceNumber, Receipt]) {
     def add(productId: ProductId, qty: Int) = copy(inventory = inventory.updated(productId, quantity(productId) + qty))
 
     def quantity(productId: ProductId) = inventory.getOrElse(productId, 0)
 
     def addReceipt(receipt: Receipt) = copy(knownReceipts = knownReceipts.updated(receipt.sequenceNumber, receipt))
   }
-  object StoreInfo {
+  object StoreInfoX {
     def empty = StoreInfo(TreeMap[ProductId, Int](), TreeMap[ProductId, Money](), TreeMap[SequenceNumber, Receipt]())
   }
 
-  val initialStock = StoreInfo.empty
+  val initialStock = StoreInfoX.empty
 
   final case class Receipt(sequenceNumber: SequenceNumber, product: ProductId, quantity: Int, amount: Money, timestamp: Timestamp)
 
@@ -44,6 +44,7 @@ object Store {
 }
 
 object StoreAggregate extends EventFlow[Event, Command] {
+
 
   val store: FlowState[StoreInfo] = storeInfo => handler(
     when[RequestRefund].
