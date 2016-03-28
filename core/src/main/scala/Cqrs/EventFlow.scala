@@ -80,10 +80,7 @@ trait Snapshottable extends AggregateBase {
 
   import eventFlowImpl.Flow
 
-  type FlowState[T] = Function1[T, Flow[Unit]] //TODO: move this
-  type FlowStateHandler[T] = (T, FlowState[T]) //TODO: remove this
-
-  implicit def convertFlowToFlowStateHandler(flow: Flow[Unit]): FlowStateHandler[Unit] = () -> ((_:Unit) => flow)
+  type FlowState[T] = Function1[T, Flow[Unit]]
 
   trait RegisteredFlowState {
     type StateParam
