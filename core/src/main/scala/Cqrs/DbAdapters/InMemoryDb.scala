@@ -115,7 +115,6 @@ object InMemoryDb {
           setterAsResult(d, database)
         })
         case rsReq@ReadSnapshot(tag, id) => State { database =>
-          println(s"==> reading snapshot: $id")
           val d = readDbSnapshot(database, tag, id)(rsReq.serializer)
           (database, d)
         }

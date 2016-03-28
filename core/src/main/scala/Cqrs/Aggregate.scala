@@ -135,7 +135,10 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
   type AggregateData = D
   type AggregateSnapshot = S
 
-  implicit private val snapshotSerializer: Database.Serializable[S] = implicitly[Database.Serializable[S]]
+  implicit protected def snapshotSerializer: Database.Serializable[S] // = implicitly[Database.Serializable[S]]
+
+  println(s"===>xxxaa ${implicitly[Database.Serializable[S]]}")
+  println(s"===>xxxab ${snapshotSerializer}")
 
   protected def createTag(id: String)(implicit eventSerialisation: EventSerialisation[E]) = Aggregate.createTag[E](id)
 

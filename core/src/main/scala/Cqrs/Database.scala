@@ -44,6 +44,7 @@ object Database {
   }
 
   final case class ReadSnapshot[E, A: Serializable](tag: EventTagAux[E], id: AggregateId) extends EventDatabaseOp[E, Error Xor ReadSnapshotResponse[A]] {
+    println(s"===>xxx ${implicitly[Serializable[A]]}")
     def serializer = implicitly[Serializable[A]]
   }
 
@@ -63,9 +64,10 @@ object Database {
   def saveSnapshot[E, A: Serializable](tag: EventTagAux[E], id: AggregateId, version: Int, data: A): EventDatabaseWithFailure[E, Unit] =
     lift(SaveSnapshot(tag, id, version, data))
 
-  def readSnapshot[E, A: Serializable](tag: EventTagAux[E], id: AggregateId): EventDatabaseWithFailure[E, ReadSnapshotResponse[A]] =
+  def readSnapshot[E, A: Serializable](tag: EventTagAux[E], id: AggregateId): EventDatabaseWithFailure[E, ReadSnapshotResponse[A]] = {
+    println(s"===>xxxy ${implicitly[Serializable[A]]}")
     lift(ReadSnapshot(tag, id))
-
+}
   implicit def eventDatabaseMonad[E]: Monad[EventDatabase[E, ?]] = Free.freeMonad[EventDatabaseOp[E, ?]]
 
   implicit def eventDatabaseWithFailureMonad[E]: MonadError[EventDatabaseWithFailure[E, ?], Error] = XorT.xorTMonadError[EventDatabase[E, ?], Error]
