@@ -280,6 +280,8 @@ trait DslV1 { self: AggregateBase with Snapshottable =>
 
     def toCompilableDsl = SwitchToStatement[C, E](handler, commandMatcher, guards, None, None, eventMatcher).toCompilableDsl
 
+    //TODO: what to do with this unsafeness ??
+    // is it possible to make it compile error?
     private def snapshotTargetToFlow[A](target: (A, Symbol)) = toFlow(snapshotTargetToFlowCall(target)).get
 
     private def snapshotTargetToFlowCall[A](target: (A, Symbol)) = new FlowStateCall {
