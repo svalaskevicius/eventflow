@@ -38,7 +38,7 @@ object DoorAggregate extends EventFlow[Event, Command] {
   )
 
   private val closedDoors: Flow[Unit] = handler(
-    when(Open).emit(Opened).switch(openDoors),
+    when(Open).emit(Opened).snapshotAndSwitch('open),
     when[Lock].emit[Locked].snapshotAndSwitch(ev => ev.key -> 'locked)
   )
 

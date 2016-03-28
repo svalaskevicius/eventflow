@@ -114,7 +114,7 @@ trait Snapshottable extends AggregateBase {
 
   object FlowStateCall {
 
-    def snapshotSerializer: Database.Serializable[Snapshottable#FlowStateCall] = {
+    lazy val snapshotSerializer: Database.Serializable[Snapshottable#FlowStateCall] = {
       println("creating serializer!! ")
       new Database.Serializable[Snapshottable#FlowStateCall] {
         val serializer = new SerializerWriter {
@@ -275,6 +275,8 @@ trait DslV1 { self: AggregateBase with Snapshottable =>
     def snapshotAndSwitch[A](where: E => (A, Symbol)): SwitchToStatement[C, E] = SwitchToStatement[C, E](handler, commandMatcher, guards, Some(e => snapshotTargetToFlow(where(e))), Some(e => snapshotTargetToFlowCall(where(e))), eventMatcher)
 
     def snapshotAndSwitch[A](where: => (A, Symbol)): SwitchToStatement[C, E] = snapshotAndSwitch(_ => where)
+
+    def snapshotAndSwitch[A](where: Symbol): SwitchToStatement[C, E] = snapshotAndSwitch(_ => ((), where))
 
     def toCompilableDsl = SwitchToStatement[C, E](handler, commandMatcher, guards, None, None, eventMatcher).toCompilableDsl
 
