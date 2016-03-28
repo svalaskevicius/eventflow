@@ -172,7 +172,7 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
     val recoveredState = new DatabaseWithAggregateFailure(
       state.value.recoverWith {
         case _ =>
-          println("recovered from no snapshot, new agg data")
+          println(s"recovered from no snapshot, new agg data for $state")
           eventDatabaseWithFailureMonad.pure(newState(id)).value
       }
     )

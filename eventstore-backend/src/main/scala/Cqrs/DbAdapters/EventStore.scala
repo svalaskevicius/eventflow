@@ -27,20 +27,25 @@ object EventStore {
         def onLiveProcessingStart(subscription: Closeable) = ()
 
         def onEvent(event: IndexedEvent, subscription: Closeable) = {
-          parseEsStreamId(event.event.streamId) match {
-            case Some((tagId, aggId)) => synchronized {
-              projections = projections.map { runner =>
-                runner.listeningFor.filter(_.name == tagId).foldLeft(runner) { (rnr, tag) =>
-                  rnr.accept(Cqrs.Database.EventData(
-                    tag,
-                    aggId,
-                    0,
-                    tag.eventSerialiser.decode(event.event.data.data.value.utf8String).toOption.get
-                  ))
+          if (!event.event.streamId.isMetadata) {
+            parseEsStreamId(event.event.streamId) match {
+              case Some((tagId, aggId)) => synchronized {
+                projections = projections.map { runner =>
+                  runner.listeningFor.filter(_.name == tagId).foldLeft(runner) { (rnr, tag) =>
+                    rnr.accept(Cqrs.Database.EventData(
+                      tag,
+                      aggId,
+                      0,
+                      //TODO: what to do when cannot decode for projection?
+                      // skipping is not too great as it might mean missed old events
+                      // log[warn] & skip / fail? if fail then how?
+                      tag.eventSerialiser.decode(event.event.data.data.value.utf8String).toOption.get
+                    ))
+                  }
                 }
               }
+              case _ => ()
             }
-            case _ => ()
           }
         }
 
@@ -54,6 +59,7 @@ object EventStore {
       actions.value.foldMap(transformDbOpToDbState)
 
     private def readFromDb[E](tag: EventTagAux[E], id: AggregateId, fromVersion: Int): Future[Error Xor ReadAggregateEventsResponse[E]] = {
+      println(s"===> reading events $id")
 
       def decode(d: String) = tag.eventSerialiser.decode(d)
       def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
@@ -75,6 +81,7 @@ object EventStore {
     }
 
     private def addToDb[E](tag: EventTagAux[E], id: AggregateId, expectedVersion: Int, events: List[E]): Future[Error Xor Unit] = {
+      println(s"===> saving events $id")
       val response = connection future WriteEvents(
         esStreamId(tag, id),
         events.map(ev => eventstore.EventData.Json(ev.getClass.toString, data = tag.eventSerialiser.encode(ev))),
@@ -93,38 +100,65 @@ object EventStore {
       dbErrorsHandled.map(_.map { _ => () })
     }
 
-    private case class StoredSnapshot(version: Int, data: String) extends java.io.Serializable
+    case class StoredSnapshot[A](version: Int, data: A)
+
+    object StoredSnapshot {
+      implicit def serializer[A](implicit sa: Serializable[A]): Serializable[StoredSnapshot[A]] = new Serializable[StoredSnapshot[A]] {
+        val serializer = new SerializerWriter {
+          val write0 = (a: StoredSnapshot[A]) => {
+            upickle.Js.Obj(
+              "version" -> upickle.default.IntRW.write0(a.version),
+              "data" -> sa.serializer.write0(a.data)
+            )
+          }
+        }
+        val unserializer = new SerializerReader {
+          val read0: PartialFunction[Serialized, StoredSnapshot[A]] =
+            Function.unlift {
+              case obj: upickle.Js.Obj => // scala.util.Try {
+                println(s"xx: $obj")
+                val v = upickle.default.IntRW.read0(obj("version"))
+                println(s"xx: $v")
+                println(s"xx: ${obj("data")}")
+                val d = sa.unserializer.read0(obj("data"))
+                println(s"xx: $d")
+   Some(             StoredSnapshot(v, d))
+ //             }.toOption
+              case _ => None
+            }
+        }
+      }
+    }
 
     private def readDbSnapshot[E, S: Serializable](tag: EventTagAux[E], id: AggregateId): Future[Error Xor ReadSnapshotResponse[S]] = {
-      val serializer = implicitly[Serializable[S]]
+      println(s"===> reading snapshot $id")
       val response = connection future ReadEvent.StreamMetadata(esMetaStreamId(tag, id))
       val decodedResponse = response.map[Error Xor ReadSnapshotResponse[S]] { resp =>
-        import java.io._
-        val ois = new ObjectInputStream( new ByteArrayInputStream(  resp.event.data.data.value.toArray ) );
-        val o = ois.readObject().asInstanceOf[StoredSnapshot];
-        ois.close();
-        serializer.unserialize(o.data).fold[Error Xor ReadSnapshotResponse[S]](
-          Xor.left(ErrorDbFailure(s"Cannot unserialise snapshot data for ${tag.name} :: $id"))
+
+        val serializer = implicitly[Serializable[StoredSnapshot[S]]]
+        serializer.fromString(resp.event.data.data.value.utf8String).fold[Error Xor ReadSnapshotResponse[S]](
+          Xor.left(ErrorDbFailure(s"Cannot unserialise snapshot data for ${tag.name} :: $id == ${resp.event.data.data.value.utf8String}"))
         )( data =>
-          Xor.right(ReadSnapshotResponse(o.version, data))
+          Xor.right(ReadSnapshotResponse(data.version, data.data))
         )
       }
       val dbErrorsHandled = decodedResponse.recover {
         case err: EsException => Xor.left(ErrorDbFailure(err.getMessage))
       }
 
-      dbErrorsHandled
+      val r = dbErrorsHandled
+      r.map{x =>
+        println(s"===> read info: $x")
+        x
+      }
     }
 
     private def saveDbSnapshot[E, S: Serializable](tag: EventTagAux[E], id: AggregateId, version: Int, snapshot: S): Future[Error Xor Unit] = {
-      val snapshotToStore = StoredSnapshot(version, implicitly[Serializable[S]].serialize(snapshot))
+      println(s"===> saving snapshot $id")
+      val snapshotToStore = StoredSnapshot(version, snapshot)
       val serialisedData = {
-        import java.io._
-        val baos = new ByteArrayOutputStream()
-        val oos = new ObjectOutputStream( baos )
-        oos.writeObject( snapshotToStore )
-        oos.close;
-        baos.toByteArray
+        val serializer = implicitly[Serializable[StoredSnapshot[S]]]
+        serializer.toString(snapshotToStore)
       }
       val response = connection future WriteEvents.StreamMetadata(
         esMetaStreamId(tag, id),

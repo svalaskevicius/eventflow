@@ -138,54 +138,62 @@ trait Snapshottable extends AggregateBase {
       println("creating serializer!! ")
       new Database.Serializable[Snapshottable#FlowStateCall] {
         case class SnapshotData[T](state: Symbol, arg: T)
-        def serialize(a: Snapshottable#FlowStateCall) = {
-          def dataWriter = new upickle.default.Writer[SnapshotData[a.StateParam]] {
-            val write0: SnapshotData[a.StateParam] => upickle.Js.Value = data =>
+        val serializer = new SerializerWriter {
+          val write0 = (a: Snapshottable#FlowStateCall) => {
+            def dataWriter = new upickle.default.Writer[SnapshotData[a.StateParam]] {
+              val write0: SnapshotData[a.StateParam] => upickle.Js.Value = data =>
               upickle.Js.Obj(
-                "state" -> upickle.Js.Str(a.state.toString),
+                "state" -> upickle.default.SymbolRW.write0(a.state),
                 "arg" -> a.w.write(a.arg)
               )
+            }
+
+            val x = dataWriter.write(SnapshotData(a.state, a.arg))
+
+            println("===============")
+            println(x)
+            println("===============")
+            x
           }
-
-          val x = upickle.json.write(dataWriter.write(SnapshotData(a.state, a.arg)))
-
-          println("===============")
-          println(x)
-          println("===============")
-          x
         }
-        def unserialize(s: String) = {
-          val symbolReader = new upickle.default.Reader[Symbol] {
-            val read0: PartialFunction[upickle.Js.Value, Symbol] =
-              Function.unlift {
-                case obj: upickle.Js.Obj => obj.value.toList.collectFirst({
-                                                                            case (name, value: upickle.Js.Str) if name.equals("state") => Symbol(value.value)
-                                                                          })
-                case _ => None
+        val unserializer = new SerializerReader {
+          val read0: PartialFunction[Serialized, Snapshottable#FlowStateCall] =
+            Function.unlift { json =>
+              println(s"reading $json ef")
+              val symbolReader = new upickle.default.Reader[Symbol] {
+                val read0: PartialFunction[upickle.Js.Value, Symbol] =
+                  Function.unlift {
+                    case obj: upickle.Js.Obj => obj.value.toList.collectFirst({
+                                                                                case (name, value: upickle.Js.Str) if name.equals("state") => Symbol(value.value)
+                                                                              })
+                    case _ => None
+                  }
               }
-          }
-          val json = upickle.json.read(s) // TODO: Try
-          val symbol = symbolReader.read(json) // TODO: Try
-          snapshottableStates.get(symbol).map { flowState =>
-            val argReader = new upickle.default.Reader[flowState.StateParam] {
-              val read0: PartialFunction[upickle.Js.Value, flowState.StateParam] =
-                Function.unlift {
-                  case obj: upickle.Js.Obj => obj.value.toList.collectFirst(Function.unlift {
-                                                                              case (name, value) if name.equals("arg") => flowState.r.read.lift(value)
-                                                                              case _ => None
-                                                                            })
-                  case _ => None
+              val symbol = symbolReader.read(json)
+              println(s"read symbol $symbol")
+              snapshottableStates.get(symbol).map { flowState =>
+                println(s"reading flow state: $flowState")
+                val argReader = new upickle.default.Reader[flowState.StateParam] {
+                  val read0: PartialFunction[upickle.Js.Value, flowState.StateParam] =
+                    Function.unlift {
+                      case obj: upickle.Js.Obj => obj.value.toList.collectFirst(Function.unlift {
+                                                                                  case (name, value) if name.equals("arg") => flowState.r.read.lift(value)
+                                                                                  case _ => None
+                                                                                })
+                      case _ => None
+                    }
                 }
+                val readArg = argReader.read(json) //TODO: Try
+                println(s"read arg: $readArg")
+                new FlowStateCall {
+                  type StateParam = flowState.StateParam
+                  val state = symbol
+                  val arg = readArg
+                  val r = flowState.r //TODO: reader is not needed here
+                  val w = flowState.w
+                }
+              }
             }
-            val readArg = argReader.read(json) //TODO: Try
-            new FlowStateCall {
-              type StateParam = flowState.StateParam
-              val state = symbol
-              val arg = readArg
-              val r = flowState.r //TODO: reader is not needed here
-              val w = flowState.w
-            }
-          }
         }
       }
     }

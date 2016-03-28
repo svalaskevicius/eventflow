@@ -15,11 +15,25 @@ import scala.concurrent.ExecutionContext.Implicits.global
 
 object Database {
 
-  trait Serializable[A] {
-    def serialize(a: A): String
-    def unserialize(s: String): Option[A]
+  trait Serializable[T] {
+    type Serialized = upickle.Js.Value
+    type SerializerWriter = upickle.default.Writer[T]
+    type SerializerReader = upickle.default.Reader[T]
+    def serializer: SerializerWriter
+    def unserializer: SerializerReader
+    def write(a: Serialized) = upickle.json.write(a)
+    def read(s: String) = Try(upickle.json.read(s)).toOption
+    def toString(a: T): String = write(serializer.write(a))
+    def fromString(s: String): Option[T] = read(s).flatMap(d => Try(unserializer.read(d)).toOption)
   }
 
+  object Serializable {
+
+    implicit def defaultSerializable[T](implicit w: upickle.default.Writer[T], r: upickle.default.Reader[T]): Serializable[T] = new Serializable[T] {
+      lazy val serializer = w
+      lazy val unserializer = r
+    }
+  }
   sealed trait Error
 
   final case class ErrorDbFailure(message: String) extends Error

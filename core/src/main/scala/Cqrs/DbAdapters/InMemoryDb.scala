@@ -85,7 +85,7 @@ object InMemoryDb {
       Xor.left(ErrorDbFailure(s"No snapshot for ${tag.name} :: $id"))
     ){ snapshot =>
       println(s"===> reading snapshot: $snapshot with ${implicitly[Serializable[S]]}")
-      val data = implicitly[Serializable[S]].unserialize(snapshot.data)
+      val data = implicitly[Serializable[S]].fromString(snapshot.data)
       data.fold[Error Xor ReadSnapshotResponse[S]](
         Xor.left(ErrorDbFailure(s"Cannot unserialise snapshot data for ${tag.name} :: $id"))
       )( unserialisedData =>
@@ -95,7 +95,7 @@ object InMemoryDb {
   }
 
   private def saveDbSnapshot[E, S: Serializable](database: DbBackend, tag: EventTagAux[E], id: AggregateId, version: Int, snapshot: S): Error Xor DbBackend = {
-    val data = StoredSnapshot(version, implicitly[Serializable[S]].serialize(snapshot))
+    val data = StoredSnapshot(version, implicitly[Serializable[S]].toString(snapshot))
     Xor.right(
       database.copy(
         snapshots = database.snapshots.updated(tag.name, database.snapshots.getOrElse(tag.name, Map.empty).updated(id, data))
@@ -119,7 +119,7 @@ object InMemoryDb {
           (database, d)
         }
         case ssReq@SaveSnapshot(tag, id, version, data) => State { database =>
-          println(s"==> saving snapshot: $id - ${ssReq.serializer.serialize(data)}")
+          println(s"==> saving snapshot: $id - ${ssReq.serializer.toString(data)}")
           val d = saveDbSnapshot(database, tag, id, version, data)(ssReq.serializer)
           setterAsResult(d, database)
         }
