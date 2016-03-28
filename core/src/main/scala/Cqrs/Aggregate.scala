@@ -44,6 +44,7 @@ object Aggregate {
 
   final case class Errors(err: NEL[Error]) extends Error
 
+  //TODO: remove 2nd layer of XorT and just use leftMap on the 1st Xor.Left
   type DatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabaseWithFailure[E, ?], Err, A]
   type DatabaseWithAggregateFailure[E, A] = DatabaseWithAnyFailure[E, Error, A]
 
@@ -54,6 +55,7 @@ object Aggregate {
 
   final case class VersionedAggregateData[D](id: AggregateId, data: D, version: Int)
 
+  //TODO: remove StateT - it has lost purpose now
   type AggregateDefAnyD[E, D, A] = StateT[DatabaseWithAggregateFailure[E, ?], D, A]
   type AggregateDef[E, D, A] = AggregateDefAnyD[E, VersionedAggregateData[D], A]
 
