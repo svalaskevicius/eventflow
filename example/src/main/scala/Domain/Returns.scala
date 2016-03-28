@@ -21,11 +21,9 @@ object Store {
 
     def addReceipt(receipt: Receipt) = copy(knownReceipts = knownReceipts.updated(receipt.sequenceNumber, receipt))
   }
-  object StoreInfoX {
+  object StoreInfo {
     def empty = StoreInfo(TreeMap[ProductId, Int](), TreeMap[ProductId, Money](), TreeMap[SequenceNumber, Receipt]())
   }
-
-  val initialStock = StoreInfoX.empty
 
   final case class Receipt(sequenceNumber: SequenceNumber, product: ProductId, quantity: Int, amount: Money, timestamp: Timestamp)
 
@@ -60,6 +58,6 @@ object StoreAggregate extends EventFlow[Event, Command] {
     'store -> store
   )
 
-  val aggregateLogic = store(initialStock)
+  val aggregateLogic = store(StoreInfo.empty)
 }
 
