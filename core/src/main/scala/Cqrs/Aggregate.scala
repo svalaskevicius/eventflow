@@ -148,7 +148,7 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
     val result = for {
       _ <- readAllEventsAndCatchUp
       resultEvents <- handleCmd(cmd)
-      _ <- onEvents(resultEvents)
+      _ <- onCommandSuccess(resultEvents)
     } yield ()
 
     defineAggregate { s =>
@@ -179,22 +179,23 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
     recoveredState.flatMap(s => handleCommand(cmd).runS(s))
   }
 
-  private def handleCmd(cmd: C): AggregateDefinition[List[E]] = defineAggregate(vs =>
+  private def handleCmd(cmd: C): AggregateDefinition[CommandProduct[E]] = liftAggregateReadState(vs =>
     XorT.fromXor[EventDatabaseWithFailure[E, ?]](
       commandHandler(cmd)(vs.data).fold[Error Xor CommandProduct[E]](err => Xor.left(Errors(err)), Xor.right)
-    ).flatMap {
-      case JustEvents(events) => pure(events)
-      case xx @ EventsAndSnapshotGen(events, snap) =>
-        println("got snap!!" + snap + "::" + xx)
-        for {
-          _ <- dbAction(Database.saveSnapshot(tag, vs.id, vs.version, snap)(xx.serializer))
-        } yield events // TODO: Store snapshot
-    }.map((vs, _)))
+    )
+  )
 
-  private def onEvents(evs: List[E]): AggregateDefinition[Unit] =
-    defineAggregate { vs =>
-      dbAction(Database.appendEvents(tag, vs.id, vs.version, evs).map(_ => (vs, evs)))
-    }.flatMap(addEvents)
+  private def onCommandSuccess(response: CommandProduct[E]): AggregateDefinition[Unit] =
+    for {
+      _ <- liftAggregateReadState( vs => dbAction(Database.appendEvents(tag, vs.id, vs.version, response.events)))
+      _ <- addEvents(response.events)
+      _ <- liftAggregateReadState( vs => response match {
+                                    case xx@EventsAndSnapshotGen(_, snapshot) =>
+                                      dbAction(Database.saveSnapshot(tag, vs.id, vs.version, snapshot)(xx.serializer))
+                                    case _ => pure(())
+                                  }
+      )
+    } yield ()
 
   private def addEvents(evs: List[E]): AggregateDefinition[Unit] =
     defineAggregate { vs =>
