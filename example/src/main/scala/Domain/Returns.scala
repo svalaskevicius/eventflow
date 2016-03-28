@@ -49,9 +49,9 @@ object StoreAggregate extends EventFlow[Event, Command] {
       guard(_.isNotExpired, "The receipt has expired for cash refunds.").
       guard(cmd => storeInfo.knownReceipts.contains(cmd.receipt.sequenceNumber), "Unkown receipt number.").
       emit[CustomerRefunded].
-      switch(ev => storeInfo.add(ev.receipt.product, ev.receipt.quantity) -> store),
+      snapshotAndSwitch(ev => storeInfo.add(ev.receipt.product, ev.receipt.quantity) -> 'store),
 
-    on[ItemBought].switch(ev => storeInfo.addReceipt(ev.producedReceipt) -> store)
+    on[ItemBought].snapshotAndSwitch(ev => storeInfo.addReceipt(ev.producedReceipt) -> 'store)
   )
 
   val snapshottableStates: FlowStates = Map(

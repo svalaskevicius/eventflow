@@ -80,8 +80,10 @@ trait Snapshottable extends AggregateBase {
 
   import eventFlowImpl.Flow
 
-  type FlowState[T] = Function1[T, Flow[Unit]]
-  type FlowStateHandler[T] = (T, FlowState[T])
+  type FlowState[T] = Function1[T, Flow[Unit]] //TODO: move this
+  type FlowStateHandler[T] = (T, FlowState[T]) //TODO: remove this
+
+  implicit def convertFlowToFlowStateHandler(flow: Flow[Unit]): FlowStateHandler[Unit] = () -> ((_:Unit) => flow)
 
   trait RegisteredFlowState {
     type StateParam
@@ -91,13 +93,15 @@ trait Snapshottable extends AggregateBase {
     def state: FlowState[StateParam]
   }
   object RegisteredFlowState {
-    implicit def createFlowStateAux[T: ClassTag: upickle.default.Reader: upickle.default.Writer](flowState: FlowState[T]): RegisteredFlowState = new RegisteredFlowState {
+    implicit def registerFlowState[T: ClassTag: upickle.default.Reader: upickle.default.Writer](flowState: FlowState[T]): RegisteredFlowState = new RegisteredFlowState {
       type StateParam = T
       val r = implicitly[upickle.default.Reader[T]]
       val w = implicitly[upickle.default.Writer[T]]
       val classTag = implicitly[ClassTag[T]]
       val state = flowState
     }
+
+    implicit def registerFlow(flow: Flow[Unit]): RegisteredFlowState = registerFlowState[Unit]((_:Unit) => flow)
   }
 
   type FlowStates = Map[Symbol, RegisteredFlowState]
@@ -105,55 +109,27 @@ trait Snapshottable extends AggregateBase {
   val snapshottableStates: FlowStates
 
 
-  sealed trait FlowStateCall {
+  sealed trait FlowStateCall{
     type StateParam
-    val state: Symbol
-    val arg: StateParam
-    def w: upickle.default.Writer[StateParam]
-    def applyToFlowState(f: RegisteredFlowState) = arg match {
-      case f.classTag(farg) => Some(f.state(farg))
-      case _ => None
-    }
+    def state: Symbol
+    def arg: StateParam
   }
 
   object FlowStateCall {
 
-    def createSnapshot[T: ClassTag](s: FlowStateHandler[T]): Option[FlowStateCall] = {
-      val stateOption = snapshottableStates.find(p => p._2.state == s._2)
-      println(s"looking for $s in $snapshottableStates; found $stateOption")
-      stateOption.flatMap ( foundState =>
-        s._1 match {
-          case foundState._2.classTag(stateArg) =>
-            Some(new FlowStateCall {
-              type StateParam = foundState._2.StateParam
-              val state = foundState._1
-              val arg = stateArg
-              val w = foundState._2.w
-            })
-          case _ => None
-        }
-      )
-    }
-    val snapshotSerializer: Database.Serializable[Snapshottable#FlowStateCall] = {
+    def snapshotSerializer: Database.Serializable[Snapshottable#FlowStateCall] = {
       println("creating serializer!! ")
       new Database.Serializable[Snapshottable#FlowStateCall] {
-        case class SnapshotData[T](state: Symbol, arg: T)
         val serializer = new SerializerWriter {
           val write0 = (a: Snapshottable#FlowStateCall) => {
-            def dataWriter = new upickle.default.Writer[SnapshotData[a.StateParam]] {
-              val write0: SnapshotData[a.StateParam] => upickle.Js.Value = data =>
-              upickle.Js.Obj(
-                "state" -> upickle.default.SymbolRW.write0(a.state),
-                "arg" -> a.w.write(a.arg)
-              )
+            val registeredState = snapshottableStates.get(a.state).get
+            a.arg match {
+              case registeredState.classTag(arg) =>
+                upickle.Js.Obj(
+                  "state" -> upickle.default.SymbolRW.write0(a.state),
+                  "arg" -> registeredState.w.write(arg)
+                )
             }
-
-            val x = dataWriter.write(SnapshotData(a.state, a.arg))
-
-            println("===============")
-            println(x)
-            println("===============")
-            x
           }
         }
         val unserializer = new SerializerReader {
@@ -187,8 +163,6 @@ trait Snapshottable extends AggregateBase {
                   type StateParam = flowState.StateParam
                   val state = symbol
                   val arg = readArg
-                  val r = flowState.r //TODO: reader is not needed here
-                  val w = flowState.w
                 }
               }
             }
@@ -199,9 +173,16 @@ trait Snapshottable extends AggregateBase {
 
 
   def compileSnapshot(s: FlowStateCall): Option[eventFlowImpl.StateData] =
-    snapshottableStates.get(s.state).flatMap(x => s.applyToFlowState(x)).map(flow => eventFlowImpl.esRunnerCompiler(PartialFunction.empty, flow))
+    toFlow(s).map(flow => eventFlowImpl.esRunnerCompiler(PartialFunction.empty, flow))
 
-  def toFlow[A](handler: FlowStateHandler[A]): Flow[Unit] = handler._2(handler._1)
+  def toFlow(s: FlowStateCall): Option[Flow[Unit]] =
+    snapshottableStates.get(s.state).flatMap { flowState =>
+      s.arg match {
+        case flowState.classTag(arg) => Some(flowState.state(arg))
+        case _ => None
+      }
+    }
+
 }
 
 trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd]#StateData, Snapshottable#FlowStateCall] with Snapshottable {
@@ -290,14 +271,27 @@ trait DslV1 { self: AggregateBase with Snapshottable =>
   }
 
   case class ThenStatement[C <: Command : ClassTag, E <: Event : ClassTag](handler: PartialFunction[C, List[E]], commandMatcher: C => Boolean, guards: List[Guard[C]], eventMatcher: E => Boolean) extends CompilableDslProvider {
-    def switch[A: ClassTag : upickle.default.Reader : upickle.default.Writer](where: E => FlowStateHandler[A]): SwitchToStatement[C, E, A] = SwitchToStatement[C, E, A](handler, commandMatcher, guards, Some(e => where(e)), eventMatcher)
+    def switch(where: E => Flow[Unit]): SwitchToStatement[C, E] = SwitchToStatement[C, E](handler, commandMatcher, guards, Some(where), None, eventMatcher)
 
-    def switch[A: ClassTag : upickle.default.Reader : upickle.default.Writer](where: => FlowStateHandler[A]): SwitchToStatement[C, E, A] = switch(_ => where)
+    def switch(where: => Flow[Unit]): SwitchToStatement[C, E] = switch(_ => where)
 
-    def toCompilableDsl = SwitchToStatement[C, E, Unit](handler, commandMatcher, guards, None, eventMatcher).toCompilableDsl
+    def snapshotAndSwitch[A](where: E => (A, Symbol)): SwitchToStatement[C, E] = SwitchToStatement[C, E](handler, commandMatcher, guards, Some(e => snapshotTargetToFlow(where(e))), Some(e => snapshotTargetToFlowCall(where(e))), eventMatcher)
+
+    def snapshotAndSwitch[A](where: => (A, Symbol)): SwitchToStatement[C, E] = snapshotAndSwitch(_ => where)
+
+    def toCompilableDsl = SwitchToStatement[C, E](handler, commandMatcher, guards, None, None, eventMatcher).toCompilableDsl
+
+    private def snapshotTargetToFlow[A](target: (A, Symbol)) = toFlow(snapshotTargetToFlowCall(target)).get
+
+    private def snapshotTargetToFlowCall[A](target: (A, Symbol)) = new FlowStateCall {
+      type StateParam = A
+      val state = target._2
+      val arg = target._1
+    }
+
   }
 
-  case class SwitchToStatement[C <: Command : ClassTag, E <: Event : ClassTag, A: ClassTag: upickle.default.Reader : upickle.default.Writer](handler: PartialFunction[C, List[E]], commandMatcher: C => Boolean, guards: List[Guard[C]], switchTo: Option[E => FlowStateHandler[A]], eventMatcher: E => Boolean) extends CompilableDslProvider {
+  case class SwitchToStatement[C <: Command : ClassTag, E <: Event : ClassTag](handler: PartialFunction[C, List[E]], commandMatcher: C => Boolean, guards: List[Guard[C]], switchTo: Option[E => Flow[Unit]], snapshot: Option[E => FlowStateCall], eventMatcher: E => Boolean) extends CompilableDslProvider {
     def toCompilableDsl = new CompilableDsl {
       def commandHandler = {
         case c: C if commandMatcher(c) =>
@@ -309,20 +303,18 @@ trait DslV1 { self: AggregateBase with Snapshottable =>
       }
 
       def eventHandler = Function.unlift[Event, Flow[Unit]] {
-        case e: E if eventMatcher(e) => switchTo.map(_(e)).map(toFlow)
+        case e: E if eventMatcher(e) => switchTo.map(_(e))
         case _ => None
       }
     }
 
-    private def onHandledCommand(evs: List[Event]) = switchTo.flatMap { switchHandler =>
+    private def onHandledCommand(evs: List[Event]) = snapshot.flatMap { snapshotHandler =>
       println(s"handled command, got $evs")
       evs.
-        collectFirst(Function.unlift({ case ev: E => Some(switchHandler(ev)) })).
-        flatMap {flowStateHandler =>
-          println(s"event found flh: $flowStateHandler")
-          val snapshot = FlowStateCall.createSnapshot(flowStateHandler)
-          println(s"and snapshot is: $snapshot")
-          snapshot.map(s => Aggregate.emitEventsWithSnapshot[Event, Snapshottable#FlowStateCall](evs, s)(FlowStateCall.snapshotSerializer))
+        collectFirst(Function.unlift({ case ev: E => Some(snapshotHandler(ev)) })).
+        map { dataToSnapshotSymbol =>
+          println(s"event found flh: $dataToSnapshotSymbol")
+          Aggregate.emitEventsWithSnapshot[Event, Snapshottable#FlowStateCall](evs, dataToSnapshotSymbol)(FlowStateCall.snapshotSerializer)
         }
     }.getOrElse(Aggregate.emitEvents[Event](evs))
   }
