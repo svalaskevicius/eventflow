@@ -163,9 +163,7 @@ trait Snapshottable extends AggregateBase {
               val symbolReader = new upickle.default.Reader[Symbol] {
                 val read0: PartialFunction[upickle.Js.Value, Symbol] =
                   Function.unlift {
-                    case obj: upickle.Js.Obj => obj.value.toList.collectFirst({
-                                                                                case (name, value: upickle.Js.Str) if name.equals("state") => Symbol(value.value)
-                                                                              })
+                    case obj: upickle.Js.Obj => Some(upickle.default.SymbolRW.read0(obj("state")))
                     case _ => None
                   }
               }
