@@ -190,8 +190,8 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
       _ <- liftAggregateReadState( vs => dbAction(Database.appendEvents(tag, vs.id, vs.version, response.events)))
       _ <- addEvents(response.events)
       _ <- liftAggregateReadState( vs => response match {
-                                    case xx@EventsAndSnapshotGen(_, snapshot) =>
-                                      dbAction(Database.saveSnapshot(tag, vs.id, vs.version, snapshot)(xx.serializer))
+                                    case resp@EventsAndSnapshotGen(_, snapshot) =>
+                                      dbAction(Database.saveSnapshot(tag, vs.id, vs.version, snapshot)(resp.serializer))
                                     case _ => pure(())
                                   }
       )
