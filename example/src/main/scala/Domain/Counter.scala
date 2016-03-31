@@ -28,18 +28,17 @@ object Counter {
 }
 
 object CounterAggregate extends EventFlow[Event, Command] {
-  val counting: FlowState[Int] = c => handler(
-    when(Increment).emit(Incremented).snapshotAndSwitch(c + 1 -> 'counting),
-    when(Decrement).guard(_ => c > 0, "Counter cannot be decremented").emit(Decremented).snapshotAndSwitch(c - 1 -> 'counting)
-  )
+
+  val counting: RegisteredFlowStateAux[Int] = ref('counter, c => handler(
+    when(Increment).emit(Incremented).switch(c + 1 -> counting),
+    when(Decrement).guard(_ => c > 0, "Counter cannot be decremented").emit(Decremented).switch(c - 1 -> counting)
+  ))
 
   val aggregateLogic: Flow[Unit] = handler(
-    when[Create].emit[Created].snapshotAndSwitch(evt => evt.start -> 'counting)
+    when[Create].emit[Created].switchByEvent(evt => evt.start -> counting)
   )
 
-  val snapshottableStates: FlowStates = Map(
-    'counting -> counting
-  )
+  val snapshottableStates: FlowStates = List(counting)
 }
 
 object CounterProjection extends Projection[TreeMap[AggregateId, Int]] {
