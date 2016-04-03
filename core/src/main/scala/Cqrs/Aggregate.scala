@@ -67,25 +67,23 @@ object Aggregate {
 
   def fail[E, A](x: Error): DatabaseWithAggregateFailure[E, A] = eventDatabaseWithFailureMonad[E].raiseError[A](x)
 
-  sealed trait CommandProduct[E] {
-    def events: List[E]
-  }
-  final case class JustEvents[E](events: List[E]) extends CommandProduct[E]
-  final case class EventsAndSnapshotGen[E, A: Database.Serializable](events: List[E], snapshotInfo: A) extends CommandProduct[E] {
-    def serializer = implicitly[Database.Serializable[A]]
-  }
+  type CommandHandlerResult[E] = ValidatedNel[Aggregate.Error, List[E]]
 
-  type CommandHandlerResult[E] = ValidatedNel[Aggregate.Error, CommandProduct[E]]
+  def emitEvent[E](ev: E): CommandHandlerResult[E] = Validated.valid(List(ev))
 
-  def emitEvent[E](ev: E): CommandHandlerResult[E] = Validated.valid(JustEvents(List(ev)))
-
-  def emitEvents[E](evs: List[E]): CommandHandlerResult[E] = Validated.valid(JustEvents(evs))
-
-  def emitEventsWithSnapshot[E, A: Database.Serializable](evs: List[E], s: A): CommandHandlerResult[E] = Validated.valid(EventsAndSnapshotGen(evs, s))
+  def emitEvents[E](evs: List[E]): CommandHandlerResult[E] = Validated.valid(evs)
 
   implicit val nelErrorSemigroup: Semigroup[NEL[Error]] = SemigroupK[NEL].algebra[Error]
 
   def failCommand[E, A](err: String): ValidatedNel[Aggregate.Error, A] = Validated.invalid(NEL(ErrorCommandFailure(err)))
+
+  sealed trait EventHandlerResult[+D] {
+    def aggregateData: D
+  }
+  final case class JustData[D](aggregateData: D) extends EventHandlerResult[D]
+  final case class DataAndSnapshot[D, A: Database.Serializable](aggregateData: D, snapshotInfo: A) extends EventHandlerResult[D] {
+    def serializer = implicitly[Database.Serializable[A]]
+  }
 
 }
 
@@ -103,7 +101,7 @@ trait AggregateBase {
   def tag: EventTagAux[Event]
 
   type CommandHandler = Command => AggregateData => CommandHandlerResult[Event]
-  type EventHandler = Event => AggregateData => AggregateData
+  type EventHandler = Event => AggregateData => EventHandlerResult[AggregateData]
 
   protected def eventHandler: EventHandler
 
@@ -179,30 +177,36 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
     recoveredState.flatMap(s => handleCommand(cmd).runS(s))
   }
 
-  private def handleCmd(cmd: C): AggregateDefinition[CommandProduct[E]] = liftAggregateReadState(vs =>
+  private def handleCmd(cmd: C): AggregateDefinition[List[E]] = liftAggregateReadState(vs =>
     XorT.fromXor[EventDatabaseWithFailure[E, ?]](
-      commandHandler(cmd)(vs.data).fold[Error Xor CommandProduct[E]](err => Xor.left(Errors(err)), Xor.right)
+      commandHandler(cmd)(vs.data).fold[Error Xor List[E]](err => Xor.left(Errors(err)), Xor.right)
     )
   )
 
-  private def onCommandSuccess(response: CommandProduct[E]): AggregateDefinition[Unit] =
+  private def onCommandSuccess(events: List[E]): AggregateDefinition[Unit] =
     for {
-      _ <- liftAggregateReadState( vs => dbAction(Database.appendEvents(tag, vs.id, vs.version, response.events)))
-      _ <- addEvents(response.events)
-      _ <- liftAggregateReadState( vs => response match {
-                                    case resp@EventsAndSnapshotGen(_, snapshot) =>
-                                      dbAction(Database.saveSnapshot(tag, vs.id, vs.version, snapshot)(resp.serializer))
-                                    case _ => pure(())
-                                  }
-      )
+      _ <- liftAggregateReadState( vs => dbAction(Database.appendEvents(tag, vs.id, vs.version, events)))
+      _ <- addEvents(events)
     } yield ()
 
   private def addEvents(evs: List[E]): AggregateDefinition[Unit] =
+    evs match {
+      case ev :: others => addEvent(ev).flatMap(_ => addEvents(others))
+      case Nil => liftAggregateReadState(_ => pure(()))
+    }
+
+  private def addEvent(ev: E): AggregateDefinition[Unit] =
     defineAggregate { vs =>
-      pure((vs.copy(
-        data = evs.foldLeft(vs.data)((d, e) => eventHandler(e)(d)),
-        version = vs.version + evs.length
-      ), ()))
+      val result = eventHandler(ev)(vs.data)
+      val newVersion = vs.version + 1
+      val newState = vs.copy(data = result.aggregateData, version = newVersion)
+
+      result match {
+        case resp@DataAndSnapshot(_, snapshot) =>
+          dbAction(Database.saveSnapshot(tag, vs.id, newVersion, snapshot)(resp.serializer)).
+            flatMap(_ => pure((newState, ())))
+        case _ => pure((newState, ()))
+      }
     }
 
   private def readAllEventsAndCatchUp: AggregateDefinition[Unit] =

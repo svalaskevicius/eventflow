@@ -1,6 +1,6 @@
 package Cqrs
 
-import Cqrs.Aggregate.{ErrorCannotFindHandler, ErrorCommandFailure, CommandHandlerResult}
+import Cqrs.Aggregate.{ErrorCannotFindHandler, ErrorCommandFailure, CommandHandlerResult, EventHandlerResult}
 import Cqrs.Database.EventSerialisation
 import cats._
 import cats.data.{NonEmptyList => NEL, _}
@@ -13,7 +13,7 @@ import scala.reflect.ClassTag
 
 class EventFlowImpl[Evt, Cmd] {
   type CommandH = PartialFunction[Cmd, CommandHandlerResult[Evt]]
-  type EventH[A] = PartialFunction[Evt, A]
+  type EventH[A] = PartialFunction[Evt, EventHandlerResult[A]]
 
   sealed trait FlowF[+Next]
 
@@ -51,10 +51,10 @@ class EventFlowImpl[Evt, Cmd] {
 
     def waitForAndSwitch[A](eh: EventH[Flow[A]]): Flow[A] = waitFor(eh).flatMap((cont: Flow[A]) => cont)
 
-    def runForever(): Flow[Unit] = waitFor(PartialFunction.empty[Evt, Unit])
+    def runForever(): Flow[Unit] = waitFor(PartialFunction.empty[Evt, Aggregate.JustData[Unit]])
   }
 
-  case class EventStreamConsumer(cmdh: CommandH, evh: Evt => Option[EventStreamConsumer])
+  case class EventStreamConsumer(cmdh: CommandH, evh: Evt => EventHandlerResult[Option[EventStreamConsumer]])
 
   type StateData = Option[EventStreamConsumer]
 
@@ -65,7 +65,13 @@ class EventFlowImpl[Evt, Cmd] {
         case EventHandler(evth, cont) =>
           lazy val self: EventStreamConsumer = EventStreamConsumer(
             initCmdH,
-            (ev: Evt) => evth.lift(ev) map (res => esRunnerCompiler(initCmdH, cont(res))) getOrElse Some(self)
+            (ev: Evt) => evth.lift(ev) map {res =>
+              val newData = esRunnerCompiler(initCmdH, cont(res.aggregateData))
+              res match {
+                case Aggregate.JustData(_) => Aggregate.JustData(newData)
+                case r@Aggregate.DataAndSnapshot(_, snapshot) => Aggregate.DataAndSnapshot(newData, snapshot)(r.serializer)
+              }
+            } getOrElse Aggregate.JustData(Some(self))
           )
           Some(self)
       }
@@ -215,7 +221,10 @@ trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd
 
   def aggregateLogic: Flow[Unit]
 
-  def eventHandler = e => d => d flatMap (_.evh(e))
+  def eventHandler = e => d => d match {
+    case Some(eFlow) => eFlow.evh(e)
+    case _ => Aggregate.JustData(None)
+  }
 
   def commandHandler = c => d => d.foldLeft(None: Option[CommandHandlerResult[Evt]])(
     (prev: Option[CommandHandlerResult[Evt]], consumer) => prev match {
@@ -321,25 +330,21 @@ trait DslV1 { self: AggregateBase with Snapshottable =>
           val errors = guards.flatMap(g => if (!g._1(c)) Some(ErrorCommandFailure(g._2)) else None)
           errors match {
             case err :: errs => Validated.invalid(NEL(err, errs))
-            case Nil => handler.andThen(onHandledCommand)(c)
+            case Nil => handler.andThen(Aggregate.emitEvents)(c)
           }
       }
 
-      def eventHandler = Function.unlift[Event, Flow[Unit]] {
-        case e: E if eventMatcher(e) => switchTo.map(_(e))
+      def eventHandler = Function.unlift[Event, EventHandlerResult[Flow[Unit]]] {
+        case e: E if eventMatcher(e) => switchTo.map { handler =>
+          val newData = handler(e)
+          snapshot.flatMap(_(e)) match {
+            case Some(snapshotData) => Aggregate.DataAndSnapshot[Flow[Unit], Snapshottable#FlowStateCall](newData, snapshotData)(FlowStateCall.snapshotSerializer)
+            case None => Aggregate.JustData(newData)
+          }
+        }
         case _ => None
       }
     }
-
-    private def onHandledCommand(evs: List[Event]) = snapshot.flatMap { snapshotHandler =>
-      println(s"handled command, got $evs")
-      evs.
-        collectFirst(Function.unlift({ case ev: E => snapshotHandler(ev) })).
-        map { dataToSnapshotSymbol =>
-          println(s"event found flh: $dataToSnapshotSymbol")
-          Aggregate.emitEventsWithSnapshot[Event, Snapshottable#FlowStateCall](evs, dataToSnapshotSymbol)(FlowStateCall.snapshotSerializer)
-        }
-    }.getOrElse(Aggregate.emitEvents[Event](evs))
   }
 
   def anyOther = new AllowFailingMessageStatement[Command] {
