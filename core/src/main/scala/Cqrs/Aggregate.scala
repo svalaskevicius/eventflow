@@ -145,8 +145,9 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
 
     val result = for {
       _ <- readAllEventsAndCatchUp
-      resultEvents <- handleCmd(cmd)
-      _ <- onCommandSuccess(resultEvents)
+      events <- handleCmd(cmd)
+      _ <- liftAggregateReadState( vs => dbAction(Database.appendEvents(tag, vs.id, vs.version, events)))
+      _ <- addEvents(events)
     } yield ()
 
     defineAggregate { s =>
@@ -183,34 +184,33 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
     )
   )
 
-  private def onCommandSuccess(events: List[E]): AggregateDefinition[Unit] =
-    for {
-      _ <- liftAggregateReadState( vs => dbAction(Database.appendEvents(tag, vs.id, vs.version, events)))
-      _ <- addEvents(events)
-    } yield ()
-
-  private def addEvents(evs: List[E]): AggregateDefinition[Unit] =
+  private def addEvents(evs: List[E], snapshotCmd: Option[Database.SaveSnapshot[E, _]] = None): AggregateDefinition[Unit] =
     evs match {
-      case ev :: others => addEvent(ev).flatMap(_ => addEvents(others))
-      case Nil => liftAggregateReadState(_ => pure(()))
+      case ev :: others => addEvent(ev).flatMap(cmd => addEvents(others, cmd))
+      case Nil => snapshotCmd match {
+        case Some(cmd) => liftAggregate(dbAction(Database.lift(cmd)))
+        case None => liftAggregate(pure(()))
+      }
     }
 
-  private def addEvent(ev: E): AggregateDefinition[Unit] =
+  private def addEvent(ev: E): AggregateDefinition[Option[Database.SaveSnapshot[E, _]]] =
     defineAggregate { vs =>
+      println(s"adding event: $ev")
       val result = eventHandler(ev)(vs.data)
       val newVersion = vs.version + 1
       val newState = vs.copy(data = result.aggregateData, version = newVersion)
 
       result match {
         case resp@DataAndSnapshot(_, snapshot) =>
-          dbAction(Database.saveSnapshot(tag, vs.id, newVersion, snapshot)(resp.serializer)).
-            flatMap(_ => pure((newState, ())))
-        case _ => pure((newState, ()))
+          val cmd = Database.SaveSnapshot(tag, vs.id, newVersion, snapshot)(resp.serializer)
+          pure((newState, Some(cmd)))
+        case _ => pure((newState, None))
       }
     }
 
   private def readAllEventsAndCatchUp: AggregateDefinition[Unit] =
     liftAggregateReadState(vs => dbAction(Database.readNewEvents[E](tag, vs.id, vs.version))).flatMap { response =>
+      println(s"catching up with events: $response")
       addEvents(response.events).flatMap { _ =>
         if (!response.endOfStream) readAllEventsAndCatchUp
         else liftAggregate(pure(()))
