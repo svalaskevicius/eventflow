@@ -84,17 +84,13 @@ object EventStore {
         events.map(ev => eventstore.EventData.Json(ev.getClass.toString, data = tag.eventSerialiser.encode(ev))),
         ExpectedVersion(expectedVersion)
       )
-      //TODO: this looks to be unused - returns unit
-      val convertedToGlobalPosition = response.map { resp =>
-        Xor.right(resp.position.map(_.commitPosition))
-      }
 
-      val dbErrorsHandled = convertedToGlobalPosition.recover {
+      val dbErrorsHandled = response.map(_ => Xor.right(())).recover {
         case err: WrongExpectedVersionException => Xor.left(ErrorUnexpectedVersion(id, err.getMessage))
         case err: EsException                   => Xor.left(ErrorDbFailure(err.getMessage))
       }
 
-      dbErrorsHandled.map(_.map { _ => () })
+      dbErrorsHandled
     }
 
     case class StoredSnapshot[A](version: Int, data: A)
