@@ -4,6 +4,11 @@ import Cqrs.Aggregate._
 import Cqrs._
 import Domain.Store._
 
+import java.time.LocalDateTime
+import java.time.ZoneOffset.UTC
+import java.time.temporal.ChronoUnit
+import java.time.temporal.ChronoUnit.{DAYS, MONTHS}
+
 import scala.collection.immutable.TreeMap
 
 object Store {
@@ -44,8 +49,14 @@ object Store {
 
   sealed trait Command
   final case class RequestRefund(id: AggregateId, timestamp: Timestamp, receipt: Receipt, refundType: RefundType, productState: ProductState) extends Command {
-    def isNotExpiredForCash = (timestamp < receipt.timestamp + 2592000) || (refundType == StoreCredit)
-    def isNotExpired = (timestamp < receipt.timestamp + 31104000)
+    def isNotExpiredForCash = isBefore(timestamp, receipt.timestamp, 30, DAYS) || (refundType == StoreCredit)
+    def isNotExpired = isBefore(timestamp, receipt.timestamp, 12, MONTHS)
+  }
+
+  private def isBefore(timestamp: Timestamp, base: Timestamp, delta: Long, unit: ChronoUnit) = {
+    val time = LocalDateTime.ofEpochSecond(timestamp, 0, UTC)
+    val b = LocalDateTime.ofEpochSecond(base, 0, UTC).plus(delta, unit)
+    time.isBefore(b)
   }
 }
 
