@@ -134,7 +134,6 @@ trait Snapshottable extends AggregateBase {
   object FlowStateCall {
 
     lazy val snapshotSerializer: Database.Serializable[Snapshottable#FlowStateCall] = {
-      println("creating serializer!! ")
       new Database.Serializable[Snapshottable#FlowStateCall] {
         val serializer = new SerializerWriter {
           val write0 = (a: Snapshottable#FlowStateCall) => {
@@ -152,13 +151,9 @@ trait Snapshottable extends AggregateBase {
         val unserializer = new SerializerReader {
           val read0: PartialFunction[Serialized, Snapshottable#FlowStateCall] =
             Function.unlift { json =>
-              println(s"reading $json ef")
               val symbol = symbolReader.read(json)
-              println(s"read symbol $symbol")
               snapshottableStatesMap.get(symbol).map { flowState =>
-                println(s"reading flow state: $flowState")
                 val readArg = argReader(flowState.r).read(json) //TODO: Try
-                println(s"read arg: $readArg")
                 new FlowStateCall {
                   type StateParam = flowState.StateParam
                   val state = symbol

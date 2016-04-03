@@ -59,7 +59,6 @@ object EventStore {
       actions.value.foldMap(transformDbOpToDbState)
 
     private def readFromDb[E](tag: EventTagAux[E], id: AggregateId, fromVersion: Int): Future[Error Xor ReadAggregateEventsResponse[E]] = {
-      println(s"===> reading events $id")
 
       def decode(d: String) = tag.eventSerialiser.decode(d)
       def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
@@ -81,7 +80,6 @@ object EventStore {
     }
 
     private def addToDb[E](tag: EventTagAux[E], id: AggregateId, expectedVersion: Int, events: List[E]): Future[Error Xor Unit] = {
-      println(s"===> saving events $id")
       val response = connection future WriteEvents(
         esStreamId(tag, id),
         events.map(ev => eventstore.EventData.Json(ev.getClass.toString, data = tag.eventSerialiser.encode(ev))),
@@ -115,15 +113,10 @@ object EventStore {
         val unserializer = new SerializerReader {
           val read0: PartialFunction[Serialized, StoredSnapshot[A]] =
             Function.unlift {
-              case obj: upickle.Js.Obj => // scala.util.Try {
-                println(s"xx: $obj")
+              case obj: upickle.Js.Obj =>
                 val v = upickle.default.IntRW.read0(obj("version"))
-                println(s"xx: $v")
-                println(s"xx: ${obj("data")}")
                 val d = sa.unserializer.read0(obj("data"))
-                println(s"xx: $d")
-   Some(             StoredSnapshot(v, d))
- //             }.toOption
+                Some(StoredSnapshot(v, d))
               case _ => None
             }
         }
@@ -131,7 +124,6 @@ object EventStore {
     }
 
     private def readDbSnapshot[E, S: Serializable](tag: EventTagAux[E], id: AggregateId): Future[Error Xor ReadSnapshotResponse[S]] = {
-      println(s"===> reading snapshot $id")
       val response = connection future ReadEvent.StreamMetadata(esMetaStreamId(tag, id))
       val decodedResponse = response.map[Error Xor ReadSnapshotResponse[S]] { resp =>
 
@@ -146,15 +138,10 @@ object EventStore {
         case err: EsException => Xor.left(ErrorDbFailure(err.getMessage))
       }
 
-      val r = dbErrorsHandled
-      r.map{x =>
-        println(s"===> read info: $x")
-        x
-      }
+      dbErrorsHandled
     }
 
     private def saveDbSnapshot[E, S: Serializable](tag: EventTagAux[E], id: AggregateId, version: Int, snapshot: S): Future[Error Xor Unit] = {
-      println(s"===> saving snapshot $id")
       val snapshotToStore = StoredSnapshot(version, snapshot)
       val serialisedData = {
         val serializer = implicitly[Serializable[StoredSnapshot[S]]]

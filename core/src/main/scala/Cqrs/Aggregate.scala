@@ -135,9 +135,6 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
 
   implicit protected def snapshotSerializer: Database.Serializable[S] // = implicitly[Database.Serializable[S]]
 
-  println(s"===>xxxaa ${implicitly[Database.Serializable[S]]}")
-  println(s"===>xxxab ${snapshotSerializer}")
-
   protected def createTag(id: String)(implicit eventSerialisation: EventSerialisation[E]) = Aggregate.createTag[E](id)
 
 
@@ -163,16 +160,12 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
     val snapshot = dbAction(Database.readSnapshot[E, S](tag, id))
     val state = snapshot.map[AggregateState]{ resp =>
       convertSnapshotToData(resp.data).map { data =>
-        val ret = VersionedAggregateData(id, data, resp.version)
-        println(s"Successfully restored aggregate from snapshot: $ret")
-        ret
+        VersionedAggregateData(id, data, resp.version)
       }.getOrElse(newState(id))
     }
     val recoveredState = new DatabaseWithAggregateFailure(
       state.value.recoverWith {
-        case _ =>
-          println(s"recovered from no snapshot, new agg data for $state")
-          eventDatabaseWithFailureMonad.pure(newState(id)).value
+        case _ => eventDatabaseWithFailureMonad.pure(newState(id)).value
       }
     )
     recoveredState.flatMap(s => handleCommand(cmd).runS(s))
@@ -195,7 +188,6 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
 
   private def addEvent(ev: E): AggregateDefinition[Option[Database.SaveSnapshot[E, _]]] =
     defineAggregate { vs =>
-      println(s"adding event: $ev")
       val result = eventHandler(ev)(vs.data)
       val newVersion = vs.version + 1
       val newState = vs.copy(data = result.aggregateData, version = newVersion)
@@ -210,7 +202,6 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
 
   private def readAllEventsAndCatchUp: AggregateDefinition[Unit] =
     liftAggregateReadState(vs => dbAction(Database.readNewEvents[E](tag, vs.id, vs.version))).flatMap { response =>
-      println(s"catching up with events: $response")
       addEvents(response.events).flatMap { _ =>
         if (!response.endOfStream) readAllEventsAndCatchUp
         else liftAggregate(pure(()))

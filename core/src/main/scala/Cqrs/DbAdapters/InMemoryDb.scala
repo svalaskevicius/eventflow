@@ -84,7 +84,6 @@ object InMemoryDb {
     database.snapshots.get(tag.name).flatMap(_.get(id)).fold[Error Xor ReadSnapshotResponse[S]](
       Xor.left(ErrorDbFailure(s"No snapshot for ${tag.name} :: $id"))
     ){ snapshot =>
-      println(s"===> reading snapshot: $snapshot with ${implicitly[Serializable[S]]}")
       val data = implicitly[Serializable[S]].fromString(snapshot.data)
       data.fold[Error Xor ReadSnapshotResponse[S]](
         Xor.left(ErrorDbFailure(s"Cannot unserialise snapshot data for ${tag.name} :: $id"))
@@ -119,7 +118,6 @@ object InMemoryDb {
           (database, d)
         }
         case ssReq@SaveSnapshot(tag, id, version, data) => State { database =>
-          println(s"==> saving snapshot: $id - ${ssReq.serializer.toString(data)}")
           val d = saveDbSnapshot(database, tag, id, version, data)(ssReq.serializer)
           setterAsResult(d, database)
         }
