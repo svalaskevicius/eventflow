@@ -1,14 +1,9 @@
-//import Cqrs.Aggregate._
 import Cqrs.Aggregate.{ ErrorCommandFailure, Errors }
 import Domain.Store._
 import Domain.StoreAggregate
 import cats.data.{ NonEmptyList => NEL }
 
-//import Domain.CounterProjection.{ Data => CounterProjectionData, emptyCounterProjection }
-//import cats.data.{NonEmptyList => NEL}
 import org.scalatest._
-
-//import scala.collection.immutable.TreeMap
 
 class ReturnsSpec extends FlatSpec with Matchers with AggregateSpec {
 
@@ -108,8 +103,8 @@ class ReturnsSpec extends FlatSpec with Matchers with AggregateSpec {
       _.command(StoreAggregate, "Oliver's goods", RequestRefund("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), CashRefund, Damaged))
     } thenCheck {
       _.newEvents[Event](StoreAggregate.tag, "Oliver's goods") should be(List(
-                                                                           CustomerRefunded("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), CashRefund)
-                                                                         ))
+        CustomerRefunded("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), CashRefund)
+      ))
     }
   }
 }

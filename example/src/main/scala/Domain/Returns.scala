@@ -45,7 +45,7 @@ object Store {
   sealed trait Command
   final case class RequestRefund(id: AggregateId, timestamp: Timestamp, receipt: Receipt, refundType: RefundType, productState: ProductState) extends Command {
     def isNotExpiredForCash = (timestamp < receipt.timestamp + 2592000) || (refundType == StoreCredit)
-    def isNotExpired= (timestamp < receipt.timestamp + 31104000)
+    def isNotExpired = (timestamp < receipt.timestamp + 31104000)
   }
 }
 
@@ -58,7 +58,7 @@ object StoreAggregate extends EventFlow[Event, Command] {
       guard(cmd => storeInfo.knownReceipts.contains(cmd.receipt.sequenceNumber), "Unkown receipt number.").
       emitEvents { cmd =>
         val stockEvents = cmd.productState match {
-          case Damaged => Nil
+          case Damaged    => Nil
           case Resellable => List(ItemRestocked(cmd.id, cmd.timestamp, cmd.receipt.product, cmd.receipt.quantity))
         }
         stockEvents ++ List(CustomerRefunded(cmd.id, cmd.timestamp, cmd.receipt, cmd.refundType))
