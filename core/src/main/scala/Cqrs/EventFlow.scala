@@ -114,8 +114,6 @@ trait Snapshottable extends AggregateBase {
       val state = flowState
       val name = stateName
     }
-
- //   implicit def registerFlow(flow: Flow[Unit]): RegisteredFlowState = registerFlowState[Unit]((_:Unit) => flow)
   }
 
   type FlowStates = List[RegisteredFlowState]
@@ -150,32 +148,16 @@ trait Snapshottable extends AggregateBase {
             }
           }
         }
+
         val unserializer = new SerializerReader {
           val read0: PartialFunction[Serialized, Snapshottable#FlowStateCall] =
             Function.unlift { json =>
               println(s"reading $json ef")
-              val symbolReader = new upickle.default.Reader[Symbol] {
-                val read0: PartialFunction[upickle.Js.Value, Symbol] =
-                  Function.unlift {
-                    case obj: upickle.Js.Obj => Some(upickle.default.SymbolRW.read0(obj("state")))
-                    case _ => None
-                  }
-              }
               val symbol = symbolReader.read(json)
               println(s"read symbol $symbol")
               snapshottableStatesMap.get(symbol).map { flowState =>
                 println(s"reading flow state: $flowState")
-                val argReader = new upickle.default.Reader[flowState.StateParam] {
-                  val read0: PartialFunction[upickle.Js.Value, flowState.StateParam] =
-                    Function.unlift {
-                      case obj: upickle.Js.Obj => obj.value.toList.collectFirst(Function.unlift {
-                                                                                  case (name, value) if name.equals("arg") => flowState.r.read.lift(value)
-                                                                                  case _ => None
-                                                                                })
-                      case _ => None
-                    }
-                }
-                val readArg = argReader.read(json) //TODO: Try
+                val readArg = argReader(flowState.r).read(json) //TODO: Try
                 println(s"read arg: $readArg")
                 new FlowStateCall {
                   type StateParam = flowState.StateParam
@@ -184,6 +166,25 @@ trait Snapshottable extends AggregateBase {
                 }
               }
             }
+
+          private val symbolReader = new upickle.default.Reader[Symbol] {
+            val read0: PartialFunction[upickle.Js.Value, Symbol] =
+              Function.unlift {
+                case obj: upickle.Js.Obj => Some(upickle.default.SymbolRW.read0(obj("state")))
+                case _ => None
+              }
+          }
+
+          private def argReader[T](reader: upickle.default.Reader[T]) = new upickle.default.Reader[T] {
+            val read0: PartialFunction[upickle.Js.Value, T] =
+              Function.unlift {
+                case obj: upickle.Js.Obj => obj.value.toList.collectFirst(Function.unlift {
+                                                                            case (name, value) if name.equals("arg") => reader.read.lift(value)
+                                                                            case _ => None
+                                                                          })
+                case _ => None
+              }
+          }
         }
       }
     }
