@@ -53,6 +53,8 @@ object DoorAggregate extends EventFlow[Event, Command] {
   private def lockedDoorsAlternativeExamples(key: String): Flow[Unit] = handler(
     when(Unlock(key)).emitEvent(cmd => Unlocked(cmd.key)).switch(closedDoors), // alternative to `when(Unlock(key)).emit[Unlocked]`
     on(Unlocked(key)).switch(closedDoors), // alternative to `emit[Unlocked].switch(closedDoors)`
+    on(Unlocked(key)).switchByEvent(evt => closedDoors), // alternative to above
+    on[Unlocked].switchByEvent(evt => closedDoors), // alternative to above
     on[Unlocked].switch(closedDoors), // alternative to above
     when[Unlock].failWithMessage("Attempted unlock key is invalid"),
     anyOther.failWithMessage("Locked door can only be unlocked.")
