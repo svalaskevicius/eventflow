@@ -186,7 +186,7 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
 
   private def addEvents(evs: List[E], snapshotCmd: Option[Database.SaveSnapshot[E, _]] = None): AggregateDefinition[Unit] =
     evs match {
-      case ev :: others => addEvent(ev).flatMap(cmd => addEvents(others, cmd))
+      case ev :: others => addEvent(ev).flatMap(cmd => addEvents(others, cmd.orElse(snapshotCmd)))
       case Nil => snapshotCmd match {
         case Some(cmd) => liftAggregate(dbAction(Database.lift(cmd)))
         case None => liftAggregate(pure(()))
