@@ -16,45 +16,48 @@ class ReturnsSpec extends FlatSpec with Matchers with AggregateSpec {
     given {
       newDb.withEvent(StoreAggregate.tag, "Oliver's goods", ItemBought("storeid", Receipt("200421445", "microwave", 1, 100, 123)))
     } when {
-      _.command(StoreAggregate, "Oliver's goods", RequestRefund("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), CashRefund))
+      _.command(StoreAggregate, "Oliver's goods", RequestRefund("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), CashRefund, Resellable))
     } thenCheck {
       _.newEvents[Event](StoreAggregate.tag, "Oliver's goods") should be(List(
+        ItemRestocked("Oliver's goods", 200, "microwave", 1),
         CustomerRefunded("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), CashRefund)
       ))
     }
   }
 
-  "Refunding a bought product in less than 30 days" should "allow choosing to refund to store account" in {
+  it should "allow choosing to refund to store account" in {
     given {
       newDb.withEvent(StoreAggregate.tag, "Oliver's goods", ItemBought("storeid", Receipt("200421445", "microwave", 1, 100, 123)))
     } when {
-      _.command(StoreAggregate, "Oliver's goods", RequestRefund("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), StoreCredit))
+      _.command(StoreAggregate, "Oliver's goods", RequestRefund("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), StoreCredit, Resellable))
     } thenCheck {
       _.newEvents[Event](StoreAggregate.tag, "Oliver's goods") should be(List(
+        ItemRestocked("Oliver's goods", 200, "microwave", 1),
         CustomerRefunded("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), StoreCredit)
       ))
     }
   } // no saga support yet to model customer's account
 
-  "Refunding a bought product in more than 30 days" should "fail" in {
+  "Refunding a bought product in more than 30 days" should "fail for cash refund" in {
     given {
       newDb.withEvent(StoreAggregate.tag, "Oliver's goods", ItemBought("storeid", Receipt("200421445", "microwave", 1, 100, 123)))
     } check {
       _.failedCommandError(
         StoreAggregate,
         "Oliver's goods",
-        RequestRefund("Oliver's goods", 200 + 2592000, Receipt("200421445", "microwave", 1, 100, 123), CashRefund)
+        RequestRefund("Oliver's goods", 200 + 2592000, Receipt("200421445", "microwave", 1, 100, 123), CashRefund, Resellable)
       ) should be(Errors(NEL(ErrorCommandFailure("The receipt has expired for cash refunds."))))
     }
   }
 
-  "Refunding a bought product in more than 30 days" should "allow choosing to refund to store account" in {
+  it should "allow choosing to refund to store account" in {
     given {
       newDb.withEvent(StoreAggregate.tag, "Oliver's goods", ItemBought("storeid", Receipt("200421445", "microwave", 1, 100, 123)))
     } when {
-      _.command(StoreAggregate, "Oliver's goods", RequestRefund("Oliver's goods", 200 + 2592000, Receipt("200421445", "microwave", 1, 100, 123), StoreCredit))
+      _.command(StoreAggregate, "Oliver's goods", RequestRefund("Oliver's goods", 200 + 2592000, Receipt("200421445", "microwave", 1, 100, 123), StoreCredit, Resellable))
     } thenCheck {
       _.newEvents[Event](StoreAggregate.tag, "Oliver's goods") should be(List(
+        ItemRestocked("Oliver's goods", 200 + 2592000, "microwave", 1),
         CustomerRefunded("Oliver's goods", 200 + 2592000, Receipt("200421445", "microwave", 1, 100, 123), StoreCredit)
       ))
     }
@@ -67,37 +70,46 @@ class ReturnsSpec extends FlatSpec with Matchers with AggregateSpec {
       _.failedCommandError(
         StoreAggregate,
         "Oliver's goods",
-        RequestRefund("Oliver's goods", 200, Receipt("12421425", "microwave", 1, 100, 123), CashRefund)
+        RequestRefund("Oliver's goods", 200, Receipt("12421425", "microwave", 1, 100, 123), CashRefund, Resellable)
       ) should be(Errors(NEL(ErrorCommandFailure("Unkown receipt number."))))
     }
   }
-  /**
-   *
-   * Scenario: Customer cannot return a product with the wrong receipt
-   * When I try to return the microwave
-   * And I provide receipt with sequence number 12421425
-   * Then my return should be refused
-   * And the microwave should not be taken back into stock
-   *
-   * Scenario: Customer cannot return a product that is already returned
-   * Given I returned the microwave on 10th January with receipt 200421445
-   * When I try to return the microwave on 20th January
-   * And I provide receipt with sequence number 200421445
-   * Then my return should be refused
-   * And the microwave should not be taken back into stock
-   *
-   * Scenario: Customer cannot return a product more than 12 months after purchase
-   * When I return the microwave on 3rd January next year
-   * And I provide receipt with sequence number 200421445
-   * And I ask for a store credit refund
-   * Then my return should be refused
-   * And the microwave should not be taken back into stock
-   *
-   * Scenario: Customer returns a damaged item and it is not returned to stock
-   * When I return the microwave on 20th January
-   * And I provide receipt with sequence number 200421445
-   * And I ask for a cash refund
-   * Then I should be credited with £100
-   * But the microwave should be taken back into stock
-   */
+
+  "Refunding a bought product with the same receipt twice" should "fail" in {
+    given {
+      newDb.
+        withEvent(StoreAggregate.tag, "Oliver's goods", ItemBought("Oliver's goods", Receipt("200421445", "microwave", 1, 100, 123))).
+        withEvent(StoreAggregate.tag, "Oliver's goods", CustomerRefunded("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), CashRefund))
+    } check {
+      _.failedCommandError(
+        StoreAggregate,
+        "Oliver's goods",
+        RequestRefund("Oliver's goods", 300, Receipt("200421445", "microwave", 1, 100, 123), CashRefund, Resellable)
+      ) should be(Errors(NEL(ErrorCommandFailure("Unkown receipt number."))))
+    }
+  }
+
+  "Refunding a bought product in more than 12 months" should "fail for store credit refund" in {
+    given {
+      newDb.withEvent(StoreAggregate.tag, "Oliver's goods", ItemBought("storeid", Receipt("200421445", "microwave", 1, 100, 123)))
+    } check {
+      _.failedCommandError(
+        StoreAggregate,
+        "Oliver's goods",
+        RequestRefund("Oliver's goods", 200 + 31104000, Receipt("200421445", "microwave", 1, 100, 123), StoreCredit, Resellable)
+      ) should be(Errors(NEL(ErrorCommandFailure("The receipt has expired for refunds."))))
+    }
+  }
+
+  "Refunding a damaged product" should "credit the product's price back" in {
+    given {
+      newDb.withEvent(StoreAggregate.tag, "Oliver's goods", ItemBought("storeid", Receipt("200421445", "microwave", 1, 100, 123)))
+    } when {
+      _.command(StoreAggregate, "Oliver's goods", RequestRefund("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), CashRefund, Damaged))
+    } thenCheck {
+      _.newEvents[Event](StoreAggregate.tag, "Oliver's goods") should be(List(
+                                                                           CustomerRefunded("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), CashRefund)
+                                                                         ))
+    }
+  }
 }
