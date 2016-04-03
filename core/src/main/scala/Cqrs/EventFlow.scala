@@ -1,15 +1,14 @@
 package Cqrs
 
-import Cqrs.Aggregate.{ErrorCannotFindHandler, ErrorCommandFailure, CommandHandlerResult, EventHandlerResult}
+import Cqrs.Aggregate.{ ErrorCannotFindHandler, ErrorCommandFailure, CommandHandlerResult, EventHandlerResult }
 import Cqrs.Database.EventSerialisation
 import cats._
-import cats.data.{NonEmptyList => NEL, _}
+import cats.data.{ NonEmptyList => NEL, _ }
 import cats.free.Free
 import cats.free.Free.liftF
 import lib.CaseClassTransformer
 
 import scala.reflect.ClassTag
-
 
 class EventFlowImpl[Evt, Cmd] {
   type CommandH = PartialFunction[Cmd, CommandHandlerResult[Evt]]
@@ -24,24 +23,24 @@ class EventFlowImpl[Evt, Cmd] {
   implicit object FlowFunctor extends Functor[FlowF] {
     def map[A, B](fa: FlowF[A])(f: A => B): FlowF[B] = fa match {
       case ch: SetCommandHandler[A] => SetCommandHandler[B](ch.cmdh, f(ch.next))
-      case eh: EventHandler[A, t] => EventHandler[B, t](eh.evth, f compose eh.whenHandled)
+      case eh: EventHandler[A, t]   => EventHandler[B, t](eh.evth, f compose eh.whenHandled)
     }
   }
 
   type Flow[A] = Free[FlowF, A]
 
   /**
-    * Promotes a command to a event. The input types need to be isomoprhic. In other words
-    * have the same fields + types
-    *
-    * @tparam C The command type, should be isomorphic to the event type
-    * @tparam E The event type, should be isomorphic to the command type
-    * @return A CommandH, which takes a Cmd and either returns a error or a list of events (just one in this case)
-    */
-  def promoteCommandToEvents[C <: Cmd : ClassTag, E <: Evt](implicit cct: CaseClassTransformer[C, E]): PartialFunction[Cmd, List[E]] =
+   * Promotes a command to a event. The input types need to be isomoprhic. In other words
+   * have the same fields + types
+   *
+   * @tparam C The command type, should be isomorphic to the event type
+   * @tparam E The event type, should be isomorphic to the command type
+   * @return A CommandH, which takes a Cmd and either returns a error or a list of events (just one in this case)
+   */
+  def promoteCommandToEvents[C <: Cmd: ClassTag, E <: Evt](implicit cct: CaseClassTransformer[C, E]): PartialFunction[Cmd, List[E]] =
     Function.unlift {
       case c: C => Some(cct.transform(c)).map(List(_))
-      case _ => None
+      case _    => None
     }
 
   object DslBase {
@@ -65,11 +64,11 @@ class EventFlowImpl[Evt, Cmd] {
         case EventHandler(evth, cont) =>
           lazy val self: EventStreamConsumer = EventStreamConsumer(
             initCmdH,
-            (ev: Evt) => evth.lift(ev) map {res =>
+            (ev: Evt) => evth.lift(ev) map { res =>
               val newData = esRunnerCompiler(initCmdH, cont(res.aggregateData))
               res match {
-                case Aggregate.JustData(_) => Aggregate.JustData(newData)
-                case r@Aggregate.DataAndSnapshot(_, snapshot) => Aggregate.DataAndSnapshot(newData, snapshot)(r.serializer)
+                case Aggregate.JustData(_)                      => Aggregate.JustData(newData)
+                case r @ Aggregate.DataAndSnapshot(_, snapshot) => Aggregate.DataAndSnapshot(newData, snapshot)(r.serializer)
               }
             } getOrElse Aggregate.JustData(Some(self))
           )
@@ -122,8 +121,7 @@ trait Snapshottable extends AggregateBase {
 
   lazy val snapshottableStatesMap = snapshottableStates.map(x => x.name -> x).toMap
 
-
-  sealed trait FlowStateCall{
+  sealed trait FlowStateCall {
     type StateParam
     def state: Symbol
     def arg: StateParam
@@ -166,7 +164,7 @@ trait Snapshottable extends AggregateBase {
             val read0: PartialFunction[upickle.Js.Value, Symbol] =
               Function.unlift {
                 case obj: upickle.Js.Obj => Some(upickle.default.SymbolRW.read0(obj("state")))
-                case _ => None
+                case _                   => None
               }
           }
 
@@ -174,9 +172,9 @@ trait Snapshottable extends AggregateBase {
             val read0: PartialFunction[upickle.Js.Value, T] =
               Function.unlift {
                 case obj: upickle.Js.Obj => obj.value.toList.collectFirst(Function.unlift {
-                                                                            case (name, value) if name.equals("arg") => reader.read.lift(value)
-                                                                            case _ => None
-                                                                          })
+                  case (name, value) if name.equals("arg") => reader.read.lift(value)
+                  case _                                   => None
+                })
                 case _ => None
               }
           }
@@ -185,7 +183,6 @@ trait Snapshottable extends AggregateBase {
     }
   }
 
-
   def compileSnapshot(s: FlowStateCall): Option[eventFlowImpl.StateData] =
     toFlow(s).map(flow => eventFlowImpl.esRunnerCompiler(PartialFunction.empty, flow))
 
@@ -193,7 +190,7 @@ trait Snapshottable extends AggregateBase {
     snapshottableStatesMap.get(s.state).flatMap { flowState =>
       s.arg match {
         case flowState.classTag(arg) => Some(flowState.state(arg))
-        case _ => None
+        case _                       => None
       }
     }
 
@@ -209,7 +206,7 @@ trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd
     val ct = implicitly[ClassTag[FlowStateCall]]
     s match {
       case ct(sarg) => compileSnapshot(sarg)
-      case _ => None
+      case _        => None
     }
   }
 
@@ -219,18 +216,18 @@ trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd
 
   def eventHandler = e => d => d match {
     case Some(eFlow) => eFlow.evh(e)
-    case _ => Aggregate.JustData(None)
+    case _           => Aggregate.JustData(None)
   }
 
   def commandHandler = c => d => d.foldLeft(None: Option[CommandHandlerResult[Evt]])(
     (prev: Option[CommandHandlerResult[Evt]], consumer) => prev match {
       case Some(_) => prev
-      case None => consumer.cmdh.lift(c)
+      case None    => consumer.cmdh.lift(c)
     }
   ).
     getOrElse {
-    Validated.invalid(NEL(ErrorCannotFindHandler(c.toString)))
-  }
+      Validated.invalid(NEL(ErrorCannotFindHandler(c.toString)))
+    }
 
   def initData = eventFlowImpl.esRunnerCompiler(PartialFunction.empty, aggregateLogic)
 }
@@ -239,7 +236,7 @@ trait DslV1 { self: AggregateBase with Snapshottable =>
 
   val eventFlowImpl: EventFlowImpl[Event, Command]
 
-  import eventFlowImpl.{Flow, CommandH, EventH}
+  import eventFlowImpl.{ Flow, CommandH, EventH }
 
   trait CompilableDsl {
     def commandHandler: CommandH
@@ -254,18 +251,18 @@ trait DslV1 { self: AggregateBase with Snapshottable =>
   type Guard[C <: Command] = (C => Boolean, String)
 
   object when {
-    def apply[C <: Command : ClassTag] = WhenStatement[C](_ => true, List.empty)
+    def apply[C <: Command: ClassTag] = WhenStatement[C](_ => true, List.empty)
 
-    def apply[C <: Command : ClassTag](c: C) = WhenStatement[C](_ == c, List.empty)
+    def apply[C <: Command: ClassTag](c: C) = WhenStatement[C](_ == c, List.empty)
   }
 
   object on {
-    def apply[E <: Event : ClassTag](implicit ct: ClassTag[Command]) = ThenStatement[Command, E](PartialFunction.empty, _ => false, List.empty, _ => true)
+    def apply[E <: Event: ClassTag](implicit ct: ClassTag[Command]) = ThenStatement[Command, E](PartialFunction.empty, _ => false, List.empty, _ => true)
 
-    def apply[E <: Event : ClassTag](e: E)(implicit ct: ClassTag[Command]) = ThenStatement[Command, E](PartialFunction.empty, _ => false, List.empty, _ == e)
+    def apply[E <: Event: ClassTag](e: E)(implicit ct: ClassTag[Command]) = ThenStatement[Command, E](PartialFunction.empty, _ => false, List.empty, _ == e)
   }
 
-  case class WhenStatement[C <: Command : ClassTag](commandMatcher: C => Boolean, guards: List[Guard[C]]) extends AllowFailingMessageStatement[C] {
+  case class WhenStatement[C <: Command: ClassTag](commandMatcher: C => Boolean, guards: List[Guard[C]]) extends AllowFailingMessageStatement[C] {
     def emit[E <: Event](implicit cct: CaseClassTransformer[C, E], et: ClassTag[E]) =
       ThenStatement[C, E](eventFlowImpl.promoteCommandToEvents[C, E], commandMatcher, guards, _ => true)
 
@@ -283,7 +280,7 @@ trait DslV1 { self: AggregateBase with Snapshottable =>
     private def handleWithSpecificCommandHandler[E <: Event](cmdHandler: C => List[E]) =
       Function.unlift[C, List[E]] {
         case c: C => Some(cmdHandler(c))
-        case _ => None
+        case _    => None
       }
   }
 
@@ -308,25 +305,24 @@ trait DslV1 { self: AggregateBase with Snapshottable =>
     }
   }
 
-  case class ThenStatement[C <: Command : ClassTag, E <: Event : ClassTag](handler: PartialFunction[C, List[E]], commandMatcher: C => Boolean, guards: List[Guard[C]], eventMatcher: E => Boolean) extends CompilableDslProvider {
+  case class ThenStatement[C <: Command: ClassTag, E <: Event: ClassTag](handler: PartialFunction[C, List[E]], commandMatcher: C => Boolean, guards: List[Guard[C]], eventMatcher: E => Boolean) extends CompilableDslProvider {
 
-    def switchByEvent[T: ClassTag](where: E => T)(implicit sct: SwitchCallTarget[T]): SwitchToStatement[C, E] =  SwitchToStatement[C, E](handler, commandMatcher, guards, Some((e: E) => sct.flow(where(e))), Some((e: E) => sct.flowCall(where(e))), eventMatcher)
+    def switchByEvent[T: ClassTag](where: E => T)(implicit sct: SwitchCallTarget[T]): SwitchToStatement[C, E] = SwitchToStatement[C, E](handler, commandMatcher, guards, Some((e: E) => sct.flow(where(e))), Some((e: E) => sct.flowCall(where(e))), eventMatcher)
 
-    def switch[T: ClassTag](where: => T)(implicit sct: SwitchCallTarget[T]): SwitchToStatement[C, E] = switchByEvent((_:E) => where)
+    def switch[T: ClassTag](where: => T)(implicit sct: SwitchCallTarget[T]): SwitchToStatement[C, E] = switchByEvent((_: E) => where)
 
     def toCompilableDsl = SwitchToStatement[C, E](handler, commandMatcher, guards, None, None, eventMatcher).toCompilableDsl
 
-
   }
 
-  case class SwitchToStatement[C <: Command : ClassTag, E <: Event : ClassTag](handler: PartialFunction[C, List[E]], commandMatcher: C => Boolean, guards: List[Guard[C]], switchTo: Option[E => Flow[Unit]], snapshot: Option[E => Option[FlowStateCall]], eventMatcher: E => Boolean) extends CompilableDslProvider {
+  case class SwitchToStatement[C <: Command: ClassTag, E <: Event: ClassTag](handler: PartialFunction[C, List[E]], commandMatcher: C => Boolean, guards: List[Guard[C]], switchTo: Option[E => Flow[Unit]], snapshot: Option[E => Option[FlowStateCall]], eventMatcher: E => Boolean) extends CompilableDslProvider {
     def toCompilableDsl = new CompilableDsl {
       def commandHandler = {
         case c: C if commandMatcher(c) =>
           val errors = guards.flatMap(g => if (!g._1(c)) Some(ErrorCommandFailure(g._2)) else None)
           errors match {
             case err :: errs => Validated.invalid(NEL(err, errs))
-            case Nil => handler.andThen(Aggregate.emitEvents)(c)
+            case Nil         => handler.andThen(Aggregate.emitEvents)(c)
           }
       }
 
@@ -335,7 +331,7 @@ trait DslV1 { self: AggregateBase with Snapshottable =>
           val newData = handler(e)
           snapshot.flatMap(_(e)) match {
             case Some(snapshotData) => Aggregate.DataAndSnapshot[Flow[Unit], Snapshottable#FlowStateCall](newData, snapshotData)(FlowStateCall.snapshotSerializer)
-            case None => Aggregate.JustData(newData)
+            case None               => Aggregate.JustData(newData)
           }
         }
         case _ => None
@@ -353,7 +349,7 @@ trait DslV1 { self: AggregateBase with Snapshottable =>
     def failWithMessage(msg: String)(implicit ct: ClassTag[C]) = FailWithMessageStateMent(commandMatcher, msg)
   }
 
-  case class FailWithMessageStateMent[C <: Command : ClassTag](commandMatcher: C => Boolean, msg: String) extends CompilableDslProvider {
+  case class FailWithMessageStateMent[C <: Command: ClassTag](commandMatcher: C => Boolean, msg: String) extends CompilableDslProvider {
     def toCompilableDsl = new CompilableDsl {
       def commandHandler = {
         case c: C if commandMatcher(c) => Aggregate.failCommand(msg)
@@ -375,7 +371,7 @@ trait DslV1 { self: AggregateBase with Snapshottable =>
 
   def ref[A: ClassTag: upickle.default.Reader: upickle.default.Writer](state: Symbol, flowState: FlowState[A]): RegisteredFlowStateAux[A] = RegisteredFlowState.registerFlowState[A](state, flowState)
 
-  def ref(state: Symbol, flowState: Flow[Unit]): RegisteredFlowStateAux[Unit] = RegisteredFlowState.registerFlowState[Unit](state, (_:Unit) => flowState)
+  def ref(state: Symbol, flowState: Flow[Unit]): RegisteredFlowStateAux[Unit] = RegisteredFlowState.registerFlowState[Unit](state, (_: Unit) => flowState)
 
 }
 

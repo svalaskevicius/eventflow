@@ -1,8 +1,8 @@
 //import Cqrs.Aggregate._
-import Cqrs.Aggregate.{ErrorCommandFailure, Errors}
+import Cqrs.Aggregate.{ ErrorCommandFailure, Errors }
 import Domain.Store._
 import Domain.StoreAggregate
-import cats.data.{NonEmptyList => NEL}
+import cats.data.{ NonEmptyList => NEL }
 
 //import Domain.CounterProjection.{ Data => CounterProjectionData, emptyCounterProjection }
 //import cats.data.{NonEmptyList => NEL}
@@ -19,8 +19,8 @@ class ReturnsSpec extends FlatSpec with Matchers with AggregateSpec {
       _.command(StoreAggregate, "Oliver's goods", RequestRefund("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), CashRefund))
     } thenCheck {
       _.newEvents[Event](StoreAggregate.tag, "Oliver's goods") should be(List(
-        CustomerRefunded("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), CashRefund))
-      )
+        CustomerRefunded("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), CashRefund)
+      ))
     }
   }
 
@@ -31,8 +31,8 @@ class ReturnsSpec extends FlatSpec with Matchers with AggregateSpec {
       _.command(StoreAggregate, "Oliver's goods", RequestRefund("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), StoreCredit))
     } thenCheck {
       _.newEvents[Event](StoreAggregate.tag, "Oliver's goods") should be(List(
-        CustomerRefunded("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), StoreCredit))
-      )
+        CustomerRefunded("Oliver's goods", 200, Receipt("200421445", "microwave", 1, 100, 123), StoreCredit)
+      ))
     }
   } // no saga support yet to model customer's account
 
@@ -43,7 +43,7 @@ class ReturnsSpec extends FlatSpec with Matchers with AggregateSpec {
       _.failedCommandError(
         StoreAggregate,
         "Oliver's goods",
-        RequestRefund("Oliver's goods", 200+2592000, Receipt("200421445", "microwave", 1, 100, 123), CashRefund)
+        RequestRefund("Oliver's goods", 200 + 2592000, Receipt("200421445", "microwave", 1, 100, 123), CashRefund)
       ) should be(Errors(NEL(ErrorCommandFailure("The receipt has expired for cash refunds."))))
     }
   }
@@ -52,11 +52,11 @@ class ReturnsSpec extends FlatSpec with Matchers with AggregateSpec {
     given {
       newDb.withEvent(StoreAggregate.tag, "Oliver's goods", ItemBought("storeid", Receipt("200421445", "microwave", 1, 100, 123)))
     } when {
-      _.command(StoreAggregate, "Oliver's goods", RequestRefund("Oliver's goods", 200+2592000, Receipt("200421445", "microwave", 1, 100, 123), StoreCredit))
+      _.command(StoreAggregate, "Oliver's goods", RequestRefund("Oliver's goods", 200 + 2592000, Receipt("200421445", "microwave", 1, 100, 123), StoreCredit))
     } thenCheck {
       _.newEvents[Event](StoreAggregate.tag, "Oliver's goods") should be(List(
-        CustomerRefunded("Oliver's goods", 200+2592000, Receipt("200421445", "microwave", 1, 100, 123), StoreCredit))
-      )
+        CustomerRefunded("Oliver's goods", 200 + 2592000, Receipt("200421445", "microwave", 1, 100, 123), StoreCredit)
+      ))
     }
   } // no saga support yet to model customer's account
 
@@ -72,32 +72,32 @@ class ReturnsSpec extends FlatSpec with Matchers with AggregateSpec {
     }
   }
   /**
-    *
-  Scenario: Customer cannot return a product with the wrong receipt
-    When I try to return the microwave
-    And I provide receipt with sequence number 12421425
-    Then my return should be refused
-    And the microwave should not be taken back into stock
-
-  Scenario: Customer cannot return a product that is already returned
-    Given I returned the microwave on 10th January with receipt 200421445
-    When I try to return the microwave on 20th January
-    And I provide receipt with sequence number 200421445
-    Then my return should be refused
-    And the microwave should not be taken back into stock
-
-  Scenario: Customer cannot return a product more than 12 months after purchase
-    When I return the microwave on 3rd January next year
-    And I provide receipt with sequence number 200421445
-    And I ask for a store credit refund
-    Then my return should be refused
-    And the microwave should not be taken back into stock
-
-  Scenario: Customer returns a damaged item and it is not returned to stock
-    When I return the microwave on 20th January
-    And I provide receipt with sequence number 200421445
-    And I ask for a cash refund
-    Then I should be credited with £100
-    But the microwave should be taken back into stock
-    */
+   *
+   * Scenario: Customer cannot return a product with the wrong receipt
+   * When I try to return the microwave
+   * And I provide receipt with sequence number 12421425
+   * Then my return should be refused
+   * And the microwave should not be taken back into stock
+   *
+   * Scenario: Customer cannot return a product that is already returned
+   * Given I returned the microwave on 10th January with receipt 200421445
+   * When I try to return the microwave on 20th January
+   * And I provide receipt with sequence number 200421445
+   * Then my return should be refused
+   * And the microwave should not be taken back into stock
+   *
+   * Scenario: Customer cannot return a product more than 12 months after purchase
+   * When I return the microwave on 3rd January next year
+   * And I provide receipt with sequence number 200421445
+   * And I ask for a store credit refund
+   * Then my return should be refused
+   * And the microwave should not be taken back into stock
+   *
+   * Scenario: Customer returns a damaged item and it is not returned to stock
+   * When I return the microwave on 20th January
+   * And I provide receipt with sequence number 200421445
+   * And I ask for a cash refund
+   * Then I should be credited with £100
+   * But the microwave should be taken back into stock
+   */
 }

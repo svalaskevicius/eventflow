@@ -1,10 +1,10 @@
 package Cqrs
 
-import Cqrs.Database.{ErrorUnexpectedVersion, EventDatabaseWithFailure, EventSerialisation}
+import Cqrs.Database.{ ErrorUnexpectedVersion, EventDatabaseWithFailure, EventSerialisation }
 import algebra.Semigroup
-import cats.data.{XorT, NonEmptyList => NEL, _}
+import cats.data.{ XorT, NonEmptyList => NEL, _ }
 import cats.std.all._
-import cats.{MonadError, MonadState, SemigroupK}
+import cats.{ MonadError, MonadState, SemigroupK }
 
 object Aggregate {
 
@@ -137,13 +137,12 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
 
   protected def createTag(id: String)(implicit eventSerialisation: EventSerialisation[E]) = Aggregate.createTag[E](id)
 
-
   def handleCommand(cmd: C, retryCount: Int = 10): AggregateDefinition[Unit] = {
 
     val result = for {
       _ <- readAllEventsAndCatchUp
       events <- handleCmd(cmd)
-      _ <- liftAggregateReadState( vs => dbAction(Database.appendEvents(tag, vs.id, vs.version, events)))
+      _ <- liftAggregateReadState(vs => dbAction(Database.appendEvents(tag, vs.id, vs.version, events)))
       _ <- addEvents(events)
     } yield ()
 
@@ -158,7 +157,7 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
 
   def loadAndHandleCommand(id: AggregateId, cmd: C): DatabaseWithAggregateFailure[E, AggregateState] = {
     val snapshot = dbAction(Database.readSnapshot[E, S](tag, id))
-    val state = snapshot.map[AggregateState]{ resp =>
+    val state = snapshot.map[AggregateState] { resp =>
       convertSnapshotToData(resp.data).map { data =>
         VersionedAggregateData(id, data, resp.version)
       }.getOrElse(newState(id))
@@ -174,15 +173,14 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
   private def handleCmd(cmd: C): AggregateDefinition[List[E]] = liftAggregateReadState(vs =>
     XorT.fromXor[EventDatabaseWithFailure[E, ?]](
       commandHandler(cmd)(vs.data).fold[Error Xor List[E]](err => Xor.left(Errors(err)), Xor.right)
-    )
-  )
+    ))
 
   private def addEvents(evs: List[E], snapshotCmd: Option[Database.SaveSnapshot[E, _]] = None): AggregateDefinition[Unit] =
     evs match {
       case ev :: others => addEvent(ev).flatMap(cmd => addEvents(others, cmd.orElse(snapshotCmd)))
       case Nil => snapshotCmd match {
         case Some(cmd) => liftAggregate(dbAction(Database.lift(cmd)))
-        case None => liftAggregate(pure(()))
+        case None      => liftAggregate(pure(()))
       }
     }
 
@@ -193,7 +191,7 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
       val newState = vs.copy(data = result.aggregateData, version = newVersion)
 
       result match {
-        case resp@DataAndSnapshot(_, snapshot) =>
+        case resp @ DataAndSnapshot(_, snapshot) =>
           val cmd = Database.SaveSnapshot(tag, vs.id, newVersion, snapshot)(resp.serializer)
           pure((newState, Some(cmd)))
         case _ => pure((newState, None))

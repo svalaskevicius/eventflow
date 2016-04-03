@@ -5,7 +5,7 @@ import Domain.CounterProjection
 import Domain.CounterAggregate.tag
 
 //import Domain.CounterProjection.{ Data => CounterProjectionData, emptyCounterProjection }
-import cats.data.{NonEmptyList => NEL}
+import cats.data.{ NonEmptyList => NEL }
 import org.scalatest._
 
 import scala.collection.immutable.TreeMap

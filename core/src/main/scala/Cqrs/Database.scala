@@ -2,10 +2,10 @@ package Cqrs
 
 import Cqrs.Aggregate._
 import Cqrs.Database.FoldableDatabase.EventDataConsumer
-import cats.data.{Xor, XorT}
+import cats.data.{ Xor, XorT }
 import cats.free.Free
 import cats.free.Free.liftF
-import cats.{Monad, MonadError}
+import cats.{ Monad, MonadError }
 
 import scala.concurrent.Future
 import scala.reflect.ClassTag
@@ -84,24 +84,24 @@ object Database {
   implicit def eventDatabaseWithFailureMonad[E]: MonadError[EventDatabaseWithFailure[E, ?], Error] = XorT.xorTMonadError[EventDatabase[E, ?], Error]
 
   /**
-    * Database backend exposing the DB API.
-    */
+   * Database backend exposing the DB API.
+   */
   trait Backend {
 
     /**
-      * Run aggregate interpreter
-      *
-      * @param actions aggregate execution program
-      * @tparam E Type of aggregate events
-      * @tparam A return type from the given `actions` program
-      * @return error on failure or the returned value from the aggregate execution program
-      */
+     * Run aggregate interpreter
+     *
+     * @param actions aggregate execution program
+     * @tparam E Type of aggregate events
+     * @tparam A return type from the given `actions` program
+     * @return error on failure or the returned value from the aggregate execution program
+     */
     def runDb[E, A](actions: EventDatabaseWithFailure[E, A]): Future[Error Xor A]
 
     def runAggregate[E, A](actions: DatabaseWithAggregateFailure[E, A]): Future[Aggregate.Error Xor A] = {
       runDb(actions.value) map {
-        case Xor.Left(err) => Xor.left(DatabaseError(err))
-        case Xor.Right(Xor.Left(err)) => Xor.left(err)
+        case Xor.Left(err)             => Xor.left(DatabaseError(err))
+        case Xor.Right(Xor.Left(err))  => Xor.left(err)
         case Xor.Right(Xor.Right(ret)) => Xor.right(ret)
       }
     }
@@ -135,10 +135,10 @@ object Database {
     final case class RawEventData(tag: EventTag, id: AggregateId, version: Int, data: String)
 
     /**
-      * Db fold operation that updates the given data according to passed event
-      *
-      * @tparam D
-      */
+     * Db fold operation that updates the given data according to passed event
+     *
+     * @tparam D
+     */
     trait EventDataConsumer[D] {
       def tag: EventTag
       def apply(data: D, event: RawEventData): Error Xor D

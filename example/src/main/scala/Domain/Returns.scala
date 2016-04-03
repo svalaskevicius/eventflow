@@ -6,7 +6,6 @@ import Domain.Store._
 
 import scala.collection.immutable.TreeMap
 
-
 object Store {
 
   type ProductId = String

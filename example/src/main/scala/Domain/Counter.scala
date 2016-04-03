@@ -7,7 +7,6 @@ import Domain.Counter._
 
 import scala.collection.immutable.TreeMap
 
-
 object Counter {
 
   sealed trait Event
@@ -48,8 +47,8 @@ object CounterProjection extends Projection[TreeMap[AggregateId, Int]] {
 
   def accept[E](d: Data) = {
     case EventData(_, id, _, Created(_, start)) => d + (id -> start)
-    case EventData(_, id, _, Incremented) => d + (id -> d.get(id).fold(1)(_ + 1))
-    case EventData(_, id, _, Decremented) => d + (id -> d.get(id).fold(-1)(_ - 1))
+    case EventData(_, id, _, Incremented)       => d + (id -> d.get(id).fold(1)(_ + 1))
+    case EventData(_, id, _, Decremented)       => d + (id -> d.get(id).fold(-1)(_ - 1))
   }
 }
 

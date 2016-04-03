@@ -15,7 +15,6 @@ trait Projection[D] {
   def accept[E](data: Data): PartialFunction[EventData[E], Data]
 }
 
-
 trait ProjectionRunner {
   def listeningFor: List[EventTag]
 
@@ -36,16 +35,17 @@ case class ConcreteProjectionRunner[Data](proj: Projection[Data], data: Data) ex
   def accept[E](eventData: EventData[E]) =
     proj.accept(data).lift(eventData) match {
       case Some(newData) => copy(data = newData)
-      case None => this
+      case None          => this
     }
 
   def getProjectionData[D: ClassTag](projection: Projection[D]): Option[D] = {
     if (proj.getClass.getName == projection.getClass.getName) {
       data match {
         case asD: D => Some(asD)
-        case _ => None
+        case _      => None
       }
-    } else None
+    }
+    else None
   }
 }
 

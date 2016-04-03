@@ -3,8 +3,8 @@ package Cqrs.DbAdapters
 import java.io.Closeable
 
 import Cqrs.Aggregate._
-import Cqrs.Database.{Error, _}
-import Cqrs.{Projection, ProjectionRunner}
+import Cqrs.Database.{ Error, _ }
+import Cqrs.{ Projection, ProjectionRunner }
 import akka.actor.ActorSystem
 import cats._
 import cats.data.Xor
@@ -18,42 +18,41 @@ import scala.reflect.ClassTag
 object EventStore {
 
   class DbBackend(
-                   system: ActorSystem,
-                   connection: EsConnection,
-                   private var projections: List[ProjectionRunner]
-                 ) extends Backend {
+    system:                  ActorSystem,
+    connection:              EsConnection,
+    private var projections: List[ProjectionRunner]
+  ) extends Backend {
 
     val allEventsSubscription = connection.subscribeToAllFrom(new SubscriptionObserver[IndexedEvent] {
-        def onLiveProcessingStart(subscription: Closeable) = ()
+      def onLiveProcessingStart(subscription: Closeable) = ()
 
-        def onEvent(event: IndexedEvent, subscription: Closeable) = {
-          if (!event.event.streamId.isMetadata) {
-            parseEsStreamId(event.event.streamId) match {
-              case Some((tagId, aggId)) => synchronized {
-                projections = projections.map { runner =>
-                  runner.listeningFor.filter(_.name == tagId).foldLeft(runner) { (rnr, tag) =>
-                    rnr.accept(Cqrs.Database.EventData(
-                      tag,
-                      aggId,
-                      0,
-                      //TODO: what to do when cannot decode for projection?
-                      // skipping is not too great as it might mean missed old events
-                      // log[warn] & skip / fail? if fail then how?
-                      tag.eventSerialiser.decode(event.event.data.data.value.utf8String).toOption.get
-                    ))
-                  }
+      def onEvent(event: IndexedEvent, subscription: Closeable) = {
+        if (!event.event.streamId.isMetadata) {
+          parseEsStreamId(event.event.streamId) match {
+            case Some((tagId, aggId)) => synchronized {
+              projections = projections.map { runner =>
+                runner.listeningFor.filter(_.name == tagId).foldLeft(runner) { (rnr, tag) =>
+                  rnr.accept(Cqrs.Database.EventData(
+                    tag,
+                    aggId,
+                    0,
+                    //TODO: what to do when cannot decode for projection?
+                    // skipping is not too great as it might mean missed old events
+                    // log[warn] & skip / fail? if fail then how?
+                    tag.eventSerialiser.decode(event.event.data.data.value.utf8String).toOption.get
+                  ))
                 }
               }
-              case _ => ()
             }
+            case _ => ()
           }
         }
-
-        def onError(e: Throwable) = throw e
-
-        def onClose() = {} //TODO: reopen?
       }
-    )
+
+      def onError(e: Throwable) = throw e
+
+      def onClose() = {} //TODO: reopen?
+    })
 
     def runDb[E, A](actions: EventDatabaseWithFailure[E, A]): Future[Error Xor A] =
       actions.value.foldMap(transformDbOpToDbState)
@@ -75,7 +74,7 @@ object EventStore {
 
       decodedResponse.recover {
         case _: StreamNotFoundException => Xor.right(ReadAggregateEventsResponse(NewAggregateVersion, List.empty, endOfStream = true))
-        case err: EsException => Xor.left(ErrorDbFailure(err.getMessage))
+        case err: EsException           => Xor.left(ErrorDbFailure(err.getMessage))
       }
     }
 
@@ -92,7 +91,7 @@ object EventStore {
 
       val dbErrorsHandled = convertedToGlobalPosition.recover {
         case err: WrongExpectedVersionException => Xor.left(ErrorUnexpectedVersion(id, err.getMessage))
-        case err: EsException => Xor.left(ErrorDbFailure(err.getMessage))
+        case err: EsException                   => Xor.left(ErrorDbFailure(err.getMessage))
       }
 
       dbErrorsHandled.map(_.map { _ => () })
@@ -130,9 +129,8 @@ object EventStore {
         val serializer = implicitly[Serializable[StoredSnapshot[S]]]
         serializer.fromString(resp.event.data.data.value.utf8String).fold[Error Xor ReadSnapshotResponse[S]](
           Xor.left(ErrorDbFailure(s"Cannot unserialise snapshot data for ${tag.name} :: $id == ${resp.event.data.data.value.utf8String}"))
-        )( data =>
-          Xor.right(ReadSnapshotResponse(data.version, data.data))
-        )
+        )(data =>
+            Xor.right(ReadSnapshotResponse(data.version, data.data)))
       }
       val dbErrorsHandled = decodedResponse.recover {
         case err: EsException => Xor.left(ErrorDbFailure(err.getMessage))
@@ -155,16 +153,16 @@ object EventStore {
         case err: EsException => Xor.left(ErrorDbFailure(err.getMessage))
       }
 
-      dbErrorsHandled.map( _ => Xor.right(()) )
+      dbErrorsHandled.map(_ => Xor.right(()))
     }
 
     private def transformDbOpToDbState[E]: EventDatabaseOp[E, ?] ~> Future =
       new (EventDatabaseOp[E, ?] ~> Future) {
         def apply[A](fa: EventDatabaseOp[E, A]): Future[A] = fa match {
-          case ReadAggregateEvents(tag, id, version) => readFromDb[E](tag, id, version)
+          case ReadAggregateEvents(tag, id, version)                   => readFromDb[E](tag, id, version)
           case AppendAggregateEvents(tag, id, expectedVersion, events) => addToDb[E](tag, id, expectedVersion, events)
-          case rsReq@ReadSnapshot(tag, id) => readDbSnapshot(tag, id)(rsReq.serializer)
-          case ssReq@SaveSnapshot(tag, id, version, data) => saveDbSnapshot(tag, id, version, data)(ssReq.serializer)
+          case rsReq @ ReadSnapshot(tag, id)                           => readDbSnapshot(tag, id)(rsReq.serializer)
+          case ssReq @ SaveSnapshot(tag, id, version, data)            => saveDbSnapshot(tag, id, version, data)(ssReq.serializer)
         }
       }
 
@@ -186,7 +184,7 @@ object EventStore {
 
   private def parseEsStreamId(id: EventStream.Id) = id.value.split(TagAndIdSeparator).toList match {
     case tagId :: aggId :: Nil => Some(tagId -> aggId)
-    case _ => None
+    case _                     => None
   }
 }
 

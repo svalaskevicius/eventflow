@@ -88,10 +88,10 @@ object DoorProjection extends Projection[TreeMap[AggregateId, DoorState]] {
 
   def accept[E](d: Data) = {
     case EventData(_, id, _, Registered(_)) => d + (id -> DoorState.Open)
-    case EventData(_, id, _, Closed) => d + (id -> DoorState.Closed)
-    case EventData(_, id, _, Opened) => d + (id -> DoorState.Open)
-    case EventData(_, id, _, Locked(_)) => d + (id -> DoorState.Locked)
-    case EventData(_, id, _, Unlocked(_)) => d + (id -> DoorState.Closed)
+    case EventData(_, id, _, Closed)        => d + (id -> DoorState.Closed)
+    case EventData(_, id, _, Opened)        => d + (id -> DoorState.Open)
+    case EventData(_, id, _, Locked(_))     => d + (id -> DoorState.Locked)
+    case EventData(_, id, _, Unlocked(_))   => d + (id -> DoorState.Closed)
   }
 }
 

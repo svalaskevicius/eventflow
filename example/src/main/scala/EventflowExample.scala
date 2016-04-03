@@ -8,7 +8,7 @@ import Cqrs.Aggregate
 import cats.data.Xor
 import com.twitter
 import com.twitter.util.FuturePool
-import io.finch.{Endpoint, _}
+import io.finch.{ Endpoint, _ }
 import io.finch.circe._
 import io.circe.generic.auto._
 import com.twitter.finagle.Http
@@ -50,11 +50,11 @@ object EventflowExample {
     val server = Http.serve(":8080", api.toService)
   }
 
-  private def commandEndpoint[E, C: DecodeRequest : ClassTag, D, S](path: String, aggregate: Aggregate[E, C, D, S]) =
+  private def commandEndpoint[E, C: DecodeRequest: ClassTag, D, S](path: String, aggregate: Aggregate[E, C, D, S]) =
     post(path / string :: body.as[C]) mapOutputAsync {
       case id :: cmd :: HNil =>
         scalaToTwitterFuture(db.runAggregate(aggregate.loadAndHandleCommand(id, cmd)).map {
-          case Xor.Right(_) => Ok(())
+          case Xor.Right(_)  => Ok(())
           case Xor.Left(err) => PreconditionFailed(new Exception(err.toString))
         })
       case _ => twitter.util.Future.value(InternalServerError(new Exception("Cannot handle input")))
