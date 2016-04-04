@@ -1,8 +1,8 @@
 import Cqrs.Aggregate._
 import Domain.DoorAggregate.tag
 import Domain.Door._
-import Domain.{DoorProjection, DoorState, DoorAggregate}
-import cats.data.{NonEmptyList => NEL}
+import Domain.{ DoorProjection, DoorState, DoorAggregate }
+import cats.data.{ NonEmptyList => NEL }
 import org.scalatest._
 
 import scala.collection.immutable.TreeMap

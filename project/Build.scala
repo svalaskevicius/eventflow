@@ -13,25 +13,26 @@ object EventflowBuild extends Build {
   )
 
   lazy val root = Project(
-    id = "eventflow",
-    base = file("."),
+    id       = "eventflow",
+    base     = file("."),
     settings = buildSettings ++ Seq(mainClass in (Compile, run) := Some("EventflowExample"))
-  ) aggregate(core, eventstoreBackend, example) dependsOn(example)
+  ) aggregate (core, eventstoreBackend, example) dependsOn (example)
 
   lazy val core = Project(
-    id = "eventflow-core",
-    base = file("core"),
+    id       = "eventflow-core",
+    base     = file("core"),
     settings = buildSettings
   )
 
   lazy val eventstoreBackend = Project(
-    id = "eventflow-eventstore-backend",
-    base = file("eventstore-backend"),
+    id       = "eventflow-eventstore-backend",
+    base     = file("eventstore-backend"),
     settings = buildSettings
-  ) dependsOn(core)
+  ) dependsOn (core)
 
   lazy val example = Project(
-    id = "eventflow-example",
-    base = file("example"),
-    settings = buildSettings) dependsOn(core, eventstoreBackend)
+    id       = "eventflow-example",
+    base     = file("example"),
+    settings = buildSettings
+  ) dependsOn (core, eventstoreBackend)
 }

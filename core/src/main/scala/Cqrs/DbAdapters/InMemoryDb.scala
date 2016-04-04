@@ -1,11 +1,11 @@
 package Cqrs.DbAdapters
 
 import Cqrs.Aggregate._
-import Cqrs.Database.FoldableDatabase.{EventDataConsumer, RawEventData}
-import Cqrs.Database.{Error, _}
-import Cqrs.{Projection, ProjectionRunner}
+import Cqrs.Database.FoldableDatabase.{ EventDataConsumer, RawEventData }
+import Cqrs.Database.{ Error, _ }
+import Cqrs.{ Projection, ProjectionRunner }
 import cats._
-import cats.data.{State, Xor}
+import cats.data.{ State, Xor }
 import cats.std.all._
 import lib.foldM
 
@@ -15,30 +15,33 @@ import scala.reflect.ClassTag
 
 object InMemoryDb {
 
+  final case class StoredSnapshot(version: Int, data: String)
+
   final case class DbBackend(
-                              data: TreeMap[String, TreeMap[String, TreeMap[Int, String]]], // tag -> aggregate id -> version -> event data
-                              log: TreeMap[Long, (String, String, Int)], // operation nr -> tag, aggregate id, aggregate version
-                              lastOperationNr: Long,
-                              projections: List[ProjectionRunner]
-                            )
+    data:            Map[String, Map[String, TreeMap[Int, String]]], // tag -> aggregate id -> version -> event data
+    log:             TreeMap[Long, (String, String, Int)], // operation nr -> tag, aggregate id, aggregate version
+    lastOperationNr: Long,
+    projections:     List[ProjectionRunner],
+    snapshots:       Map[String, Map[String, StoredSnapshot]] // tag -> id -> data
+  )
 
   private type Db[A] = State[DbBackend, A]
 
   private def readFromDb[E](database: DbBackend, tag: EventTagAux[E], id: AggregateId, fromVersion: Int): Error Xor ReadAggregateEventsResponse[E] = {
 
-    def getById(id: AggregateId)(t: TreeMap[String, TreeMap[Int, String]]) = t.get(id)
-    def decode(d: String) = tag.eventSerialiser.decode(d)
+    def getById(id: AggregateId)(t: Map[String, TreeMap[Int, String]]) = t.get(id)
+    def decode(d: String) = decodeEvent(d)(tag.eventSerialiser)
     def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
 
     (database.data.get(tag.name) flatMap getById(id)).fold[Error Xor ReadAggregateEventsResponse[E]](
       Xor.right(ReadAggregateEventsResponse(NewAggregateVersion, List.empty, true))
     )(
-      (evs: TreeMap[Int, String]) => {
-        val newEvents = evs.from(fromVersion + 1)
-        val newVersion = if (newEvents.isEmpty) fromVersion else newEvents.lastKey
-        decodeEvents(newEvents.values.toList).map(evs => ReadAggregateEventsResponse(newVersion, evs, true))
-      }
-    )
+        (evs: TreeMap[Int, String]) => {
+          val newEvents = evs.from(fromVersion + 1)
+          val newVersion = if (newEvents.isEmpty) fromVersion else newEvents.lastKey
+          decodeEvents(newEvents.values.toList).map(evs => ReadAggregateEventsResponse(newVersion, evs, true))
+        }
+      )
   }
 
   private def addToDb[E](database: DbBackend, tag: EventTagAux[E], id: AggregateId, expectedVersion: Int, events: List[E]): Error Xor DbBackend = {
@@ -47,34 +50,57 @@ object InMemoryDb {
     val previousVersion = currentEvents.fold(-1)(e => if (e.isEmpty) 0 else e.lastKey)
     if (previousVersion != expectedVersion) {
       Xor.left(ErrorUnexpectedVersion(id, s"Aggregate version expectation failed: $previousVersion != $expectedVersion"))
-    } else {
+    }
+    else {
       val operationStartNumber = database.lastOperationNr + 1
       val indexedEvents = events.zipWithIndex
       Xor.right(
         database.copy(
-          data = database.data.updated(
+          data            = database.data.updated(
             tag.name,
             currentTaggedEvents.getOrElse(TreeMap.empty[String, TreeMap[Int, String]]).updated(
               id,
               indexedEvents.foldLeft(currentEvents.getOrElse(TreeMap.empty[Int, String])) { (db, ev) =>
-                db.updated(previousVersion + 1 + ev._2, tag.eventSerialiser.encode(ev._1))
+                db.updated(previousVersion + 1 + ev._2, tag.eventSerialiser.toString(ev._1))
               }
             )
           ),
-          log = indexedEvents.foldLeft(database.log) { (log, ev) =>
+          log             = indexedEvents.foldLeft(database.log) { (log, ev) =>
             log + ((operationStartNumber + ev._2, (tag.name, id, previousVersion + 1 + ev._2)))
           },
           lastOperationNr = operationStartNumber + indexedEvents.length,
-          projections = database.projections.map { projection =>
+          projections     = database.projections.map { projection =>
             if (projection.listeningFor.exists(_.name == tag.name)) {
               indexedEvents.foldLeft(projection)((p, e) => p.accept(EventData(tag, id, previousVersion + 1 + e._2, e._1)))
-            } else {
+            }
+            else {
               projection
             }
           }
         )
       )
     }
+  }
+
+  private def readDbSnapshot[E, S: Serializable](database: DbBackend, tag: EventTagAux[E], id: AggregateId): Error Xor ReadSnapshotResponse[S] = {
+    database.snapshots.get(tag.name).flatMap(_.get(id)).fold[Error Xor ReadSnapshotResponse[S]](
+      Xor.left(ErrorDbFailure(s"No snapshot for ${tag.name} :: $id"))
+    ) { snapshot =>
+        val data = implicitly[Serializable[S]].fromString(snapshot.data)
+        data.fold[Error Xor ReadSnapshotResponse[S]](
+          Xor.left(ErrorDbFailure(s"Cannot unserialise snapshot data for ${tag.name} :: $id"))
+        )(unserialisedData =>
+            Xor.right(ReadSnapshotResponse(snapshot.version, unserialisedData)))
+      }
+  }
+
+  private def saveDbSnapshot[E, S: Serializable](database: DbBackend, tag: EventTagAux[E], id: AggregateId, version: Int, snapshot: S): Error Xor DbBackend = {
+    val data = StoredSnapshot(version, implicitly[Serializable[S]].toString(snapshot))
+    Xor.right(
+      database.copy(
+        snapshots = database.snapshots.updated(tag.name, database.snapshots.getOrElse(tag.name, Map.empty).updated(id, data))
+      )
+    )
   }
 
   private def transformDbOpToDbState[E]: EventDatabaseOp[E, ?] ~> Db =
@@ -86,16 +112,27 @@ object InMemoryDb {
         })
         case AppendAggregateEvents(tag, id, expectedVersion, events) => State((database: DbBackend) => {
           val d = addToDb[E](database, tag, id, expectedVersion, events)
-          d.fold[(DbBackend, Error Xor Unit)](
-            err => (database, Xor.left[Error, Unit](err)),
-            db => (db, Xor.right[Error, Unit](()))
-          )
+          setterAsResult(d, database)
         })
+        case rsReq @ ReadSnapshot(tag, id) => State { database =>
+          val d = readDbSnapshot(database, tag, id)(rsReq.serializer)
+          (database, d)
+        }
+        case ssReq @ SaveSnapshot(tag, id, version, data) => State { database =>
+          val d = saveDbSnapshot(database, tag, id, version, data)(ssReq.serializer)
+          setterAsResult(d, database)
+        }
       }
+
+      private def setterAsResult(ret: Error Xor DbBackend, initialDb: DbBackend) =
+        ret.fold[(DbBackend, Error Xor Unit)](
+          err => (initialDb, Xor.left[Error, Unit](err)),
+          db => (db, Xor.right[Error, Unit](()))
+        )
     }
 
   def newInMemoryDb(projections: ProjectionRunner*) = new Backend with FoldableDatabase {
-    var db = DbBackend(TreeMap.empty, TreeMap.empty, 0, projections.toList);
+    var db = DbBackend(TreeMap.empty, TreeMap.empty, 0, projections.toList, Map.empty);
 
     def runDb[E, A](actions: EventDatabaseWithFailure[E, A]): Future[Error Xor A] = synchronized {
       val (newDb, r) = actions.value.foldMap[Db](transformDbOpToDbState).run(db).value
@@ -128,10 +165,10 @@ object InMemoryDb {
       val newData = foldM[D, (Long, (String, String, Int)), Xor[Error, ?]](
         d => el => checkAndApplyDataLogEntry(d, el._2)
       )(
-        initData
-      )(
-        db.log.from(fromOperation + 1)
-      )
+          initData
+        )(
+          db.log.from(fromOperation + 1)
+        )
 
       newData.map((db.lastOperationNr, _))
     }

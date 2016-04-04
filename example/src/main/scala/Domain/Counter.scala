@@ -7,7 +7,6 @@ import Domain.Counter._
 
 import scala.collection.immutable.TreeMap
 
-
 object Counter {
 
   sealed trait Event
@@ -28,14 +27,17 @@ object Counter {
 }
 
 object CounterAggregate extends EventFlow[Event, Command] {
-  def counting(c: Int): Flow[Unit] = handler(
-    when(Increment).emit(Incremented).switch(counting(c + 1)),
-    when(Decrement).guard(_ => c > 0, "Counter cannot be decremented").emit(Decremented).switch(counting(c - 1))
-  )
+
+  val counting: RegisteredFlowStateAux[Int] = ref('counter, c => handler(
+    when(Increment).emit(Incremented).switch(c + 1 -> counting),
+    when(Decrement).guard(_ => c > 0, "Counter cannot be decremented").emit(Decremented).switch(c - 1 -> counting)
+  ))
 
   val aggregateLogic: Flow[Unit] = handler(
-    when[Create].emit[Created].switch(evt => counting(evt.start))
+    when[Create].emit[Created].switchByEvent(evt => evt.start -> counting)
   )
+
+  val snapshottableStates: FlowStates = List(counting)
 }
 
 object CounterProjection extends Projection[TreeMap[AggregateId, Int]] {
@@ -45,8 +47,8 @@ object CounterProjection extends Projection[TreeMap[AggregateId, Int]] {
 
   def accept[E](d: Data) = {
     case EventData(_, id, _, Created(_, start)) => d + (id -> start)
-    case EventData(_, id, _, Incremented) => d + (id -> d.get(id).fold(1)(_ + 1))
-    case EventData(_, id, _, Decremented) => d + (id -> d.get(id).fold(-1)(_ - 1))
+    case EventData(_, id, _, Incremented)       => d + (id -> d.get(id).fold(1)(_ + 1))
+    case EventData(_, id, _, Decremented)       => d + (id -> d.get(id).fold(-1)(_ - 1))
   }
 }
 

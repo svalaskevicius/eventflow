@@ -1,8 +1,8 @@
-import Cqrs.Aggregate.{AggregateId, DatabaseWithAggregateFailure}
+import Cqrs.Aggregate.{ AggregateId, DatabaseWithAggregateFailure }
 import Cqrs.Database.FoldableDatabase._
 import Cqrs.Database._
 import Cqrs.DbAdapters.InMemoryDb._
-import Cqrs.{Aggregate, Database, Projection, ProjectionRunner}
+import Cqrs.{ Aggregate, Database, Projection, ProjectionRunner }
 import cats.data.Xor
 
 import scala.concurrent.Await
@@ -13,7 +13,7 @@ trait AggregateSpec {
 
   type DB = Backend with FoldableDatabase
 
-  def fail(message: String)
+  def fail(message: String): Unit
 
   implicit class GivenSteps(val db: DB) {
 
@@ -36,7 +36,7 @@ trait AggregateSpec {
 
   case class WhenSteps(val db: DB, startingDbOpNr: Long) {
 
-    def command[E, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C) = {
+    def command[E, C, D, S](aggregate: Aggregate[E, C, D, S], id: AggregateId, cmd: C) = {
       act(db, aggregate.loadAndHandleCommand(id, cmd))
         .leftMap(err => failStop(err.toString))
       this
@@ -48,7 +48,7 @@ trait AggregateSpec {
     def newEvents[E](tag: Aggregate.EventTagAux[E], aggregateId: AggregateId): List[E] =
       readEvents(db, startingDbOpNr, tag, aggregateId)
 
-    def failedCommandError[E, C, D](aggregate: Aggregate[E, C, D], id: AggregateId, cmd: C): Aggregate.Error =
+    def failedCommandError[E, C, D, S](aggregate: Aggregate[E, C, D, S], id: AggregateId, cmd: C): Aggregate.Error =
       act(db, aggregate.loadAndHandleCommand(id, cmd))
         .fold(identity, _ => failStop("Command did not fail, although was expected to"))
 
