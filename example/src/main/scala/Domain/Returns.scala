@@ -4,10 +4,7 @@ import Cqrs.Aggregate._
 import Cqrs._
 import Domain.Store._
 
-import java.time.LocalDateTime
-import java.time.ZoneOffset.UTC
-import java.time.temporal.ChronoUnit
-import java.time.temporal.ChronoUnit.{DAYS, MONTHS}
+import org.joda.time.DateTime
 
 import scala.collection.immutable.TreeMap
 
@@ -15,10 +12,12 @@ object Store {
 
   type ProductId = String
   type SequenceNumber = String
-  type Timestamp = Long
+  case class Time(millis: Long) {
+    lazy val dateTime = new DateTime(millis)
+  }
   type Money = Int
 
-  final case class Receipt(sequenceNumber: SequenceNumber, product: ProductId, quantity: Int, amount: Money, timestamp: Timestamp)
+  final case class Receipt(sequenceNumber: SequenceNumber, product: ProductId, quantity: Int, amount: Money, time: Time)
 
   sealed trait RefundType
   case object CashRefund extends RefundType
@@ -30,11 +29,11 @@ object Store {
 
   sealed trait Event
   final case class ItemBought(id: AggregateId, producedReceipt: Receipt) extends Event
-  final case class CustomerRefunded(id: AggregateId, timestamp: Timestamp, receipt: Receipt, refundType: RefundType) extends Event
-  final case class ItemRestocked(id: AggregateId, timestamp: Timestamp, productId: ProductId, qty: Int) extends Event
+  final case class CustomerRefunded(id: AggregateId, time: Time, receipt: Receipt, refundType: RefundType) extends Event
+  final case class ItemRestocked(id: AggregateId, time: Time, productId: ProductId, qty: Int) extends Event
 
   sealed trait Command
-  final case class RequestRefund(id: AggregateId, timestamp: Timestamp, receipt: Receipt, refundType: RefundType, productState: ProductState) extends Command
+  final case class RequestRefund(id: AggregateId, time: Time, receipt: Receipt, refundType: RefundType, productState: ProductState) extends Command
 }
 
 object StoreAggregate extends EventFlow[Event, Command] {
@@ -61,9 +60,9 @@ object StoreAggregate extends EventFlow[Event, Command] {
       emitEvents { cmd =>
         val stockEvents = cmd.productState match {
           case Damaged    => Nil
-          case Resellable => List(ItemRestocked(cmd.id, cmd.timestamp, cmd.receipt.product, cmd.receipt.quantity))
+          case Resellable => List(ItemRestocked(cmd.id, cmd.time, cmd.receipt.product, cmd.receipt.quantity))
         }
-        stockEvents ++ List(CustomerRefunded(cmd.id, cmd.timestamp, cmd.receipt, cmd.refundType))
+        stockEvents ++ List(CustomerRefunded(cmd.id, cmd.time, cmd.receipt, cmd.refundType))
       },
 
     on[CustomerRefunded].switchByEvent(ev => storeInfo.returnProduct(ev.receipt) -> store),
@@ -77,14 +76,9 @@ object StoreAggregate extends EventFlow[Event, Command] {
 
   val aggregateLogic = store.state(StoreInfo.empty)
 
-  private def isNotExpiredForCash(r: RequestRefund) = isBefore(r.timestamp, r.receipt.timestamp, 30, DAYS) || (r.refundType != CashRefund)
+  private def isNotExpiredForCash(r: RequestRefund) = r.time.dateTime.isBefore(r.receipt.time.dateTime.plusDays(30)) || (r.refundType != CashRefund)
 
-  private def isNotExpired(r: RequestRefund) = isBefore(r.timestamp, r.receipt.timestamp, 12, MONTHS)
+  private def isNotExpired(r: RequestRefund) = r.time.dateTime.isBefore(r.receipt.time.dateTime.plusMonths(12))
 
-  private def isBefore(timestamp: Timestamp, base: Timestamp, delta: Long, unit: ChronoUnit) = {
-    val time = LocalDateTime.ofEpochSecond(timestamp, 0, UTC)
-    val b = LocalDateTime.ofEpochSecond(base, 0, UTC).plus(delta, unit)
-    time.isBefore(b)
-  }
 }
 

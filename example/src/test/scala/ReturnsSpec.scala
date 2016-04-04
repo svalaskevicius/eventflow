@@ -123,6 +123,5 @@ class ReturnsSpec extends FlatSpec with Matchers with AggregateSpec {
     }
   }
 
-  def date(s: String): Long =
-    java.time.LocalDate.parse(s).atStartOfDay().toEpochSecond(java.time.ZoneOffset.UTC)
+  def date(s: String): Time = Time(org.joda.time.DateTime.parse(s).getMillis())
 }

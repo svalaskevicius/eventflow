@@ -13,6 +13,7 @@ libraryDependencies ++= Seq(
   "io.circe" %% "circe-parser" % "0.3.0"
 )
 
+libraryDependencies += "joda-time" % "joda-time" % "2.9.3"
 
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
