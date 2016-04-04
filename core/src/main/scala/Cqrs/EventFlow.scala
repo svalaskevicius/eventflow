@@ -1,7 +1,7 @@
 package Cqrs
 
 import Cqrs.Aggregate.{ ErrorCannotFindHandler, ErrorCommandFailure, CommandHandlerResult, EventHandlerResult }
-import Cqrs.Database.EventSerialisation
+import Cqrs.Database.Serializable
 import cats._
 import cats.data.{ NonEmptyList => NEL, _ }
 import cats.free.Free
@@ -375,7 +375,7 @@ trait DslV1 { self: AggregateBase with Snapshottable =>
 
 }
 
-abstract class EventFlow[Evt: EventSerialisation, Cmd] extends EventFlowBase[Evt, Cmd] with DslV1 {
+abstract class EventFlow[Evt: Serializable, Cmd] extends EventFlowBase[Evt, Cmd] with DslV1 {
   lazy val tag = {
     val name = this.getClass.getCanonicalName
     if (null == name) {

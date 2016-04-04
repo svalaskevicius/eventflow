@@ -39,7 +39,7 @@ object EventStore {
                     //TODO: what to do when cannot decode for projection?
                     // skipping is not too great as it might mean missed old events
                     // log[warn] & skip / fail? if fail then how?
-                    tag.eventSerialiser.decode(event.event.data.data.value.utf8String).toOption.get
+                    tag.eventSerialiser.fromString(event.event.data.data.value.utf8String).get
                   ))
                 }
               }
@@ -59,7 +59,7 @@ object EventStore {
 
     private def readFromDb[E](tag: EventTagAux[E], id: AggregateId, fromVersion: Int): Future[Error Xor ReadAggregateEventsResponse[E]] = {
 
-      def decode(d: String) = tag.eventSerialiser.decode(d)
+      def decode(d: String) = decodeEvent(d)(tag.eventSerialiser)
       def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
 
       val eventsFromDb = connection future ReadStreamEvents(
@@ -81,7 +81,7 @@ object EventStore {
     private def addToDb[E](tag: EventTagAux[E], id: AggregateId, expectedVersion: Int, events: List[E]): Future[Error Xor Unit] = {
       val response = connection future WriteEvents(
         esStreamId(tag, id),
-        events.map(ev => eventstore.EventData.Json(ev.getClass.toString, data = tag.eventSerialiser.encode(ev))),
+        events.map(ev => eventstore.EventData.Json(ev.getClass.toString, data = tag.eventSerialiser.toString(ev))),
         ExpectedVersion(expectedVersion)
       )
 

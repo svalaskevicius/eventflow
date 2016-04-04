@@ -34,6 +34,7 @@ object Database {
       lazy val unserializer = r
     }
   }
+
   sealed trait Error
 
   final case class ErrorDbFailure(message: String) extends Error
@@ -113,21 +114,6 @@ object Database {
     def consumeDbEvents[D](fromOperation: Long, initData: D, queries: List[EventDataConsumer[D]]): Error Xor (Long, D)
   }
 
-  trait EventSerialisation[E] {
-    def encode(event: E): String
-
-    def decode(rawData: String): Error Xor E
-  }
-
-  object EventSerialisation {
-
-    implicit def defaultEventSerialisation[E](implicit w: upickle.default.Writer[E], r: upickle.default.Reader[E]): EventSerialisation[E] = new EventSerialisation[E] {
-      def encode(event: E): String = upickle.json.write(w.write(event))
-
-      def decode(rawData: String): Error Xor E = Try(Xor.right(r.read(upickle.json.read(rawData)))).getOrElse(Xor.left(EventDecodingFailure(rawData)))
-    }
-  }
-
   final case class EventData[E](tag: EventTag, id: AggregateId, version: Int, data: E)
 
   object FoldableDatabase {
@@ -147,9 +133,11 @@ object Database {
     def createEventDataConsumer[E, D](evTag: EventTagAux[E])(handler: (D, EventData[E]) => D) =
       new EventDataConsumer[D] {
         val tag = evTag
-        def apply(data: D, event: RawEventData): Error Xor D = tag.eventSerialiser.decode(event.data).map(e => handler(data, EventData(event.tag, event.id, event.version, e)))
+        def apply(data: D, event: RawEventData): Error Xor D = decodeEvent[E](event.data)(tag.eventSerialiser).map(e => handler(data, EventData(event.tag, event.id, event.version, e)))
       }
   }
+
+  def decodeEvent[E](rawData: String)(implicit serializer: Serializable[E]): Error Xor E = Try(serializer.fromString(rawData).map(Xor.right)).toOption.flatten.getOrElse(Xor.left(EventDecodingFailure(rawData)))
 
 }
 

@@ -30,7 +30,7 @@ object InMemoryDb {
   private def readFromDb[E](database: DbBackend, tag: EventTagAux[E], id: AggregateId, fromVersion: Int): Error Xor ReadAggregateEventsResponse[E] = {
 
     def getById(id: AggregateId)(t: Map[String, TreeMap[Int, String]]) = t.get(id)
-    def decode(d: String) = tag.eventSerialiser.decode(d)
+    def decode(d: String) = decodeEvent(d)(tag.eventSerialiser)
     def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
 
     (database.data.get(tag.name) flatMap getById(id)).fold[Error Xor ReadAggregateEventsResponse[E]](
@@ -61,7 +61,7 @@ object InMemoryDb {
             currentTaggedEvents.getOrElse(TreeMap.empty[String, TreeMap[Int, String]]).updated(
               id,
               indexedEvents.foldLeft(currentEvents.getOrElse(TreeMap.empty[Int, String])) { (db, ev) =>
-                db.updated(previousVersion + 1 + ev._2, tag.eventSerialiser.encode(ev._1))
+                db.updated(previousVersion + 1 + ev._2, tag.eventSerialiser.toString(ev._1))
               }
             )
           ),

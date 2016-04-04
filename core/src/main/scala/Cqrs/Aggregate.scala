@@ -1,6 +1,6 @@
 package Cqrs
 
-import Cqrs.Database.{ ErrorUnexpectedVersion, EventDatabaseWithFailure, EventSerialisation }
+import Cqrs.Database.{ ErrorUnexpectedVersion, EventDatabaseWithFailure, Serializable }
 import algebra.Semigroup
 import cats.data.{ XorT, NonEmptyList => NEL, _ }
 import cats.std.all._
@@ -13,12 +13,12 @@ object Aggregate {
 
     def name: String
 
-    def eventSerialiser: EventSerialisation[Event]
+    def eventSerialiser: Serializable[Event]
   }
 
   type EventTagAux[E] = EventTag { type Event = E }
 
-  def createTag[E](id: String)(implicit evSerialiser: EventSerialisation[E]) = new EventTag {
+  def createTag[E](id: String)(implicit evSerialiser: Serializable[E]) = new EventTag {
     type Event = E
     val name = id
     val eventSerialiser = evSerialiser
@@ -135,7 +135,7 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
 
   implicit protected def snapshotSerializer: Database.Serializable[S] // = implicitly[Database.Serializable[S]]
 
-  protected def createTag(id: String)(implicit eventSerialisation: EventSerialisation[E]) = Aggregate.createTag[E](id)
+  protected def createTag(id: String)(implicit eventSerialisation: Serializable[E]) = Aggregate.createTag[E](id)
 
   def handleCommand(cmd: C, retryCount: Int = 10): AggregateDefinition[Unit] = {
 
