@@ -14,7 +14,6 @@ import io.circe.generic.auto._
 import com.twitter.finagle.Http
 import lib.Converters._
 import shapeless.HNil
-import shapeless.::
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.reflect.ClassTag
@@ -47,8 +46,17 @@ object EventflowExample {
 
   def main(args: Array[String]) = {
     val api = counter :+: counterRead :+: countersRead :+: door :+: doorRead :+: doorsRead
-    val server = Http.serve(":8080", api.toService)
+    val urlPattern = "([0-9.]*)?(:[0-9]*)?".r
+    val bind = args.toList match {
+      case url :: Nil => url match {
+        case urlPattern(host, port) => (if (host != null) host else "") ++ (if (post != null) port else ":8080")
+      }
+      case _ => ":8080"
+    }
+    val server = Http.serve(bind, api.toService)
   }
+
+  import shapeless.::
 
   private def commandEndpoint[E, C: DecodeRequest: ClassTag, D, S](path: String, aggregate: Aggregate[E, C, D, S]) =
     post(path / string :: body.as[C]) mapOutputAsync {
