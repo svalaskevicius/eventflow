@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="80">
+<defs>
+<style type="text/css">
+@namespace "http://www.w3.org/2000/svg";
+.line                 {fill: none; stroke: #332900;}
+.bold-line            {stroke: #141000; shape-rendering: crispEdges; stroke-width:
+    2; }
+    .thin-line            {stroke: #1F1800; shape-rendering: crispEdges}
+    .filled               {fill: #332900; stroke: none;}
+    text.terminal         {font-family: Verdana, Sans-serif;
+        font-size: 12px;
+fill: #141000;
+      font-weight: bold;
+    }
+text.nonterminal      {font-family: Verdana, Sans-serif;
+    font-size: 12px;
+fill: #1A1400;
+}
+text.regexp           {font-family: Verdana, Sans-serif;
+    font-size: 12px;
+fill: #1F1800;
+}
+rect, circle, polygon {fill: #332900; stroke: #332900;}
+rect.terminal         {fill: #FFDB4D; stroke: #332900;}
+rect.nonterminal      {fill: #FFEC9E; stroke: #332900;}
+rect.text             {fill: none; stroke: none;}    
+polygon.regexp        {fill: #FFF4C7; stroke: #332900;}
+
+</style>
+</defs>
+<polygon points="9 17 1 13 1 21"/>
+<polygon points="17 17 9 13 9 21"/>
+<rect x="51" y="3" width="56" height="32" rx="10"/>
+<rect x="49" y="1" width="56" height="32" class="terminal" rx="10"/>
+<text class="terminal" x="59" y="21">on[E]</text>
+<rect x="51" y="47" width="94" height="32" rx="10"/>
+<rect x="49" y="45" width="94" height="32" class="terminal" rx="10"/>
+<text class="terminal" x="59" y="65">on[E](e: E)</text>
+<svg:path xmlns:svg="http://www.w3.org/2000/svg" class="line" d="m17 17 h2 m20 0 h10 m56 0 h10 m0 0 h38 m-134 0 h20 m114 0 h20 m-154 0 q10 0 10 10 m134 0 q0 -10 10 -10 m-144 10 v24 m134 0 v-24 m-134 24 q0 10 10 10 m114 0 q10 0 10 -10 m-124 10 h10 m94 0 h10 m23 -44 h-3"/>
+<polygon points="183 17 191 13 191 21"/>
+<polygon points="183 17 175 13 175 21"/>
+</svg>

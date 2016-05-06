@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+
+	<head>
+		<meta charset="utf-8">
+        <base href="reveal.js/">
+
+		<title>Eventflow</title>
+
+		<meta name="description" content="Introduction to eventflow - cqrs/es in scala">
+		<meta name="author" content="Sarunas Valaskevicius">
+
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<link rel="stylesheet" href="css/reveal.min.css">
+		<link rel="stylesheet" href="css/theme/beige.css" id="theme">
+
+		<link rel="stylesheet" href="../codestyle.css">
+
+		<!-- If the query includes 'print-pdf', include the PDF print sheet -->
+		<script>
+			if( window.location.search.match( /print-pdf/gi ) ) {
+				var link = document.createElement( 'link' );
+				link.rel = 'stylesheet';
+				link.type = 'text/css';
+				link.href = 'css/print/pdf.css';
+				document.getElementsByTagName( 'head' )[0].appendChild( link );
+			}
+		</script>
+
+		<!--[if lt IE 9]>
+		<script src="lib/js/html5shiv.js"></script>
+		<![endif]-->
+
+      <style>
+      .reveal h1 {font-size: 2.5em; margin-bottom: 1em; }
+      .reveal section img {border-width: 0}
+      </style>
+	</head>
+
+	<body>
+
+		<div class="reveal">
+
+			<div class="slides">
+                <section><section id="eventflow" class="titleslide slide level1"><h1>Eventflow</h1></section><section id="about-me" class="slide level2">
+<h1>About me</h1>
+<p>a software geek,</p>
+<p>an FP promoter</p>
+<p>and a pragmatic purist</p>
+<p><br />
+Sarunas Valaskevicius @ Inviqa</p>
+</section><section id="what-to-expect" class="slide level2">
+<h1>What to expect</h1>
+<p>Review elements of cqrs/es;</p>
+<p>look at how can eventflow help;</p>
+<p><em>everyone is invited to participate!</em></p>
+</section></section>
+<section><section id="eventsourcing-elements" class="titleslide slide level1"><h1>Eventsourcing elements</h1></section><section id="well-talk-about" class="slide level2">
+<h1>We'll talk about</h1>
+<ul>
+<li>event</li>
+<li>command</li>
+<li>aggregate</li>
+<li>command handler</li>
+</ul>
+<p>...</p>
+</section><section id="events" class="slide level2">
+<h1>Events</h1>
+<p><em><strong>It happened</strong>, no way around it.</em></p>
+<p><br />
+A message that a change has occurred. Used to model the state of an aggregate as a sequence of deltas.</p>
+</section><section id="commands" class="slide level2">
+<h1>Commands</h1>
+<p><em>Make it <strong>happen</strong>!</em></p>
+<p><br />
+A request from outside the aggregate (e.g. from a user) to <em>change</em> the current state.</p>
+</section><section id="aggregate" class="slide level2">
+<h1>Aggregate</h1>
+<p><em>Can this happen <strong>right now</strong>?</em></p>
+<p><br />
+Checks if the requested changes comply with the <strong>consistency</strong> rules for the aggregate. Ensures strong consistency within its bounds.</p>
+</section><section id="command-handler" class="slide level2">
+<h1>Command handler</h1>
+<p><em>[E] -&gt; C -&gt; [E] Xor Error</em></p>
+<p><br />
+Executes command, given aggregate's past events, and either results in new events, or an error.</p>
+<p>E.g. in the examples later, it ensures that a counter doesn't go below 0.</p>
+</section><section id="projections" class="slide level2">
+<h1>Projections</h1>
+<p><em>D -&gt; E -&gt; D</em></p>
+<p><br />
+Maintains its own read model (<em>D</em>), and updates it when new events are emitted.</p>
+<p>Can &quot;listen&quot; for multiple aggregates, or even aggregate types.</p>
+</section><section id="the-sum-of-the-parts" class="slide level2">
+<h1>The sum of the parts</h1>
+<figure>
+<img src="../system.png" alt="The system as a collection of strongly consistent components." style="width:80.0%" /><figcaption><em>The system as a collection of strongly consistent components.</em></figcaption>
+</figure>
+</section></section>
+<section><section id="eventflow-usage" class="titleslide slide level1"><h1>Eventflow usage</h1></section><section id="the-counter-example" class="slide level2">
+<h1>The counter example</h1>
+<div class="sourceCode"><pre class="sourceCode scala"><code class="sourceCode scala"><span class="kw">object</span> Counter {
+  <span class="kw">sealed</span> <span class="kw">trait</span> Event
+  <span class="kw">final</span> <span class="kw">case</span> <span class="kw">class</span> <span class="fu">Created</span>(id: AggregateId, start: Int) <span class="kw">extends</span> Event
+  <span class="kw">case</span> <span class="kw">object</span> Incremented <span class="kw">extends</span> Event
+  <span class="kw">case</span> <span class="kw">object</span> Decremented <span class="kw">extends</span> Event
+
+  <span class="kw">sealed</span> <span class="kw">trait</span> Command
+  <span class="kw">final</span> <span class="kw">case</span> <span class="kw">class</span> <span class="fu">Create</span>(id: AggregateId, start: Int) <span class="kw">extends</span> Command
+  <span class="kw">case</span> <span class="kw">object</span> Increment <span class="kw">extends</span> Command
+  <span class="kw">case</span> <span class="kw">object</span> Decrement <span class="kw">extends</span> Command
+}</code></pre></div>
+</section><section id="the-counter-aggregate-model" class="slide level2">
+<h1>The counter aggregate model</h1>
+<div class="sourceCode"><pre class="sourceCode scala"><code class="sourceCode scala"><span class="kw">object</span> CounterAggregate <span class="kw">extends</span> EventFlow[Event, Command] {
+
+  <span class="kw">val</span> counting: RegisteredFlowStateAux[Int] = <span class="fu">ref</span>(&#39;counter, c =&gt; <span class="fu">handler</span>(
+    <span class="fu">when</span>(Increment).<span class="fu">emit</span>(Incremented).<span class="fu">switch</span>(c + <span class="dv">1</span> -&gt; counting),
+    <span class="fu">when</span>(Decrement).<span class="fu">guard</span>(_ =&gt; c &gt; <span class="dv">0</span>, <span class="st">&quot;Counter cannot be decremented&quot;</span>).
+        <span class="fu">emit</span>(Decremented).<span class="fu">switch</span>(c - <span class="dv">1</span> -&gt; counting)
+  ))
+
+  <span class="kw">val</span> aggregateLogic: Flow[Unit] = <span class="fu">handler</span>(
+    when[Create].<span class="fu">emit</span>[Created].<span class="fu">switchByEvent</span>(evt =&gt; evt.<span class="fu">start</span> -&gt; counting)
+  )
+
+  <span class="kw">val</span> snapshottableStates: FlowStates = List(counting)
+}</code></pre></div>
+</section><section id="the-doors-example" class="slide level2">
+<h1>The doors example</h1>
+<div class="sourceCode"><pre class="sourceCode scala"><code class="sourceCode scala"><span class="kw">object</span> Door {
+  <span class="kw">sealed</span> <span class="kw">trait</span> Event
+  <span class="kw">final</span> <span class="kw">case</span> <span class="kw">class</span> <span class="fu">Registered</span>(id: AggregateId) <span class="kw">extends</span> Event
+  <span class="kw">case</span> <span class="kw">object</span> Opened <span class="kw">extends</span> Event
+  <span class="kw">case</span> <span class="kw">object</span> Closed <span class="kw">extends</span> Event
+  <span class="kw">final</span> <span class="kw">case</span> <span class="kw">class</span> <span class="fu">Locked</span>(key: String) <span class="kw">extends</span> Event
+  <span class="kw">final</span> <span class="kw">case</span> <span class="kw">class</span> <span class="fu">Unlocked</span>(key: String) <span class="kw">extends</span> Event
+
+  <span class="kw">sealed</span> <span class="kw">trait</span> Command
+  <span class="kw">final</span> <span class="kw">case</span> <span class="kw">class</span> <span class="fu">Register</span>(id: AggregateId) <span class="kw">extends</span> Command
+  <span class="kw">case</span> <span class="kw">object</span> Open <span class="kw">extends</span> Command
+  <span class="kw">case</span> <span class="kw">object</span> Close <span class="kw">extends</span> Command
+  <span class="kw">final</span> <span class="kw">case</span> <span class="kw">class</span> Lock(key: String) <span class="kw">extends</span> Command
+  <span class="kw">final</span> <span class="kw">case</span> <span class="kw">class</span> <span class="fu">Unlock</span>(key: String) <span class="kw">extends</span> Command
+}</code></pre></div>
+</section><section id="the-door-aggregate" class="slide level2">
+<h1>The door aggregate</h1>
+<div class="sourceCode"><pre class="sourceCode scala"><code class="sourceCode scala"><span class="kw">val</span> openDoors: RegisteredFlowStateAux[Unit] = 
+  <span class="fu">ref</span>(&#39;open, <span class="fu">handler</span>(
+    <span class="fu">when</span>(Close).<span class="fu">emit</span>(Closed).<span class="fu">switch</span>(closedDoors)
+  ))
+
+<span class="kw">val</span> closedDoors: RegisteredFlowStateAux[Unit] = 
+  <span class="fu">ref</span>(&#39;closed, <span class="fu">handler</span>(
+    <span class="fu">when</span>(Open).<span class="fu">emit</span>(Opened).<span class="fu">switch</span>(openDoors),
+    when[Lock].<span class="fu">emit</span>[Locked].<span class="fu">switchByEvent</span>(ev =&gt; ev.<span class="fu">key</span> -&gt; lockedDoors)
+  ))
+
+<span class="kw">val</span> lockedDoors: RegisteredFlowStateAux[String] =
+  <span class="fu">ref</span>(&#39;locked, key =&gt; <span class="fu">handler</span>(
+    <span class="fu">when</span>(<span class="fu">Unlock</span>(key)).<span class="fu">emit</span>[Unlocked].<span class="fu">switch</span>(closedDoors),
+    when[Unlock].<span class="fu">failWithMessage</span>(<span class="st">&quot;Attempted unlock key is invalid&quot;</span>),
+    anyOther.<span class="fu">failWithMessage</span>(<span class="st">&quot;Locked door can only be unlocked.&quot;</span>)
+  ))</code></pre></div>
+</section><section id="dsl-overview" class="slide level2">
+<h1>DSL overview</h1>
+<figure>
+<img src="../ebnf-diagrams/syntax.svg" style="width:80.0%" />
+</figure>
+<p>(generated using http://www.bottlecaps.de/rr/ui)</p>
+</section><section id="dsl-for-command-handler" class="slide level2">
+<h1>DSL for command handler</h1>
+<figure>
+<img src="../ebnf-diagrams/command-handler.svg" style="width:97.0%" />
+</figure>
+</section><section id="dsl-for-event-listener" class="slide level2">
+<h1>DSL for event listener</h1>
+<figure>
+<img src="../ebnf-diagrams/event-listener.svg" style="width:50.0%" />
+</figure>
+</section><section id="dsl-for-event-handler" class="slide level2">
+<h1>DSL for event handler</h1>
+<figure>
+<img src="../ebnf-diagrams/event-handler.svg" style="width:80.0%" />
+</figure>
+</section></section>
+<section><section id="snapshots" class="titleslide slide level1"><h1>Snapshots</h1></section><section id="their-purpose" class="slide level2">
+<h1>Their purpose</h1>
+<p>As we keep using an aggregate, it grows.</p>
+<p>The more events an aggregate has, the slower it is to restore its working state.</p>
+<p>Snapshots are caches of the working state.</p>
+</section><section id="how-do-they-work-in-the-eventflow" class="slide level2">
+<h1>How do they work in the Eventflow</h1>
+<p>Every <code>ref</code>'ed state function is registered by a symbol (<em>reference</em>).</p>
+<p>When snapshot is taken, it only stores the reference of the state function and its parameters.</p>
+<p>Restoring a snapshot simply applies the saved parameters to the referred state function.</p>
+</section></section>
+<section><section id="projections-1" class="titleslide slide level1"><h1>Projections</h1></section><section id="counter-example" class="slide level2">
+<h1>Counter example</h1>
+<p><em>Say we need to...</em></p>
+<ul>
+<li>read the current state of a particular counter</li>
+<li>find all counters in the system</li>
+</ul>
+</section><section id="counter-example-code" class="slide level2">
+<h1>Counter example code</h1>
+<div class="sourceCode"><pre class="sourceCode scala"><code class="sourceCode scala"><span class="kw">object</span> CounterProjection <span class="kw">extends</span> Projection[TreeMap[AggregateId, Int]] {
+  <span class="kw">def</span> initialData = TreeMap.<span class="fu">empty</span>
+
+  <span class="kw">val</span> listeningFor = List(CounterAggregate.<span class="fu">tag</span>)
+
+  <span class="kw">def</span> accept[E](d: Data) = {
+    <span class="kw">case</span> <span class="fu">EventData</span>(_, id, _, <span class="fu">Created</span>(_, start)) =&gt; 
+        d + (id -&gt; start)
+    <span class="kw">case</span> <span class="fu">EventData</span>(_, id, _, Incremented) =&gt;
+        d + (id -&gt; d.<span class="fu">get</span>(id).<span class="fu">fold</span>(<span class="dv">1</span>)(_ + <span class="dv">1</span>))
+    <span class="kw">case</span> <span class="fu">EventData</span>(_, id, _, Decremented) =&gt; 
+        d + (id -&gt; d.<span class="fu">get</span>(id).<span class="fu">fold</span>(-<span class="dv">1</span>)(_ - <span class="dv">1</span>))
+  }
+}</code></pre></div>
+</section><section id="doors-example" class="slide level2">
+<h1>Doors example</h1>
+<p><em>Or the same for doors, with a custom projection target structure</em></p>
+<div class="sourceCode"><pre class="sourceCode scala"><code class="sourceCode scala"><span class="kw">sealed</span> <span class="kw">trait</span> DoorState
+<span class="kw">object</span> DoorState {
+  <span class="kw">case</span> <span class="kw">object</span> Open <span class="kw">extends</span> DoorState
+  <span class="kw">case</span> <span class="kw">object</span> Closed <span class="kw">extends</span> DoorState
+  <span class="kw">case</span> <span class="kw">object</span> Locked <span class="kw">extends</span> DoorState
+}</code></pre></div>
+</section><section id="doors-example-continued" class="slide level2">
+<h1>Doors example continued</h1>
+<div class="sourceCode"><pre class="sourceCode scala"><code class="sourceCode scala"><span class="kw">object</span> DoorProjection <span class="kw">extends</span> Projection[TreeMap[AggregateId, DoorState]] {
+
+  <span class="kw">def</span> initialData = TreeMap.<span class="fu">empty</span>
+
+  <span class="kw">val</span> listeningFor = List(DoorAggregate.<span class="fu">tag</span>)
+
+  <span class="kw">def</span> accept[E](d: Data) = {
+    <span class="kw">case</span> <span class="fu">EventData</span>(_, id, _, <span class="fu">Registered</span>(_)) =&gt; d + (id -&gt; DoorState.<span class="fu">Open</span>)
+    <span class="kw">case</span> <span class="fu">EventData</span>(_, id, _, Closed)        =&gt; d + (id -&gt; DoorState.<span class="fu">Closed</span>)
+    <span class="kw">case</span> <span class="fu">EventData</span>(_, id, _, Opened)        =&gt; d + (id -&gt; DoorState.<span class="fu">Open</span>)
+    <span class="kw">case</span> <span class="fu">EventData</span>(_, id, _, <span class="fu">Locked</span>(_))     =&gt; d + (id -&gt; DoorState.<span class="fu">Locked</span>)
+    <span class="kw">case</span> <span class="fu">EventData</span>(_, id, _, <span class="fu">Unlocked</span>(_))   =&gt; d + (id -&gt; DoorState.<span class="fu">Closed</span>)
+  }
+}</code></pre></div>
+</section><section id="reading-from-multiple-aggregate-types" class="slide level2">
+<h1>Reading from multiple aggregate types</h1>
+<div class="sourceCode"><pre class="sourceCode scala"><code class="sourceCode scala"><span class="kw">val</span> listeningFor = List(CounterAggregate.<span class="fu">tag</span>, DoorAggregate.<span class="fu">tag</span>)
+
+<span class="kw">def</span> accept[E](d: Data) = {
+  <span class="kw">case</span> <span class="fu">EventData</span>(_, id, _, Door.<span class="fu">Registered</span>(_)) =&gt; ...
+  <span class="kw">case</span> <span class="fu">EventData</span>(_, id, _, Door.<span class="fu">Closed</span>)        =&gt; ...
+  <span class="kw">case</span> <span class="fu">EventData</span>(_, id, _, Door.<span class="fu">Opened</span>)        =&gt; ...
+  <span class="kw">case</span> <span class="fu">EventData</span>(_, id, _, Counter.<span class="fu">Incremented</span>) =&gt; ...
+  <span class="kw">case</span> <span class="fu">EventData</span>(_, id, _, Counter.<span class="fu">Decremented</span>) =&gt; ...
+}</code></pre></div>
+</section></section>
+<section><section id="testing-aggregates" class="titleslide slide level1"><h1>Testing aggregates</h1></section><section id="given" class="slide level2">
+<h1>Given</h1>
+<p>Initialise the events relevant for the test case.</p>
+</section><section id="when" class="slide level2">
+<h1>When</h1>
+<p>Specify the command to execute.</p>
+</section><section id="thencheck" class="slide level2">
+<h1>ThenCheck</h1>
+<p>Assert the expected results - are the new events resulting from the commmand execution correct?</p>
+</section><section id="exampe-tests-for-counter" class="slide level2">
+<h1>Exampe tests for counter</h1>
+<div class="sourceCode"><pre class="sourceCode scala"><code class="sourceCode scala"><span class="st">&quot;Locked door&quot;</span> should <span class="st">&quot;allow to unclock with the same key&quot;</span> in {
+  given {
+    newDb.<span class="fu">withEvents</span>[Event](tag, <span class="st">&quot;door&quot;</span>, 
+        <span class="fu">Registered</span>(<span class="st">&quot;door&quot;</span>), Closed, <span class="fu">Locked</span>(<span class="st">&quot;key&quot;</span>)
+    )
+  } when {
+    _.<span class="fu">command</span>(DoorAggregate, <span class="st">&quot;door&quot;</span>, <span class="fu">Unlock</span>(<span class="st">&quot;key&quot;</span>))
+  } thenCheck {
+    _.<span class="fu">newEvents</span>[Event](tag, <span class="st">&quot;door&quot;</span>) should <span class="fu">be</span>(List(<span class="fu">Unlocked</span>(<span class="st">&quot;key&quot;</span>)))
+  }
+}</code></pre></div>
+</section></section>
+<section><section id="current-state-of-eventflow" class="titleslide slide level1"><h1>Current state of Eventflow</h1></section><section id="database-backends" class="slide level2">
+<h1>Database backends</h1>
+<p>In memory database;</p>
+<p>GetEventStore integration;</p>
+<p><em>more to come on demand.</em></p>
+</section><section id="frontend-example" class="slide level2">
+<h1>Frontend example</h1>
+<p><a href="https://github.com/svalaskevicius/eventflow/blob/master/example/src/main/scala/EventflowExample.scala">Code</a></p>
+</section><section id="demo-counter" class="slide level2">
+<h1>Demo / counter</h1>
+<pre><code>http hemisu-mindpowered.rhcloud.com/counters
+http hemisu-mindpowered.rhcloud.com/counter/a Create:=&#39;{&quot;id&quot;:&quot;a&quot;, &quot;start&quot;:10}&#39;
+http hemisu-mindpowered.rhcloud.com/counter/a Increment=true
+http hemisu-mindpowered.rhcloud.com/counter/a Decrement=true
+http hemisu-mindpowered.rhcloud.com/counter/a
+http hemisu-mindpowered.rhcloud.com/counters</code></pre>
+</section><section id="demo-doors" class="slide level2">
+<h1>Demo / doors</h1>
+<p><a href="https://gist.githubusercontent.com/svalaskevicius/1710fc7ae01d88c8038b0e3068d4091a/raw/781cf82ea12fe2797fd7db233c2b2ef1fa101d31/eventflow%2520doors%2520example">Recorded session</a></p>
+<pre><code>http hemisu-mindpowered.rhcloud.com/door/a Register:=&#39;{&quot;id&quot;:&quot;golden&quot;}&#39;
+HTTP/1.1 200 OK
+http hemisu-mindpowered.rhcloud.com/doors
+HTTP/1.1 200 OK
+http hemisu-mindpowered.rhcloud.com/door/a
+HTTP/1.1 200 OK
+http hemisu-mindpowered.rhcloud.com/door/a Close:=true
+HTTP/1.1 200 OK
+http hemisu-mindpowered.rhcloud.com/door/a Lock:=&#39;{&quot;key&quot;:&quot;golden&quot;}&#39;
+HTTP/1.1 200 OK
+http hemisu-mindpowered.rhcloud.com/door/a
+HTTP/1.1 200 OK
+http hemisu-mindpowered.rhcloud.com/door/a Unlock:=&#39;{&quot;key&quot;:&quot;rusty&quot;}&#39;
+HTTP/1.1 412 Precondition Failed
+http hemisu-mindpowered.rhcloud.com/door/a Unlock:=&#39;{&quot;key&quot;:&quot;golden&quot;}&#39;
+HTTP/1.1 200 OK
+http hemisu-mindpowered.rhcloud.com/door/a
+HTTP/1.1 200 OK</code></pre>
+</section><section id="future" class="slide level2">
+<h1>Future</h1>
+<ul>
+<li>add saga support</li>
+<li>monitoring</li>
+<li>more ideas at <a href="https://waffle.io/svalaskevicius/eventflow">waffle.io/svalaskevicius/eventflow</a></li>
+</ul>
+</section></section>
+<section><section id="implementing-a-domain-model-from-scratch" class="titleslide slide level1"><h1>Implementing a domain model from scratch</h1></section><section id="define-aggregates" class="slide level2">
+<h1>Define aggregates</h1>
+<p>What events happen in the business?</p>
+<p>What has to be consistent at all times?</p>
+<p>A good tool for this is <em>eventstorming</em></p>
+</section><section id="add-projections" class="slide level2">
+<h1>Add projections</h1>
+<p>What do clients expect to see?</p>
+<p><br />
+Can become quite complex too</p>
+<p>(e.g. pushing data to customers as it changes)</p>
+</section><section id="sagas" class="slide level2">
+<h1>Sagas</h1>
+<p><em>not supported in the eventflow <strong>yet</strong>.</em></p>
+</section></section>
+<section><section id="summary" class="titleslide slide level1"><h1>Summary</h1></section><section id="youve-seen" class="slide level2">
+<h1>You've seen</h1>
+<p>We've reviewed the basic components of CQRS/ES system,</p>
+<p>the way eventflow models aggregates,</p>
+<p>and a few implementation examples.</p>
+</section><section id="where-to-next" class="slide level2">
+<h1>Where to next?</h1>
+<p><a href="https://github.com/svalaskevicius/eventflow/">github.com/svalaskevicius/eventflow/</a></p>
+<p><a href="https://gitter.im/svalaskevicius/eventflow">gitter.im/svalaskevicius/eventflow</a></p>
+</section><section id="we-have-a-t-shirt" class="slide level2">
+<h1>We have a T-shirt</h1>
+<p><strong>But first your need to answer a question :)</strong></p>
+</section><section id="thanks---any-questions" class="slide level2">
+<h1>Thanks - any questions?</h1>
+<figure>
+<img src="../beer.jpg" style="width:95.0%" />
+</figure>
+</section></section>
+			</div>
+
+		</div>
+
+		<script src="lib/js/head.min.js"></script>
+		<script src="js/reveal.min.js"></script>
+
+		<script>
+
+			// Full list of configuration options available here:
+			// https://github.com/hakimel/reveal.js#configuration
+			Reveal.initialize({
+				controls: true,
+				progress: true,
+				history: true,
+				center: true,
+
+				theme: Reveal.getQueryHash().theme, // available themes are in /css/theme
+				transition: Reveal.getQueryHash().transition || 'default', // default/cube/page/concave/zoom/linear/fade/none
+
+				// Parallax scrolling
+				// parallaxBackgroundImage: 'https://s3.amazonaws.com/hakim-static/reveal-js/reveal-parallax-1.jpg',
+				// parallaxBackgroundSize: '2100px 900px',
+
+				// Optional libraries used to extend on reveal.js
+				dependencies: [
+					{ src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+		//			{ src: 'plugin/markdown/marked.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+		//			{ src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+		//			{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } },
+					{ src: 'plugin/zoom-js/zoom.js', async: true, condition: function() { return !!document.body.classList; } },
+					{ src: 'plugin/notes/notes.js', async: true, condition: function() { return !!document.body.classList; } }
+				]
+			});
+
+		</script>
+	</body>
+</html>

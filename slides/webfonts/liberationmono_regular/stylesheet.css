@@ -1,0 +1,12 @@
+@font-face {
+    font-family: 'liberation_monoregular';
+    src: url('LiberationMono-Regular-webfont.eot');
+    src: url('LiberationMono-Regular-webfont.eot?#iefix') format('embedded-opentype'),
+         url('LiberationMono-Regular-webfont.woff') format('woff'),
+         url('LiberationMono-Regular-webfont.ttf') format('truetype'),
+         url('LiberationMono-Regular-webfont.svg#liberation_monoregular') format('svg');
+    font-weight: normal;
+    font-style: normal;
+
+}
+
