@@ -19,19 +19,19 @@ object EventflowBuild extends Build {
   ) aggregate (core, eventstoreBackend, example) dependsOn (example)
 
   lazy val core = Project(
-    id       = "eventflow-core",
+    id       = "core",
     base     = file("core"),
     settings = buildSettings
   )
 
   lazy val eventstoreBackend = Project(
-    id       = "eventflow-eventstore-backend",
+    id       = "eventstore-backend",
     base     = file("eventstore-backend"),
     settings = buildSettings
   ) dependsOn (core)
 
   lazy val example = Project(
-    id       = "eventflow-example",
+    id       = "example",
     base     = file("example"),
     settings = buildSettings
   ) dependsOn (core, eventstoreBackend)
