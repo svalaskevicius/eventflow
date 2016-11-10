@@ -53,7 +53,7 @@ class DoorSpec extends FlatSpec with Matchers with AggregateSpec {
     given {
       newDb.withEvents[Event](tag, "door", Registered("door"), Closed, Locked("key"))
     } check {
-      _.failedCommandError(DoorAggregate, "door", Unlock("wrongkey")) should be(Errors(NEL(ErrorCommandFailure("Attempted unlock key is invalid"))))
+      _.failedCommandError(DoorAggregate, "door", Unlock("wrongkey")) should be(Errors(NEL.of(ErrorCommandFailure("Attempted unlock key is invalid"))))
     }
   }
 
@@ -61,7 +61,7 @@ class DoorSpec extends FlatSpec with Matchers with AggregateSpec {
     given {
       newDb.withEvents[Event](tag, "door", Registered("door"), Closed, Locked("key"))
     } check {
-      _.failedCommandError(DoorAggregate, "door", Open) should be(Errors(NEL(ErrorCommandFailure("Locked door can only be unlocked."))))
+      _.failedCommandError(DoorAggregate, "door", Open) should be(Errors(NEL.of(ErrorCommandFailure("Locked door can only be unlocked."))))
     }
   }
 

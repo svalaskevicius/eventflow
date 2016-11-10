@@ -1,16 +1,17 @@
 libraryDependencies += "org.scalacheck" %% "scalacheck" % "1.12.4" % "test"
-libraryDependencies += "org.scalactic" %% "scalactic" % "2.2.6"
-libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.6" % "test"
+libraryDependencies += "org.scalactic" %% "scalactic" % "3.0.0"
+libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.0" % "test"
+
+//libraryDependencies ++= Seq(
+//  "com.github.finagle" %% "finch-core" % "0.11.0-M4"
+////  "com.github.finagle" %% "finch-circe" % "0.11.0-M4"
+//)
+
 
 libraryDependencies ++= Seq(
-  "com.github.finagle" %% "finch-core" % "0.10.0",
-  "com.github.finagle" %% "finch-circe" % "0.10.0"
-)
-
-libraryDependencies ++= Seq(
-  "io.circe" %% "circe-core" % "0.3.0",
-  "io.circe" %% "circe-generic" % "0.3.0",
-  "io.circe" %% "circe-parser" % "0.3.0"
+  "io.circe" %% "circe-core" % "0.6.0",
+  "io.circe" %% "circe-generic" % "0.6.0",
+  "io.circe" %% "circe-parser" % "0.6.0"
 )
 
 libraryDependencies += "joda-time" % "joda-time" % "2.9.3"

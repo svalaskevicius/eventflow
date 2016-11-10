@@ -226,7 +226,7 @@ trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd
     }
   ).
     getOrElse {
-      Validated.invalid(NEL(ErrorCannotFindHandler(c.toString)))
+      Validated.invalid(NEL.of(ErrorCannotFindHandler(c.toString)))
     }
 
   def initData = eventFlowImpl.esRunnerCompiler(PartialFunction.empty, aggregateLogic)

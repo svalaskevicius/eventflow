@@ -7,8 +7,7 @@ import Cqrs.Database.{ Error, _ }
 import Cqrs.{ Projection, ProjectionRunner }
 import akka.actor.ActorSystem
 import cats._
-import cats.data.Xor
-import cats.std.all._
+import cats.implicits._
 import eventstore._
 
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -54,13 +53,13 @@ object EventStore {
       def onClose() = {} //TODO: reopen?
     })
 
-    def runDb[E, A](actions: EventDatabaseWithFailure[E, A]): Future[Error Xor A] =
+    def runDb[E, A](actions: EventDatabaseWithFailure[E, A]): Future[Error Either A] =
       actions.value.foldMap(transformDbOpToDbState)
 
-    private def readFromDb[E](tag: EventTagAux[E], id: AggregateId, fromVersion: Int): Future[Error Xor ReadAggregateEventsResponse[E]] = {
+    private def readFromDb[E](tag: EventTagAux[E], id: AggregateId, fromVersion: Int): Future[Error Either ReadAggregateEventsResponse[E]] = {
 
       def decode(d: String) = decodeEvent(d)(tag.eventSerialiser)
-      def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
+      def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Either List[E] = t.sequence[Either[Error, ?], E](d map decode)
 
       val eventsFromDb = connection future ReadStreamEvents(
         esStreamId(tag, id),
@@ -73,21 +72,21 @@ object EventStore {
       }
 
       decodedResponse.recover {
-        case _: StreamNotFoundException => Xor.right(ReadAggregateEventsResponse(NewAggregateVersion, List.empty, endOfStream = true))
-        case err: EsException           => Xor.left(ErrorDbFailure(err.getMessage))
+        case _: StreamNotFoundException => Right(ReadAggregateEventsResponse(NewAggregateVersion, List.empty, endOfStream = true))
+        case err: EsException           => Left(ErrorDbFailure(err.getMessage))
       }
     }
 
-    private def addToDb[E](tag: EventTagAux[E], id: AggregateId, expectedVersion: Int, events: List[E]): Future[Error Xor Unit] = {
+    private def addToDb[E](tag: EventTagAux[E], id: AggregateId, expectedVersion: Int, events: List[E]): Future[Error Either Unit] = {
       val response = connection future WriteEvents(
         esStreamId(tag, id),
         events.map(ev => eventstore.EventData.Json(ev.getClass.toString, data = tag.eventSerialiser.toString(ev))),
         ExpectedVersion(expectedVersion)
       )
 
-      val dbErrorsHandled = response.map(_ => Xor.right(())).recover {
-        case err: WrongExpectedVersionException => Xor.left(ErrorUnexpectedVersion(id, err.getMessage))
-        case err: EsException                   => Xor.left(ErrorDbFailure(err.getMessage))
+      val dbErrorsHandled = response.map(_ => Right(())).recover {
+        case err: WrongExpectedVersionException => Left(ErrorUnexpectedVersion(id, err.getMessage))
+        case err: EsException                   => Left(ErrorDbFailure(err.getMessage))
       }
 
       dbErrorsHandled
@@ -118,24 +117,24 @@ object EventStore {
       }
     }
 
-    private def readDbSnapshot[E, S: Serializable](tag: EventTagAux[E], id: AggregateId): Future[Error Xor ReadSnapshotResponse[S]] = {
+    private def readDbSnapshot[E, S: Serializable](tag: EventTagAux[E], id: AggregateId): Future[Error Either ReadSnapshotResponse[S]] = {
       val response = connection future ReadEvent.StreamMetadata(esMetaStreamId(tag, id))
-      val decodedResponse = response.map[Error Xor ReadSnapshotResponse[S]] { resp =>
+      val decodedResponse = response.map[Error Either ReadSnapshotResponse[S]] { resp =>
 
         val serializer = implicitly[Serializable[StoredSnapshot[S]]]
-        serializer.fromString(resp.event.data.data.value.utf8String).fold[Error Xor ReadSnapshotResponse[S]](
-          Xor.left(ErrorDbFailure(s"Cannot unserialise snapshot data for ${tag.name} :: $id == ${resp.event.data.data.value.utf8String}"))
+        serializer.fromString(resp.event.data.data.value.utf8String).fold[Error Either ReadSnapshotResponse[S]](
+          Left(ErrorDbFailure(s"Cannot unserialise snapshot data for ${tag.name} :: $id == ${resp.event.data.data.value.utf8String}"))
         )(data =>
-            Xor.right(ReadSnapshotResponse(data.version, data.data)))
+            Right(ReadSnapshotResponse(data.version, data.data)))
       }
       val dbErrorsHandled = decodedResponse.recover {
-        case err: EsException => Xor.left(ErrorDbFailure(err.getMessage))
+        case err: EsException => Left(ErrorDbFailure(err.getMessage))
       }
 
       dbErrorsHandled
     }
 
-    private def saveDbSnapshot[E, S: Serializable](tag: EventTagAux[E], id: AggregateId, version: Int, snapshot: S): Future[Error Xor Unit] = {
+    private def saveDbSnapshot[E, S: Serializable](tag: EventTagAux[E], id: AggregateId, version: Int, snapshot: S): Future[Error Either Unit] = {
       val snapshotToStore = StoredSnapshot(version, snapshot)
       val serialisedData = {
         val serializer = implicitly[Serializable[StoredSnapshot[S]]]
@@ -146,10 +145,10 @@ object EventStore {
         Content(serialisedData)
       )
       val dbErrorsHandled = response.recover {
-        case err: EsException => Xor.left(ErrorDbFailure(err.getMessage))
+        case err: EsException => Left(ErrorDbFailure(err.getMessage))
       }
 
-      dbErrorsHandled.map(_ => Xor.right(()))
+      dbErrorsHandled.map(_ => Right(()))
     }
 
     private def transformDbOpToDbState[E]: EventDatabaseOp[E, ?] ~> Future =

@@ -3,7 +3,7 @@ import Cqrs.Database.FoldableDatabase._
 import Cqrs.Database._
 import Cqrs.DbAdapters.InMemoryDb._
 import Cqrs.{ Aggregate, Database, Projection, ProjectionRunner }
-import cats.data.Xor
+import cats.implicits._
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
@@ -12,8 +12,6 @@ import scala.reflect.ClassTag
 trait AggregateSpec {
 
   type DB = Backend with FoldableDatabase
-
-  def fail(message: String): Unit
 
   implicit class GivenSteps(val db: DB) {
 
@@ -37,8 +35,7 @@ trait AggregateSpec {
   case class WhenSteps(val db: DB, startingDbOpNr: Long) {
 
     def command[E, C, D, S](aggregate: Aggregate[E, C, D, S], id: AggregateId, cmd: C) = {
-      act(db, aggregate.loadAndHandleCommand(id, cmd))
-        .leftMap(err => failStop(err.toString))
+      act(db, aggregate.loadAndHandleCommand(id, cmd)).swap.foreach { err => failStop(err.toString) }
       this
     }
   }
@@ -89,10 +86,10 @@ trait AggregateSpec {
     ).fold(err => failStop("Could not read events: " + err), _._2)
   }
 
-  private def readDbVersion(db: DB): Database.Error Xor Long =
+  private def readDbVersion(db: DB): Database.Error Either Long =
     db.consumeDbEvents(0, (), List()).map(_._1)
 
-  private def addEvents[E](database: Backend, tag: Aggregate.EventTagAux[E], aggregateId: AggregateId, events: List[E]): Aggregate.Error Xor Unit = {
+  private def addEvents[E](database: Backend, tag: Aggregate.EventTagAux[E], aggregateId: AggregateId, events: List[E]): Aggregate.Error Either Unit = {
     import Aggregate._
 
     val commands = for {
@@ -103,7 +100,6 @@ trait AggregateSpec {
   }
 
   private def failStop(message: String) = {
-    fail(message)
     throw new scala.Error("Failed with: " + message)
   }
 

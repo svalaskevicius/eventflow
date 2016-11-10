@@ -5,8 +5,9 @@ import Cqrs.Database.FoldableDatabase.{ EventDataConsumer, RawEventData }
 import Cqrs.Database.{ Error, _ }
 import Cqrs.{ Projection, ProjectionRunner }
 import cats._
-import cats.data.{ State, Xor }
-import cats.std.all._
+import cats.data.State
+//import cats.std.all._
+import cats.implicits._
 import lib.foldM
 
 import scala.collection.immutable.TreeMap
@@ -27,14 +28,14 @@ object InMemoryDb {
 
   private type Db[A] = State[DbBackend, A]
 
-  private def readFromDb[E](database: DbBackend, tag: EventTagAux[E], id: AggregateId, fromVersion: Int): Error Xor ReadAggregateEventsResponse[E] = {
+  private def readFromDb[E](database: DbBackend, tag: EventTagAux[E], id: AggregateId, fromVersion: Int): Error Either ReadAggregateEventsResponse[E] = {
 
     def getById(id: AggregateId)(t: Map[String, TreeMap[Int, String]]) = t.get(id)
     def decode(d: String) = decodeEvent(d)(tag.eventSerialiser)
-    def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Xor List[E] = t.sequence[Xor[Error, ?], E](d map decode)
+    def decodeEvents(d: List[String])(implicit t: Traverse[List]): Error Either List[E] = t.sequence[Either[Error, ?], E](d map decode)
 
-    (database.data.get(tag.name) flatMap getById(id)).fold[Error Xor ReadAggregateEventsResponse[E]](
-      Xor.right(ReadAggregateEventsResponse(NewAggregateVersion, List.empty, true))
+    (database.data.get(tag.name) flatMap getById(id)).fold[Error Either ReadAggregateEventsResponse[E]](
+      Right(ReadAggregateEventsResponse(NewAggregateVersion, List.empty, true))
     )(
         (evs: TreeMap[Int, String]) => {
           val newEvents = evs.from(fromVersion + 1)
@@ -44,17 +45,17 @@ object InMemoryDb {
       )
   }
 
-  private def addToDb[E](database: DbBackend, tag: EventTagAux[E], id: AggregateId, expectedVersion: Int, events: List[E]): Error Xor DbBackend = {
+  private def addToDb[E](database: DbBackend, tag: EventTagAux[E], id: AggregateId, expectedVersion: Int, events: List[E]): Error Either DbBackend = {
     val currentTaggedEvents = database.data.get(tag.name)
     val currentEvents = currentTaggedEvents flatMap (_.get(id))
     val previousVersion = currentEvents.fold(-1)(e => if (e.isEmpty) 0 else e.lastKey)
     if (previousVersion != expectedVersion) {
-      Xor.left(ErrorUnexpectedVersion(id, s"Aggregate version expectation failed: $previousVersion != $expectedVersion"))
+      Left(ErrorUnexpectedVersion(id, s"Aggregate version expectation failed: $previousVersion != $expectedVersion"))
     }
     else {
       val operationStartNumber = database.lastOperationNr + 1
       val indexedEvents = events.zipWithIndex
-      Xor.right(
+      Right(
         database.copy(
           data            = database.data.updated(
             tag.name,
@@ -82,21 +83,21 @@ object InMemoryDb {
     }
   }
 
-  private def readDbSnapshot[E, S: Serializable](database: DbBackend, tag: EventTagAux[E], id: AggregateId): Error Xor ReadSnapshotResponse[S] = {
-    database.snapshots.get(tag.name).flatMap(_.get(id)).fold[Error Xor ReadSnapshotResponse[S]](
-      Xor.left(ErrorDbFailure(s"No snapshot for ${tag.name} :: $id"))
+  private def readDbSnapshot[E, S: Serializable](database: DbBackend, tag: EventTagAux[E], id: AggregateId): Error Either ReadSnapshotResponse[S] = {
+    database.snapshots.get(tag.name).flatMap(_.get(id)).fold[Error Either ReadSnapshotResponse[S]](
+      Left(ErrorDbFailure(s"No snapshot for ${tag.name} :: $id"))
     ) { snapshot =>
         val data = implicitly[Serializable[S]].fromString(snapshot.data)
-        data.fold[Error Xor ReadSnapshotResponse[S]](
-          Xor.left(ErrorDbFailure(s"Cannot unserialise snapshot data for ${tag.name} :: $id"))
+        data.fold[Error Either ReadSnapshotResponse[S]](
+          Left(ErrorDbFailure(s"Cannot unserialise snapshot data for ${tag.name} :: $id"))
         )(unserialisedData =>
-            Xor.right(ReadSnapshotResponse(snapshot.version, unserialisedData)))
+            Right(ReadSnapshotResponse(snapshot.version, unserialisedData)))
       }
   }
 
-  private def saveDbSnapshot[E, S: Serializable](database: DbBackend, tag: EventTagAux[E], id: AggregateId, version: Int, snapshot: S): Error Xor DbBackend = {
+  private def saveDbSnapshot[E, S: Serializable](database: DbBackend, tag: EventTagAux[E], id: AggregateId, version: Int, snapshot: S): Error Either DbBackend = {
     val data = StoredSnapshot(version, implicitly[Serializable[S]].toString(snapshot))
-    Xor.right(
+    Right(
       database.copy(
         snapshots = database.snapshots.updated(tag.name, database.snapshots.getOrElse(tag.name, Map.empty).updated(id, data))
       )
@@ -124,17 +125,17 @@ object InMemoryDb {
         }
       }
 
-      private def setterAsResult(ret: Error Xor DbBackend, initialDb: DbBackend) =
-        ret.fold[(DbBackend, Error Xor Unit)](
-          err => (initialDb, Xor.left[Error, Unit](err)),
-          db => (db, Xor.right[Error, Unit](()))
+      private def setterAsResult(ret: Error Either DbBackend, initialDb: DbBackend) =
+        ret.fold[(DbBackend, Error Either Unit)](
+          err => (initialDb, Left[Error, Unit](err)),
+          db => (db, Right[Error, Unit](()))
         )
     }
 
   def newInMemoryDb(projections: ProjectionRunner*) = new Backend with FoldableDatabase {
     var db = DbBackend(TreeMap.empty, TreeMap.empty, 0, projections.toList, Map.empty);
 
-    def runDb[E, A](actions: EventDatabaseWithFailure[E, A]): Future[Error Xor A] = synchronized {
+    def runDb[E, A](actions: EventDatabaseWithFailure[E, A]): Future[Error Either A] = synchronized {
       val (newDb, r) = actions.value.foldMap[Db](transformDbOpToDbState).run(db).value
       db = newDb
       Future.successful(r)
@@ -144,25 +145,25 @@ object InMemoryDb {
       db.projections.foldLeft(None: Option[D])((ret, p) => ret.orElse(p.getProjectionData[D](projection)))
     }
 
-    def consumeDbEvents[D](fromOperation: Long, initData: D, queries: List[EventDataConsumer[D]]): Error Xor (Long, D) = synchronized {
+    def consumeDbEvents[D](fromOperation: Long, initData: D, queries: List[EventDataConsumer[D]]): Error Either (Long, D) = synchronized {
 
-      def findData(tag: String, id: String, version: Int): Error Xor String = {
+      def findData(tag: String, id: String, version: Int): Error Either String = {
         val optionalRet = db.data.get(tag) flatMap (_.get(id)) flatMap (_.get(version))
-        optionalRet.map(Xor.right).getOrElse(Xor.left(ErrorDbFailure("Cannot find requested data: " + tag + " " + id + " " + version)))
+        optionalRet.map(Right(_)).getOrElse(Left(ErrorDbFailure("Cannot find requested data: " + tag + " " + id + " " + version)))
       }
 
-      def applyLogEntryData(tag: EventTag, logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: String): Error Xor D =
+      def applyLogEntryData(tag: EventTag, logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D])(data: String): Error Either D =
         consumer(d, RawEventData(tag, logEntry._2, logEntry._3, data))
 
-      def applyQueryToLogEntry(tag: EventTag, logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Error Xor D =
+      def applyQueryToLogEntry(tag: EventTag, logEntry: (String, String, Int), d: D, consumer: EventDataConsumer[D]): Error Either D =
         findData(logEntry._1, logEntry._2, logEntry._3) flatMap applyLogEntryData(tag, logEntry, d, consumer)
 
-      def checkAndApplyDataLogEntry(initDataForLogEntries: D, logEntry: (String, String, Int)): Error Xor D =
-        foldM[D, EventDataConsumer[D], Xor[Error, ?]](
-          d => q => if (q.tag.name == logEntry._1) applyQueryToLogEntry(q.tag, logEntry, d, q) else Xor.right(d)
+      def checkAndApplyDataLogEntry(initDataForLogEntries: D, logEntry: (String, String, Int)): Error Either D =
+        foldM[D, EventDataConsumer[D], Either[Error, ?]](
+          d => q => if (q.tag.name == logEntry._1) applyQueryToLogEntry(q.tag, logEntry, d, q) else Right(d)
         )(initDataForLogEntries)(queries)
 
-      val newData = foldM[D, (Long, (String, String, Int)), Xor[Error, ?]](
+      val newData = foldM[D, (Long, (String, String, Int)), Either[Error, ?]](
         d => el => checkAndApplyDataLogEntry(d, el._2)
       )(
           initData
