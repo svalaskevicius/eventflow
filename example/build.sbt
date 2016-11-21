@@ -20,5 +20,5 @@ resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 resolvers += Resolver.sonatypeRepo("releases")
 
-addCompilerPlugin("org.scalameta" % "paradise" % "3.0.0.122" cross CrossVersion.full)
+addCompilerPlugin("org.scalameta" % "paradise" % "3.0.0.132" cross CrossVersion.full)
 scalacOptions += "-Xplugin-require:macroparadise"

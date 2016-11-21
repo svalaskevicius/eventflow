@@ -19,11 +19,11 @@ resolvers += Resolver.url("scalameta", url("http://dl.bintray.com/scalameta/mave
 // annotations and a dependency on macro paradise 2.x.  A new release is
 // published on every merged PR into paradise.  To find the latest PR number,
 // see https://github.com/scalameta/paradise/commits/master and replace "122"
-addCompilerPlugin("org.scalameta" % "paradise" % "3.0.0.122" cross CrossVersion.full)
+addCompilerPlugin("org.scalameta" % "paradise" % "3.0.0.132" cross CrossVersion.full)
 scalacOptions += "-Xplugin-require:macroparadise"
 // temporary workaround for https://github.com/scalameta/paradise/issues/10
 scalacOptions in (Compile, console) += "-Yrepl-class-based" // necessary to use console
 // temporary workaround for https://github.com/scalameta/paradise/issues/55
 sources in (Compile, doc) := Nil
 
-libraryDependencies += "org.scalameta" %% "scalameta" % "1.3.0.522"
+libraryDependencies += "org.scalameta" %% "scalameta" % "1.3.0"
