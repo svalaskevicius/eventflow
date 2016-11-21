@@ -38,6 +38,8 @@ object Store {
 
 object StoreAggregate extends EventFlow[Event, Command] {
 
+  import EventFlow.state
+
   final case class StoreInfo(inventory: Map[ProductId, Int], prices: Map[ProductId, Money], knownReceipts: Map[SequenceNumber, Receipt]) {
 
     def returnProduct(receipt: Receipt) = copy(knownReceipts = knownReceipts - receipt.sequenceNumber)
@@ -51,8 +53,6 @@ object StoreAggregate extends EventFlow[Event, Command] {
   object StoreInfo {
     def empty = StoreInfo(TreeMap[ProductId, Int](), TreeMap[ProductId, Money](), TreeMap[SequenceNumber, Receipt]())
   }
-
-  import lib.Hack.state
 
   @state def store(storeInfo: StoreInfo) {
     when[RequestRefund].

@@ -30,7 +30,7 @@ object Counter {
 
 object CounterAggregate extends EventFlow[Event, Command] {
 
-  import lib.Hack.state
+  import EventFlow.state
 
   @state def counting(c: Int) {
     when(Increment).emit(Incremented).switch(counting(c+1))

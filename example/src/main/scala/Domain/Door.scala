@@ -34,7 +34,7 @@ object Door {
 
 object DoorAggregate extends EventFlow[Event, Command] {
 
-  import lib.Hack.state
+  import EventFlow.state
 
   @state def openDoors {
     when(Close).emit(Closed).switch(closedDoors)
