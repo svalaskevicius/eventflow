@@ -19,3 +19,6 @@ libraryDependencies += "joda-time" % "joda-time" % "2.9.3"
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 resolvers += Resolver.sonatypeRepo("releases")
+
+addCompilerPlugin("org.scalameta" % "paradise" % "3.0.0.122" cross CrossVersion.full)
+scalacOptions += "-Xplugin-require:macroparadise"
