@@ -34,37 +34,37 @@ object Door {
 
 object DoorAggregate extends EventFlow[Event, Command] {
 
-  private val openDoors: RegisteredFlowStateAux[Unit] = ref('open, handler(
+  import EventFlow.state
+
+  @state def openDoors {
     when(Close).emit(Closed).switch(closedDoors)
-  ))
+  }
 
-  private val closedDoors: RegisteredFlowStateAux[Unit] = ref('closed, handler(
-    when(Open).emit(Opened).switch(openDoors),
-    when[Lock].emit[Locked].switchByEvent(ev => ev.key -> lockedDoors)
-  ))
+  @state def closedDoors {
+    when(Open).emit(Opened).switch(openDoors)
+    when[Lock].emit[Locked].switchByEvent(ev => lockedDoors(ev.key))
+  }
 
-  private val lockedDoors: RegisteredFlowStateAux[String] = ref('locked, key => handler(
-    when(Unlock(key)).emit[Unlocked].switch(closedDoors),
-    when[Unlock].failWithMessage("Attempted unlock key is invalid"),
+  @state def lockedDoors(key: String) {
+    when(Unlock(key)).emit[Unlocked].switch(closedDoors)
+    when[Unlock].failWithMessage("Attempted unlock key is invalid")
     anyOther.failWithMessage("Locked door can only be unlocked.")
-  ))
+  }
 
   // unused, here just for dsl examples
-  private def lockedDoorsAlternativeExamples(key: String): Flow[Unit] = handler(
-    when(Unlock(key)).emitEvent(cmd => Unlocked(cmd.key)).switch(closedDoors), // alternative to `when(Unlock(key)).emit[Unlocked]`
-    on(Unlocked(key)).switch(closedDoors), // alternative to `emit[Unlocked].switch(closedDoors)`
-    on(Unlocked(key)).switchByEvent(evt => closedDoors), // alternative to above
-    on[Unlocked].switchByEvent(evt => closedDoors), // alternative to above
-    on[Unlocked].switch(closedDoors), // alternative to above
-    when[Unlock].failWithMessage("Attempted unlock key is invalid"),
+  @state def lockedDoorsAlternativeExamples(key: String) {
+    when(Unlock(key)).emitEvent(cmd => Unlocked(cmd.key)).switch(closedDoors) // alternative to `when(Unlock(key)).emit[Unlocked]`
+    on(Unlocked(key)).switch(closedDoors) // alternative to `emit[Unlocked].switch(closedDoors)`
+    on(Unlocked(key)).switchByEvent(evt => closedDoors) // alternative to above
+    on[Unlocked].switchByEvent(evt => closedDoors) // alternative to above
+    on[Unlocked].switch(closedDoors) // alternative to above
+    when[Unlock].failWithMessage("Attempted unlock key is invalid")
     anyOther.failWithMessage("Locked door can only be unlocked.")
-  )
+  }
 
-  val snapshottableStates: FlowStates = List(openDoors, lockedDoors, closedDoors)
-
-  val aggregateLogic: Flow[Unit] = handler(
+  @state override def aggregateLogic {
     when[Register].emit[Registered].switch(openDoors)
-  )
+  }
 
 }
 

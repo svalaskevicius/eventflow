@@ -38,6 +38,8 @@ object Store {
 
 object StoreAggregate extends EventFlow[Event, Command] {
 
+  import EventFlow.state
+
   final case class StoreInfo(inventory: Map[ProductId, Int], prices: Map[ProductId, Money], knownReceipts: Map[SequenceNumber, Receipt]) {
 
     def returnProduct(receipt: Receipt) = copy(knownReceipts = knownReceipts - receipt.sequenceNumber)
@@ -52,29 +54,27 @@ object StoreAggregate extends EventFlow[Event, Command] {
     def empty = StoreInfo(TreeMap[ProductId, Int](), TreeMap[ProductId, Money](), TreeMap[SequenceNumber, Receipt]())
   }
 
-  val store: RegisteredFlowStateAux[StoreInfo] = ref('store, storeInfo => handler(
+  @state def store(storeInfo: StoreInfo) {
     when[RequestRefund].
       guard(isNotExpiredForCash, "The receipt has expired for cash refunds.").
       guard(isNotExpired, "The receipt has expired for refunds.").
       guard(cmd => storeInfo.knownReceipts.contains(cmd.receipt.sequenceNumber), "Unkown receipt number.").
       emitEvents { cmd =>
         val stockEvents = cmd.productState match {
-          case Damaged    => Nil
+          case Damaged => Nil
           case Resellable => List(ItemRestocked(cmd.id, cmd.time, cmd.receipt.product, cmd.receipt.quantity))
         }
         stockEvents ++ List(CustomerRefunded(cmd.id, cmd.time, cmd.receipt, cmd.refundType))
-      },
+      }
 
-    on[CustomerRefunded].switchByEvent(ev => storeInfo.returnProduct(ev.receipt) -> store),
+    on[CustomerRefunded].switchByEvent(ev => store(storeInfo.returnProduct(ev.receipt)))
 
-    on[ItemRestocked].switchByEvent(ev => storeInfo.add(ev.productId, ev.qty) -> store),
+    on[ItemRestocked].switchByEvent(ev => store(storeInfo.add(ev.productId, ev.qty) ))
 
-    on[ItemBought].switchByEvent(ev => storeInfo.addReceipt(ev.producedReceipt) -> store)
-  ))
+    on[ItemBought].switchByEvent(ev => store(storeInfo.addReceipt(ev.producedReceipt)))
+  }
 
-  val snapshottableStates: FlowStates = List(store)
-
-  val aggregateLogic = store.state(StoreInfo.empty)
+  override def startLogic = toFlow(store(StoreInfo.empty)).get
 
   private def isNotExpiredForCash(r: RequestRefund) = r.time.dateTime.isBefore(r.receipt.time.dateTime.plusDays(30)) || (r.refundType != CashRefund)
 

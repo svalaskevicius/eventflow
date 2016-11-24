@@ -50,7 +50,7 @@ class ReturnsSpec extends FlatSpec with Matchers with AggregateSpec {
         StoreAggregate,
         "Oliver's goods",
         RequestRefund("Oliver's goods", date("2016-04-21"), receipt, CashRefund, Resellable)
-      ) should be(Errors(NEL(ErrorCommandFailure("The receipt has expired for cash refunds."))))
+      ) should be(Errors(NEL.of(ErrorCommandFailure("The receipt has expired for cash refunds."))))
     }
   }
 
@@ -78,7 +78,7 @@ class ReturnsSpec extends FlatSpec with Matchers with AggregateSpec {
         StoreAggregate,
         "Oliver's goods",
         RequestRefund("Oliver's goods", date("2016-03-22"), wrongReceipt, CashRefund, Resellable)
-      ) should be(Errors(NEL(ErrorCommandFailure("Unkown receipt number."))))
+      ) should be(Errors(NEL.of(ErrorCommandFailure("Unkown receipt number."))))
     }
   }
 
@@ -93,7 +93,7 @@ class ReturnsSpec extends FlatSpec with Matchers with AggregateSpec {
         StoreAggregate,
         "Oliver's goods",
         RequestRefund("Oliver's goods", date("2016-04-02"), receipt, CashRefund, Resellable)
-      ) should be(Errors(NEL(ErrorCommandFailure("Unkown receipt number."))))
+      ) should be(Errors(NEL.of(ErrorCommandFailure("Unkown receipt number."))))
     }
   }
 
@@ -106,7 +106,7 @@ class ReturnsSpec extends FlatSpec with Matchers with AggregateSpec {
         StoreAggregate,
         "Oliver's goods",
         RequestRefund("Oliver's goods", date("2017-03-21"), receipt, StoreCredit, Resellable)
-      ) should be(Errors(NEL(ErrorCommandFailure("The receipt has expired for refunds."))))
+      ) should be(Errors(NEL.of(ErrorCommandFailure("The receipt has expired for refunds."))))
     }
   }
 

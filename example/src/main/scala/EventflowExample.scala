@@ -5,11 +5,9 @@ import Cqrs.DbAdapters.EventStore._
 import java.util.concurrent.Executors
 
 import Cqrs.Aggregate
-import cats.data.Xor
 import com.twitter
 import com.twitter.util.FuturePool
-import io.finch.{ Endpoint, _ }
-import io.finch.circe._
+import io.finch._
 import io.circe.generic.auto._
 import com.twitter.finagle.Http
 import lib.Converters._
@@ -18,7 +16,37 @@ import shapeless.HNil
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.reflect.ClassTag
 
+object Converters {
+  import cats.syntax.show._
+  import com.twitter.util.{Return, Throw, Try}
+  import io.circe.jawn.decode
+  import io.finch.{Decode, Error}
+  import io.circe.{Encoder, Decoder}
+  import io.finch.Encode
+  import io.finch.internal.BufText
+  import io.circe.{Json, Printer}
+
+  /**
+    * Maps a Circe's [[Decoder]] to Finch's [[Decode]].
+    */
+  implicit def decodeCirce[A](implicit d: Decoder[A]): Decode[A] = Decode.instance(s =>
+    decode[A](s).fold[Try[A]](
+      error => Throw[A](Error(error.show)),
+      value => Return(value)
+    )
+  )
+
+  protected def print(json: Json): String = Printer.noSpaces.pretty(json)
+
+  /**
+    * Maps Circe's [[Encoder]] to Finch's [[Encode]].
+    */
+  implicit def encodeCirce[A](implicit e: Encoder[A]): Encode.Json[A] = Encode.json((a, cs) => BufText(print(e(a)), cs))
+}
+
 object EventflowExample {
+
+  import Converters._
 
   val futurePool = FuturePool(Executors.newCachedThreadPool())
 
@@ -26,7 +54,7 @@ object EventflowExample {
 
   val counter = commandEndpoint("counter", CounterAggregate)
 
-  val counterRead = projectionEndpoint("counter" / string) {
+  val counterRead = projectionEndpoint("counter" :: string) {
     id => db.getProjectionData(CounterProjection).flatMap(_.get(id))
   }
 
@@ -36,7 +64,7 @@ object EventflowExample {
 
   val door = commandEndpoint("door", DoorAggregate)
 
-  val doorRead = projectionEndpoint("door" / string) {
+  val doorRead = projectionEndpoint("door" :: string) {
     id => db.getProjectionData(DoorProjection).flatMap(_.get(id))
   }
 
@@ -58,12 +86,12 @@ object EventflowExample {
 
   import shapeless.::
 
-  private def commandEndpoint[E, C: DecodeRequest: ClassTag, D, S](path: String, aggregate: Aggregate[E, C, D, S]) =
-    post(path / string :: body.as[C]) mapOutputAsync {
+  private def commandEndpoint[E, C: Decode: ClassTag, D, S](path: String, aggregate: Aggregate[E, C, D, S]) =
+    post(path :: string :: body.as[C]) mapOutputAsync {
       case id :: cmd :: HNil =>
         scalaToTwitterFuture(db.runAggregate(aggregate.loadAndHandleCommand(id, cmd)).map {
-          case Xor.Right(_)  => Ok(())
-          case Xor.Left(err) => PreconditionFailed(new Exception(err.toString))
+          case Right(_)  => Ok(())
+          case Left(err) => PreconditionFailed(new Exception(err.toString))
         })
       case _ => twitter.util.Future.value(InternalServerError(new Exception("Cannot handle input")))
     }

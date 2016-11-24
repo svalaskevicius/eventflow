@@ -24,7 +24,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
 
   it should "fail for missing counter" in {
     given(newDb) check {
-      _.failedCommandError(CounterAggregate, "counterid", Increment) should be(Errors(NEL(ErrorCannotFindHandler("Increment"))))
+      _.failedCommandError(CounterAggregate, "counterid", Increment) should be(Errors(NEL.of(ErrorCannotFindHandler("Increment"))))
     }
   }
 
@@ -40,7 +40,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
 
   it should "fail for missing counter" in {
     given(newDb) check {
-      _.failedCommandError(CounterAggregate, "counterid", Decrement) should be(Errors(NEL(ErrorCannotFindHandler("Decrement"))))
+      _.failedCommandError(CounterAggregate, "counterid", Decrement) should be(Errors(NEL.of(ErrorCannotFindHandler("Decrement"))))
     }
   }
 
@@ -48,7 +48,7 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
     given {
       newDb.withEvents[Event](tag, "counterid", Created("counterid", 0), Incremented, Decremented)
     } check {
-      _.failedCommandError(CounterAggregate, "counterid", Decrement) should be(Errors(NEL(ErrorCommandFailure("Counter cannot be decremented"))))
+      _.failedCommandError(CounterAggregate, "counterid", Decrement) should be(Errors(NEL.of(ErrorCommandFailure("Counter cannot be decremented"))))
     }
   }
 

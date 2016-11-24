@@ -1,9 +1,8 @@
 package Cqrs
 
 import Cqrs.Database.{ ErrorUnexpectedVersion, EventDatabaseWithFailure, Serializable }
-import algebra.Semigroup
-import cats.data.{ XorT, NonEmptyList => NEL, _ }
-import cats.std.all._
+import cats.kernel.Semigroup
+import cats.data.{ EitherT, NonEmptyList => NEL, _ }
 import cats.{ MonadError, MonadState, SemigroupK }
 
 object Aggregate {
@@ -44,12 +43,12 @@ object Aggregate {
 
   final case class Errors(err: NEL[Error]) extends Error
 
-  //TODO: remove 2nd layer of XorT and just use leftMap on the 1st Xor.Left
-  type DatabaseWithAnyFailure[E, Err, A] = XorT[EventDatabaseWithFailure[E, ?], Err, A]
+  //TODO: remove 2nd layer of EitherT and just use leftMap on the 1st Left
+  type DatabaseWithAnyFailure[E, Err, A] = EitherT[EventDatabaseWithFailure[E, ?], Err, A]
   type DatabaseWithAggregateFailure[E, A] = DatabaseWithAnyFailure[E, Error, A]
 
   def dbAction[E, A](dbActions: Database.EventDatabaseWithFailure[E, A]): DatabaseWithAggregateFailure[E, A] =
-    XorT[EventDatabaseWithFailure[E, ?], Error, A](dbActions.map(Xor.right))
+    EitherT[EventDatabaseWithFailure[E, ?], Error, A](dbActions.map(Right(_)))
 
   val NewAggregateVersion = -1
 
@@ -59,9 +58,9 @@ object Aggregate {
   type AggregateDefAnyD[E, D, A] = StateT[DatabaseWithAggregateFailure[E, ?], D, A]
   type AggregateDef[E, D, A] = AggregateDefAnyD[E, VersionedAggregateData[D], A]
 
-  implicit def eventDatabaseWithFailureMonad[E]: MonadError[DatabaseWithAggregateFailure[E, ?], Error] = XorT.xorTMonadError[EventDatabaseWithFailure[E, ?], Error]
+  implicit def eventDatabaseWithFailureMonad[E]: MonadError[DatabaseWithAggregateFailure[E, ?], Error] = EitherT.catsDataMonadErrorForEitherT[EventDatabaseWithFailure[E, ?], Error]
 
-  implicit def aggregateDefMonad[E, D]: MonadState[AggregateDef[E, D, ?], VersionedAggregateData[D]] = StateT.stateTMonadState[DatabaseWithAggregateFailure[E, ?], VersionedAggregateData[D]]
+  implicit def aggregateDefMonad[E, D]: MonadState[AggregateDef[E, D, ?], VersionedAggregateData[D]] = StateT.catsDataMonadStateForStateT[DatabaseWithAggregateFailure[E, ?], VersionedAggregateData[D]]
 
   def pure[E, A](x: A): DatabaseWithAggregateFailure[E, A] = eventDatabaseWithFailureMonad[E].pure(x)
 
@@ -75,7 +74,7 @@ object Aggregate {
 
   implicit val nelErrorSemigroup: Semigroup[NEL[Error]] = SemigroupK[NEL].algebra[Error]
 
-  def failCommand[E, A](err: String): ValidatedNel[Aggregate.Error, A] = Validated.invalid(NEL(ErrorCommandFailure(err)))
+  def failCommand[E, A](err: String): ValidatedNel[Aggregate.Error, A] = Validated.invalid(NEL.of(ErrorCommandFailure(err)))
 
   sealed trait EventHandlerResult[+D] {
     def aggregateData: D
@@ -171,8 +170,8 @@ trait Aggregate[E, C, D, S] extends AggregateBase {
   }
 
   private def handleCmd(cmd: C): AggregateDefinition[List[E]] = liftAggregateReadState(vs =>
-    XorT.fromXor[EventDatabaseWithFailure[E, ?]](
-      commandHandler(cmd)(vs.data).fold[Error Xor List[E]](err => Xor.left(Errors(err)), Xor.right)
+    EitherT.fromEither[EventDatabaseWithFailure[E, ?]](
+      commandHandler(cmd)(vs.data).fold[Error Either List[E]](err => Left(Errors(err)), Right(_))
     ))
 
   private def addEvents(evs: List[E], snapshotCmd: Option[Database.SaveSnapshot[E, _]] = None): AggregateDefinition[Unit] =

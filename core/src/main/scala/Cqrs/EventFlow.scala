@@ -1,14 +1,17 @@
 package Cqrs
 
-import Cqrs.Aggregate.{ ErrorCannotFindHandler, ErrorCommandFailure, CommandHandlerResult, EventHandlerResult }
+import Cqrs.Aggregate.{CommandHandlerResult, ErrorCannotFindHandler, ErrorCommandFailure, EventHandlerResult}
 import Cqrs.Database.Serializable
 import cats._
-import cats.data.{ NonEmptyList => NEL, _ }
+import cats.data.{NonEmptyList => NEL, _}
 import cats.free.Free
 import cats.free.Free.liftF
 import lib.CaseClassTransformer
 
+import scala.collection.mutable.ListBuffer
 import scala.reflect.ClassTag
+
+
 
 class EventFlowImpl[Evt, Cmd] {
   type CommandH = PartialFunction[Cmd, CommandHandlerResult[Evt]]
@@ -101,25 +104,35 @@ trait Snapshottable extends AggregateBase {
         val arg = param
       }
     }
+    def apply[A, B](a: A, b: B)(implicit ev: (A, B) =:= StateParam): FlowStateCallAux[StateParam] = this.apply(ev((a, b)))
+    def apply[A, B, C](a: A, b: B, c: C)(implicit ev: (A, B, C) =:= StateParam): FlowStateCallAux[StateParam] = this.apply(ev((a, b, c)))
+    def apply[A, B, C, D](a: A, b: B, c: C, d: D)(implicit ev: (A, B, C, D) =:= StateParam): FlowStateCallAux[StateParam] = this.apply(ev((a, b, c, d)))
+    def apply[A, B, C, D, E](a: A, b: B, c: C, d: D, e: E)(implicit ev: (A, B, C, D, E) =:= StateParam): FlowStateCallAux[StateParam] = this.apply(ev((a, b, c, d, e)))
+    def apply[A, B, C, D, E, F](a: A, b: B, c: C, d: D, e: E, f: F)(implicit ev: (A, B, C, D, E, F) =:= StateParam): FlowStateCallAux[StateParam] = this.apply(ev((a, b, c, d, e, f)))
+    def apply[A, B, C, D, E, F, G](a: A, b: B, c: C, d: D, e: E, f: F, g: G)(implicit ev: (A, B, C, D, E, F, G) =:= StateParam): FlowStateCallAux[StateParam] = this.apply(ev((a, b, c, d, e, f, g)))
   }
   type RegisteredFlowStateAux[T] = RegisteredFlowState { type StateParam = T }
 
+  var __initSnapshottableStates = ListBuffer[RegisteredFlowState]()
+
   object RegisteredFlowState {
-    implicit def registerFlowState[T: ClassTag: upickle.default.Reader: upickle.default.Writer](stateName: Symbol, flowState: FlowState[T]): RegisteredFlowStateAux[T] = new RegisteredFlowState {
-      type StateParam = T
-      val r = implicitly[upickle.default.Reader[T]]
-      val w = implicitly[upickle.default.Writer[T]]
-      val classTag = implicitly[ClassTag[T]]
-      val state = flowState
-      val name = stateName
+    implicit def registerFlowState[T: ClassTag: upickle.default.Reader: upickle.default.Writer](stateName: Symbol, flowState: FlowState[T]): RegisteredFlowStateAux[T] = {
+      val s = new RegisteredFlowState {
+        type StateParam = T
+        val r = implicitly[upickle.default.Reader[T]]
+        val w = implicitly[upickle.default.Writer[T]]
+        val classTag = implicitly[ClassTag[T]]
+        val state = flowState
+        val name = stateName
+      }
+      __initSnapshottableStates.append(s)
+      s
     }
   }
 
   type FlowStates = List[RegisteredFlowState]
 
-  val snapshottableStates: FlowStates
-
-  lazy val snapshottableStatesMap = snapshottableStates.map(x => x.name -> x).toMap
+  lazy val snapshottableStatesMap = __initSnapshottableStates.map(x => x.name -> x).toMap
 
   sealed trait FlowStateCall {
     type StateParam
@@ -212,7 +225,8 @@ trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd
 
   val snapshotSerializer = FlowStateCall.snapshotSerializer
 
-  def aggregateLogic: Flow[Unit]
+  def aggregateLogic: RegisteredFlowStateAux[Unit] = throw new Error("aggregate logic is not defined")
+  def startLogic: Flow[Unit] = aggregateLogic.state(())
 
   def eventHandler = e => d => d match {
     case Some(eFlow) => eFlow.evh(e)
@@ -226,10 +240,10 @@ trait EventFlowBase[Evt, Cmd] extends Aggregate[Evt, Cmd, EventFlowImpl[Evt, Cmd
     }
   ).
     getOrElse {
-      Validated.invalid(NEL(ErrorCannotFindHandler(c.toString)))
+      Validated.invalid(NEL.of(ErrorCannotFindHandler(c.toString)))
     }
 
-  def initData = eventFlowImpl.esRunnerCompiler(PartialFunction.empty, aggregateLogic)
+  def initData = eventFlowImpl.esRunnerCompiler(PartialFunction.empty, startLogic)
 }
 
 trait DslV1 { self: AggregateBase with Snapshottable =>
@@ -302,6 +316,10 @@ trait DslV1 { self: AggregateBase with Snapshottable =>
     implicit def forRegisteredFlowStateUnit[A](implicit unitSct: SwitchCallTarget[(Unit, RegisteredFlowStateAux[Unit])]): SwitchCallTarget[RegisteredFlowStateAux[Unit]] = new SwitchCallTarget[RegisteredFlowStateAux[Unit]] {
       def flow(t: RegisteredFlowStateAux[Unit]) = unitSct.flow(() -> t)
       def flowCall(t: RegisteredFlowStateAux[Unit]) = unitSct.flowCall(() -> t)
+    }
+    implicit def forRegisteredFlowStateCall[A]: SwitchCallTarget[FlowStateCallAux[A]] = new SwitchCallTarget[FlowStateCallAux[A]] {
+      def flow(t: FlowStateCallAux[A]) = toFlow(t).get
+      def flowCall(t: FlowStateCallAux[A]) = Some(t)
     }
   }
 
@@ -386,3 +404,41 @@ abstract class EventFlow[Evt: Serializable, Cmd] extends EventFlowBase[Evt, Cmd]
   }
 }
 
+object EventFlow {
+
+  import scala.meta._
+  import scala.collection.immutable.Seq
+
+  @scala.annotation.compileTimeOnly("scalaplayground.macros not expanded")
+  class state extends scala.annotation.StaticAnnotation {
+    inline def apply(defn: Any): Any = meta {
+      defn match {
+        case q"..$mods def $name ( ..$args ): $typ = { ..${lines: Seq[Term] } }" => transform(defn, mods, name, args, typ, lines)
+        case q"..$mods def $name: $typ = { ..${lines: Seq[Term] } }" => transform(defn, mods, name, Seq.empty, typ, lines)
+        case q"..$mods def $name ( ..$args ): $typ = ${line: Term}" => transform(defn, mods, name, args, typ, Seq(line))
+        case q"..$mods def $name: $typ = ${line: Term}" => transform(defn, mods, name, Seq.empty, typ, Seq(line))
+        case _ =>
+          println(defn)
+          abort("wrong state syntax")
+      }
+    }
+  }
+
+  private def transform(defn: Any, mods: Seq[Mod], name: Term.Name, args: Seq[Term.Param], typ: Option[Type], lines: Seq[Term]) = {
+
+    lazy val argTypes = args.map(_.decltpe).map {
+      case Some(targ"${tpe: Type}") => tpe
+      case _ => abort("argument type is unknown")
+    }
+
+    args.length match {
+      case 0 => q"..$mods val ${Pat.Var.Term(name)} : RegisteredFlowStateAux[Unit] = ref(scala.Symbol(${name.value}), handler(..$lines))"
+      case 1 => q"..$mods val ${Pat.Var.Term(name)} : RegisteredFlowStateAux[..$argTypes] = ref(scala.Symbol(${name.value}), (${args.head}) => handler(..$lines))"
+      case _ =>
+        val varPattern = Pat.Tuple(args.map((x: Term.Param) =>
+          Pat.Var.Term(Term.Name(x.name.value))
+        ))
+        q"..$mods val ${scala.meta.Pat.Var.Term(name)} : RegisteredFlowStateAux[(..$argTypes)] = ref(scala.Symbol(${name.value}), {case ($varPattern) => handler(..$lines) })"
+    }
+  }
+}
