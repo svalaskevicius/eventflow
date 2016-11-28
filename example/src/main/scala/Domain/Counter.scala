@@ -8,7 +8,6 @@ import Domain.Counter._
 import scala.collection.immutable.TreeMap
 
 
-
 object Counter {
 
   sealed trait Event
@@ -26,6 +25,15 @@ object Counter {
   case object Increment extends Command
 
   case object Decrement extends Command
+
+  val currentValueProjection = Projection.
+    listeningFor(CounterAggregate.tag).
+    onEvent((d: TreeMap[AggregateId, Int]) => {
+      case EventData(_, id, _, Created(_, start)) => d + (id -> start)
+      case EventData(_, id, _, Incremented)       => d + (id -> d.get(id).fold(1)(_ + 1))
+      case EventData(_, id, _, Decremented)       => d + (id -> d.get(id).fold(-1)(_ - 1))
+    }).
+    startsWith(TreeMap.empty)
 }
 
 object CounterAggregate extends EventFlow[Event, Command] {
@@ -39,18 +47,6 @@ object CounterAggregate extends EventFlow[Event, Command] {
 
   @state override def aggregateLogic {
     when[Create].emit[Created].switchByEvent(evt => counting(evt.start))
-  }
-}
-
-object CounterProjection extends Projection[TreeMap[AggregateId, Int]] {
-  def initialData = TreeMap.empty
-
-  val listeningFor = List(CounterAggregate.tag)
-
-  def accept[E](d: Data) = {
-    case EventData(_, id, _, Created(_, start)) => d + (id -> start)
-    case EventData(_, id, _, Incremented)       => d + (id -> d.get(id).fold(1)(_ + 1))
-    case EventData(_, id, _, Decremented)       => d + (id -> d.get(id).fold(-1)(_ - 1))
   }
 }
 

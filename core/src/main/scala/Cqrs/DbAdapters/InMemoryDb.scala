@@ -3,16 +3,14 @@ package Cqrs.DbAdapters
 import Cqrs.Aggregate._
 import Cqrs.Database.FoldableDatabase.{ EventDataConsumer, RawEventData }
 import Cqrs.Database.{ Error, _ }
-import Cqrs.{ Projection, ProjectionRunner }
+import Cqrs.ProjectionRunner
 import cats._
 import cats.data.State
-//import cats.std.all._
 import cats.implicits._
 import lib.foldM
 
 import scala.collection.immutable.TreeMap
 import scala.concurrent.Future
-import scala.reflect.ClassTag
 
 object InMemoryDb {
 
@@ -139,10 +137,6 @@ object InMemoryDb {
       val (newDb, r) = actions.value.foldMap[Db](transformDbOpToDbState).run(db).value
       db = newDb
       Future.successful(r)
-    }
-
-    def getProjectionData[D: ClassTag](projection: Projection[D]): Option[D] = synchronized {
-      db.projections.foldLeft(None: Option[D])((ret, p) => ret.orElse(p.getProjectionData[D](projection)))
     }
 
     def consumeDbEvents[D](fromOperation: Long, initData: D, queries: List[EventDataConsumer[D]]): Error Either (Long, D) = synchronized {

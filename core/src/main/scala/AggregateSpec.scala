@@ -2,12 +2,11 @@ import Cqrs.Aggregate.{ AggregateId, DatabaseWithAggregateFailure }
 import Cqrs.Database.FoldableDatabase._
 import Cqrs.Database._
 import Cqrs.DbAdapters.InMemoryDb._
-import Cqrs.{ Aggregate, Database, Projection, ProjectionRunner }
+import Cqrs.{ Aggregate, Database, ProjectionRunner }
 import cats.implicits._
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
-import scala.reflect.ClassTag
 
 trait AggregateSpec {
 
@@ -48,8 +47,6 @@ trait AggregateSpec {
     def failedCommandError[E, C, D, S](aggregate: Aggregate[E, C, D, S], id: AggregateId, cmd: C): Aggregate.Error =
       act(db, aggregate.loadAndHandleCommand(id, cmd))
         .fold(identity, _ => failStop("Command did not fail, although was expected to"))
-
-    def projectionData[D: ClassTag](projection: Projection[D]) = db.getProjectionData[D](projection)
   }
 
   def newDb(projections: ProjectionRunner*): GivenSteps = GivenSteps(newInMemoryDb(projections: _*))

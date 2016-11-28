@@ -1,10 +1,8 @@
 import Cqrs.Aggregate._
 import Domain.Counter._
 import Domain.CounterAggregate
-import Domain.CounterProjection
 import Domain.CounterAggregate.tag
 
-//import Domain.CounterProjection.{ Data => CounterProjectionData, emptyCounterProjection }
 import cats.data.{ NonEmptyList => NEL }
 import org.scalatest._
 
@@ -54,13 +52,13 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
 
   "Counter projection" should "return the current count" in {
     given {
-      newDb(CounterProjection).withEvent(tag, "counterid", Created("counterid", 10))
+      newDb(currentValueProjection).withEvent(tag, "counterid", Created("counterid", 10))
     } when {
       _.command(CounterAggregate, "counterid", Increment)
         .command(CounterAggregate, "counterid", Increment)
         .command(CounterAggregate, "counterid", Decrement)
-    } thenCheck {
-      _.projectionData(CounterProjection) should be(Some(TreeMap("counterid" -> 11)))
+    } thenCheck { _ =>
+       currentValueProjection.getData should be(TreeMap("counterid" -> 11))
     }
   }
 }

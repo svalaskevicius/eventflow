@@ -4,7 +4,7 @@ import java.io.Closeable
 
 import Cqrs.Aggregate._
 import Cqrs.Database.{ Error, _ }
-import Cqrs.{ Projection, ProjectionRunner }
+import Cqrs.ProjectionRunner
 import akka.actor.ActorSystem
 import cats._
 import cats.implicits._
@@ -12,7 +12,6 @@ import eventstore._
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
-import scala.reflect.ClassTag
 
 object EventStore {
 
@@ -161,9 +160,6 @@ object EventStore {
         }
       }
 
-    def getProjectionData[D: ClassTag](projection: Projection[D]): Option[D] = {
-      projections.foldLeft(None: Option[D])((ret, p) => ret.orElse(p.getProjectionData[D](projection)))
-    }
   }
 
   def newEventStoreConn(projections: ProjectionRunner*): DbBackend = {
