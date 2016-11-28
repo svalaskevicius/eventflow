@@ -26,7 +26,7 @@ object Counter {
 
   case object Decrement extends Command
 
-  val currentValueProjection = Projection.
+  def newCurrentValueProjection = Projection.
     listeningFor(CounterAggregate.tag).
     onEvent((d: TreeMap[AggregateId, Int]) => {
       case EventData(_, id, _, Created(_, start)) => d + (id -> start)

@@ -12,7 +12,7 @@ object OpenDoors {
 
   final case class Data(nextDoor: Option[AggregateId], doorCounters: TreeMap[AggregateId, DoorState])
 
-  val countersProjection = Projection.listeningFor(CounterAggregate.tag, DoorAggregate.tag).onEvent{ d: Data => {
+  def newCountersProjection = Projection.listeningFor(CounterAggregate.tag, DoorAggregate.tag).onEvent{ d: Data => {
       case EventData(_, id, _, Door.Registered(_)) => Data(Some(id), d.doorCounters.updated(id, DoorState(TreeMap.empty)))
       case EventData(_, id, _, Door.Closed) => d.copy(nextDoor = None)
       case EventData(_, id, _, Door.Opened) => Data(Some(id), init(d.doorCounters, id, DoorState(TreeMap.empty)))

@@ -51,14 +51,15 @@ class CounterSpec extends FlatSpec with Matchers with AggregateSpec {
   }
 
   "Counter projection" should "return the current count" in {
+    val projection = newCurrentValueProjection
     given {
-      newDb(currentValueProjection).withEvent(tag, "counterid", Created("counterid", 10))
+      newDb(projection).withEvent(tag, "counterid", Created("counterid", 10))
     } when {
       _.command(CounterAggregate, "counterid", Increment)
         .command(CounterAggregate, "counterid", Increment)
         .command(CounterAggregate, "counterid", Decrement)
     } thenCheck { _ =>
-       currentValueProjection.getData should be(TreeMap("counterid" -> 11))
+      projection.getData should be(TreeMap("counterid" -> 11))
     }
   }
 }

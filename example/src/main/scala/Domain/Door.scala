@@ -80,7 +80,7 @@ object DoorState {
 
   case object Locked extends DoorState
 
-  val currentStateProjection = Projection.listeningFor(DoorAggregate.tag).onEvent { d: TreeMap[AggregateId, DoorState] => {
+  def newCurrentStateProjection = Projection.listeningFor(DoorAggregate.tag).onEvent { d: TreeMap[AggregateId, DoorState] => {
     case EventData(_, id, _, Door.Registered(_)) => d + (id -> Open)
     case EventData(_, id, _, Door.Closed) => d + (id -> Closed)
     case EventData(_, id, _, Door.Opened) => d + (id -> Open)

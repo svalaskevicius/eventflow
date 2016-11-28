@@ -77,8 +77,9 @@ class DoorSpec extends FlatSpec with Matchers with AggregateSpec {
 
   "Door projection" should "return the current state" in {
     import Domain.Door
+    val projection = DoorState.newCurrentStateProjection
     given {
-      newDb(DoorState.currentStateProjection)
+      newDb(projection)
         .withEvent(tag, "door1", Registered("door1"))
         .withEvent(tag, "door2", Registered("door2"))
     } when {
@@ -86,7 +87,7 @@ class DoorSpec extends FlatSpec with Matchers with AggregateSpec {
         .command(DoorAggregate, "door2", Door.Close)
         .command(DoorAggregate, "door1", Door.Open)
     } thenCheck { _ =>
-      DoorState.currentStateProjection.getData should be(TreeMap(
+      projection.getData should be(TreeMap(
         "door1" -> DoorState.Open,
         "door2" -> DoorState.Closed
       ))
