@@ -2,7 +2,7 @@ import Cqrs.Aggregate.{ AggregateId, DatabaseWithAggregateFailure }
 import Cqrs.Database.FoldableDatabase._
 import Cqrs.Database._
 import Cqrs.DbAdapters.InMemoryDb._
-import Cqrs.{ Aggregate, Database, ProjectionRunner }
+import Cqrs.{ Aggregate, Database, EventConsumer }
 import cats.implicits._
 
 import scala.concurrent.Await
@@ -31,7 +31,7 @@ trait AggregateSpec {
     }
   }
 
-  case class WhenSteps(val db: DB, startingDbOpNr: Long) {
+  case class WhenSteps(db: DB, startingDbOpNr: Long) {
 
     def command[E, C, D, S](aggregate: Aggregate[E, C, D, S], id: AggregateId, cmd: C) = {
       act(db, aggregate.loadAndHandleCommand(id, cmd)).swap.foreach { err => failStop(err.toString) }
@@ -39,7 +39,7 @@ trait AggregateSpec {
     }
   }
 
-  case class ThenSteps(val db: DB, startingDbOpNr: Long) {
+  case class ThenSteps(db: DB, startingDbOpNr: Long) {
 
     def newEvents[E](tag: Aggregate.EventTagAux[E], aggregateId: AggregateId): List[E] =
       readEvents(db, startingDbOpNr, tag, aggregateId)
@@ -49,7 +49,7 @@ trait AggregateSpec {
         .fold(identity, _ => failStop("Command did not fail, although was expected to"))
   }
 
-  def newDb(projections: ProjectionRunner*): GivenSteps = GivenSteps(newInMemoryDb(projections: _*))
+  def newDb(projections: EventConsumer*): GivenSteps = GivenSteps(newInMemoryDb(projections: _*))
 
   def newDb: GivenSteps = GivenSteps(newInMemoryDb())
 
@@ -68,7 +68,7 @@ trait AggregateSpec {
 
   class ThenStepFlow(whenSteps: WhenSteps) {
     def thenCheck[R](steps: ThenSteps => R): R =
-      steps(ThenSteps(whenSteps.db /* .runProjections */ , whenSteps.startingDbOpNr))
+      steps(ThenSteps(whenSteps.db, whenSteps.startingDbOpNr))
   }
 
   private def readEvents[E](db: DB, fromOperation: Long, tag: Aggregate.EventTagAux[E], aggregateId: AggregateId) = {

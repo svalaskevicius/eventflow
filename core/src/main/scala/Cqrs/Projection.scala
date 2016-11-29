@@ -6,7 +6,7 @@ import Cqrs.Database.EventData
 object Projection {
   def named(name: String) = new NamedProjection {
     def listeningFor[D](aggregates: AggregateBase*)(handler: D => PartialFunction[EventData[_], D]) = new StartsWithKeyword[D] {
-      def startsWith(initialData: D) = new ConcreteProjectionRunner[D](aggregates.toList.map(_.tag), handler, initialData)
+      def startsWith(initialData: D) = new EventConsumerWithData[D](aggregates.toList.map(_.tag), handler, initialData)
     }
   }
 
@@ -15,7 +15,7 @@ object Projection {
   }
 
   trait StartsWithKeyword[D] {
-    def startsWith(initialData: D): ProjectionRunner
+    def startsWith(initialData: D): EventConsumer
   }
 }
 
@@ -23,14 +23,14 @@ trait ProjectionSubscriber[D] {
   def update(data: D)
 }
 
-trait ProjectionRunner {
+trait EventConsumer {
   def listeningFor: List[EventTag]
 
-  def accept[E](eventData: EventData[E]): ProjectionRunner
+  def accept[E](eventData: EventData[E]): EventConsumer
 }
 
 
-final class ConcreteProjectionRunner[Data](val listeningFor: List[EventTag], handler: Data => PartialFunction[EventData[_], Data], initData: Data) extends ProjectionRunner {
+final class EventConsumerWithData[Data](val listeningFor: List[EventTag], handler: Data => PartialFunction[EventData[_], Data], initData: Data) extends EventConsumer {
 
   private var data: Data = initData
   private var subscribers: List[ProjectionSubscriber[Data]] = List.empty

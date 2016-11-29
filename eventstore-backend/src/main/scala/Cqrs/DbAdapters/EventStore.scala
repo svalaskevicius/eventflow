@@ -4,7 +4,7 @@ import java.io.Closeable
 
 import Cqrs.Aggregate._
 import Cqrs.Database.{ Error, _ }
-import Cqrs.ProjectionRunner
+import Cqrs.EventConsumer
 import akka.actor.ActorSystem
 import cats._
 import cats.implicits._
@@ -18,7 +18,7 @@ object EventStore {
   class DbBackend(
     system:                  ActorSystem,
     connection:              EsConnection,
-    private var projections: List[ProjectionRunner]
+    private var projections: List[EventConsumer]
   ) extends Backend {
 
     val allEventsSubscription = connection.subscribeToAllFrom(new SubscriptionObserver[IndexedEvent] {
@@ -162,7 +162,7 @@ object EventStore {
 
   }
 
-  def newEventStoreConn(projections: ProjectionRunner*): DbBackend = {
+  def newEventStoreConn(projections: EventConsumer*): DbBackend = {
     val system = ActorSystem()
     val connection = EsConnection(system)
     new DbBackend(system, connection, projections.toList)
