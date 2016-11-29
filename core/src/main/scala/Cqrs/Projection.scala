@@ -4,15 +4,16 @@ import Cqrs.Aggregate._
 import Cqrs.Database.EventData
 
 object Projection {
-    def listeningFor(events: EventTag*) = new OnEventKeyword {
-      def onEvent[D](handler: D => PartialFunction[EventData[_], D]) = new StartsWithKeyword[D] {
-        def startsWith(initialData: D) = new ConcreteProjectionRunner[D](events.toList, handler, initialData)
-      }
+  def named(name: String) = new NamedProjection {
+    def listeningFor[D](aggregates: AggregateBase*)(handler: D => PartialFunction[EventData[_], D]) = new StartsWithKeyword[D] {
+      def startsWith(initialData: D) = new ConcreteProjectionRunner[D](aggregates.toList.map(_.tag), handler, initialData)
     }
-
-  trait OnEventKeyword {
-    def onEvent[D](handler: D => PartialFunction[EventData[_], D]): StartsWithKeyword[D]
   }
+
+  trait NamedProjection {
+    def listeningFor[D](aggregates: AggregateBase*)(handler: D => PartialFunction[EventData[_], D]): StartsWithKeyword[D]
+  }
+
   trait StartsWithKeyword[D] {
     def startsWith(initialData: D): ProjectionRunner
   }

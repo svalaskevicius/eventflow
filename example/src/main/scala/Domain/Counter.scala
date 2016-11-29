@@ -26,13 +26,11 @@ object Counter {
 
   case object Decrement extends Command
 
-  def newCurrentValueProjection = Projection.
-    listeningFor(CounterAggregate.tag).
-    onEvent((d: TreeMap[AggregateId, Int]) => {
+  def newCurrentValueProjection = Projection.named("counters").listeningFor(CounterAggregate) { d: TreeMap[AggregateId, Int] => {
       case EventData(_, id, _, Created(_, start)) => d + (id -> start)
       case EventData(_, id, _, Incremented)       => d + (id -> d.get(id).fold(1)(_ + 1))
       case EventData(_, id, _, Decremented)       => d + (id -> d.get(id).fold(-1)(_ - 1))
-    }).
+    }}.
     startsWith(TreeMap.empty)
 }
 
