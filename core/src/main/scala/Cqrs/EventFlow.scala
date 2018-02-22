@@ -409,7 +409,7 @@ object EventFlow {
   import scala.meta._
   import scala.collection.immutable.Seq
 
-  @scala.annotation.compileTimeOnly("scalaplayground.macros not expanded")
+  @scala.annotation.compileTimeOnly("EventFlow.state not expanded")
   class state extends scala.annotation.StaticAnnotation {
     inline def apply(defn: Any): Any = meta {
       defn match {

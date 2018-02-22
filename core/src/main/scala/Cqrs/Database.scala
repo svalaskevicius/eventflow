@@ -8,7 +8,6 @@ import cats.free.Free.liftF
 import cats.{ Monad, MonadError }
 
 import scala.concurrent.Future
-import scala.reflect.ClassTag
 import scala.util.Try
 import cats.implicits._
 
@@ -107,8 +106,6 @@ object Database {
         case Right(Right(ret)) => Right(ret)
       }
     }
-
-    def getProjectionData[D: ClassTag](projection: Projection[D]): Option[D]
   }
 
   trait FoldableDatabase {

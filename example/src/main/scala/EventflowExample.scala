@@ -50,26 +50,29 @@ object EventflowExample {
 
   val futurePool = FuturePool(Executors.newCachedThreadPool())
 
-  val db = newEventStoreConn(CounterProjection, DoorProjection, OpenDoorsCountersProjection)
+  val countersProjection = Counter.newCurrentValueProjection
+  val doorsProjection = DoorState.newCurrentStateProjection
+  val doorCountersProjection = OpenDoors.newCountersProjection
+  val db = newEventStoreConn(countersProjection, doorsProjection, doorCountersProjection)
 
   val counter = commandEndpoint("counter", CounterAggregate)
 
   val counterRead = projectionEndpoint("counter" :: string) {
-    id => db.getProjectionData(CounterProjection).flatMap(_.get(id))
+    id => countersProjection.getData.get(id)
   }
 
   val countersRead = projectionEndpoint("counters") {
-    _ => db.getProjectionData(CounterProjection).map(_.keySet.toList)
+    _ => Some(countersProjection.getData.keySet.toList)
   }
 
   val door = commandEndpoint("door", DoorAggregate)
 
   val doorRead = projectionEndpoint("door" :: string) {
-    id => db.getProjectionData(DoorProjection).flatMap(_.get(id))
+    id => doorsProjection.getData.get(id)
   }
 
   val doorsRead = projectionEndpoint("doors") {
-    _ => db.getProjectionData(DoorProjection).map(_.keySet.toList)
+    _ => Some(doorsProjection.getData.keySet.toList)
   }
 
   def main(args: Array[String]) = {

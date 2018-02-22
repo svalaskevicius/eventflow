@@ -80,20 +80,13 @@ object DoorState {
 
   case object Locked extends DoorState
 
+  def newCurrentStateProjection = Projection.named("doorStates").listeningFor(DoorAggregate) { d: TreeMap[AggregateId, DoorState] => {
+    case EventData(_, id, _, Door.Registered(_)) => d + (id -> Open)
+    case EventData(_, id, _, Door.Closed) => d + (id -> Closed)
+    case EventData(_, id, _, Door.Opened) => d + (id -> Open)
+    case EventData(_, id, _, Door.Locked(_)) => d + (id -> Locked)
+    case EventData(_, id, _, Door.Unlocked(_)) => d + (id -> Closed)
+  }}.startsWith(TreeMap.empty)
 }
 
-object DoorProjection extends Projection[TreeMap[AggregateId, DoorState]] {
-
-  def initialData = TreeMap.empty
-
-  val listeningFor = List(DoorAggregate.tag)
-
-  def accept[E](d: Data) = {
-    case EventData(_, id, _, Registered(_)) => d + (id -> DoorState.Open)
-    case EventData(_, id, _, Closed)        => d + (id -> DoorState.Closed)
-    case EventData(_, id, _, Opened)        => d + (id -> DoorState.Open)
-    case EventData(_, id, _, Locked(_))     => d + (id -> DoorState.Locked)
-    case EventData(_, id, _, Unlocked(_))   => d + (id -> DoorState.Closed)
-  }
-}
 

@@ -3,27 +3,25 @@ package Cqrs.DbAdapters
 import Cqrs.Aggregate._
 import Cqrs.Database.FoldableDatabase.{ EventDataConsumer, RawEventData }
 import Cqrs.Database.{ Error, _ }
-import Cqrs.{ Projection, ProjectionRunner }
+import Cqrs.EventConsumer
 import cats._
 import cats.data.State
-//import cats.std.all._
 import cats.implicits._
 import lib.foldM
 
 import scala.collection.immutable.TreeMap
 import scala.concurrent.Future
-import scala.reflect.ClassTag
 
 object InMemoryDb {
 
   final case class StoredSnapshot(version: Int, data: String)
 
   final case class DbBackend(
-    data:            Map[String, Map[String, TreeMap[Int, String]]], // tag -> aggregate id -> version -> event data
-    log:             TreeMap[Long, (String, String, Int)], // operation nr -> tag, aggregate id, aggregate version
-    lastOperationNr: Long,
-    projections:     List[ProjectionRunner],
-    snapshots:       Map[String, Map[String, StoredSnapshot]] // tag -> id -> data
+                              data:            Map[String, Map[String, TreeMap[Int, String]]], // tag -> aggregate id -> version -> event data
+                              log:             TreeMap[Long, (String, String, Int)], // operation nr -> tag, aggregate id, aggregate version
+                              lastOperationNr: Long,
+                              projections:     List[EventConsumer],
+                              snapshots:       Map[String, Map[String, StoredSnapshot]] // tag -> id -> data
   )
 
   private type Db[A] = State[DbBackend, A]
@@ -132,17 +130,13 @@ object InMemoryDb {
         )
     }
 
-  def newInMemoryDb(projections: ProjectionRunner*) = new Backend with FoldableDatabase {
+  def newInMemoryDb(projections: EventConsumer*) = new Backend with FoldableDatabase {
     var db = DbBackend(TreeMap.empty, TreeMap.empty, 0, projections.toList, Map.empty);
 
     def runDb[E, A](actions: EventDatabaseWithFailure[E, A]): Future[Error Either A] = synchronized {
       val (newDb, r) = actions.value.foldMap[Db](transformDbOpToDbState).run(db).value
       db = newDb
       Future.successful(r)
-    }
-
-    def getProjectionData[D: ClassTag](projection: Projection[D]): Option[D] = synchronized {
-      db.projections.foldLeft(None: Option[D])((ret, p) => ret.orElse(p.getProjectionData[D](projection)))
     }
 
     def consumeDbEvents[D](fromOperation: Long, initData: D, queries: List[EventDataConsumer[D]]): Error Either (Long, D) = synchronized {

@@ -1,7 +1,7 @@
 import Cqrs.Aggregate._
 import Domain.DoorAggregate.tag
 import Domain.Door._
-import Domain.{ DoorProjection, DoorState, DoorAggregate }
+import Domain.{ DoorState, DoorAggregate }
 import cats.data.{ NonEmptyList => NEL }
 import org.scalatest._
 
@@ -77,19 +77,20 @@ class DoorSpec extends FlatSpec with Matchers with AggregateSpec {
 
   "Door projection" should "return the current state" in {
     import Domain.Door
+    val projection = DoorState.newCurrentStateProjection
     given {
-      newDb(DoorProjection)
+      newDb(projection)
         .withEvent(tag, "door1", Registered("door1"))
         .withEvent(tag, "door2", Registered("door2"))
     } when {
       _.command(DoorAggregate, "door1", Door.Close)
         .command(DoorAggregate, "door2", Door.Close)
         .command(DoorAggregate, "door1", Door.Open)
-    } thenCheck {
-      _.projectionData(DoorProjection) should be(Some(TreeMap(
+    } thenCheck { _ =>
+      projection.getData should be(TreeMap(
         "door1" -> DoorState.Open,
         "door2" -> DoorState.Closed
-      )))
+      ))
     }
   }
 }

@@ -3,49 +3,53 @@ package Cqrs
 import Cqrs.Aggregate._
 import Cqrs.Database.EventData
 
-import scala.reflect.ClassTag
+object Projection {
+  def named(name: String) = new NamedProjection {
+    def listeningFor[D](aggregates: AggregateBase*)(handler: D => PartialFunction[EventData[_], D]) = new StartsWithKeyword[D] {
+      def startsWith(initialData: D) = new EventConsumerWithData[D](aggregates.toList.map(_.tag), handler, initialData)
+    }
+  }
 
-trait Projection[D] {
-  type Data = D
+  trait NamedProjection {
+    def listeningFor[D](aggregates: AggregateBase*)(handler: D => PartialFunction[EventData[_], D]): StartsWithKeyword[D]
+  }
 
-  def initialData: Data
+  trait StartsWithKeyword[D] {
+    def startsWith(initialData: D): EventConsumer
+  }
+}
 
+trait ProjectionSubscriber[D] {
+  def update(data: D)
+}
+
+trait EventConsumer {
   def listeningFor: List[EventTag]
 
-  def accept[E](data: Data): PartialFunction[EventData[E], Data]
+  def accept[E](eventData: EventData[E]): EventConsumer
 }
 
-trait ProjectionRunner {
-  def listeningFor: List[EventTag]
 
-  def accept[E](eventData: EventData[E]): ProjectionRunner
+final class EventConsumerWithData[Data](val listeningFor: List[EventTag], handler: Data => PartialFunction[EventData[_], Data], initData: Data) extends EventConsumer {
 
-  def getProjectionData[D: ClassTag](projection: Projection[D]): Option[D]
-}
+  private var data: Data = initData
+  private var subscribers: List[ProjectionSubscriber[Data]] = List.empty
 
-import scala.language.implicitConversions
-
-object ProjectionRunner {
-  implicit def createProjectionRunner[D](p: Projection[D]): ProjectionRunner = ConcreteProjectionRunner[D](p, p.initialData)
-}
-
-case class ConcreteProjectionRunner[Data](proj: Projection[Data], data: Data) extends ProjectionRunner {
-  def listeningFor = proj.listeningFor
-
-  def accept[E](eventData: EventData[E]) =
-    proj.accept(data).lift(eventData) match {
-      case Some(newData) => copy(data = newData)
+  def accept[E](eventData: EventData[E]) = this.synchronized {
+    handler(data).lift(eventData) match {
+      case Some(newData) =>
+        subscribers.foreach(_.update(newData))
+        data = newData
+        this
       case None          => this
     }
-
-  def getProjectionData[D: ClassTag](projection: Projection[D]): Option[D] = {
-    if (proj.getClass.getName == projection.getClass.getName) {
-      data match {
-        case asD: D => Some(asD)
-        case _      => None
-      }
-    }
-    else None
   }
+
+  def subscribe(subscriber: ProjectionSubscriber[Data]) = this.synchronized {
+    subscribers = subscriber :: subscribers
+    this
+  }
+
+  def getData = this.synchronized(data)
 }
 
